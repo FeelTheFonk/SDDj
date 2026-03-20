@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     checkpoints_dir: Path = _SERVER_ROOT / "models" / "checkpoints"
     loras_dir: Path = _SERVER_ROOT / "models" / "loras"
     embeddings_dir: Path = _SERVER_ROOT / "models" / "embeddings"
-    controlnets_dir: Path = _SERVER_ROOT / "models" / "controlnets"
     palettes_dir: Path = _SERVER_ROOT / "palettes"
 
     # ── Default checkpoint ───────────────────────────────────

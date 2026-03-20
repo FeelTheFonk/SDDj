@@ -122,6 +122,31 @@ async def ws_endpoint(websocket: WebSocket) -> None:
         _generating.pop(ws_id, None)
 
 
+def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop, timeout: float = 1.0):
+    """Create a thread-safe callback that sends responses via the event loop.
+
+    Used by both generate and animate handlers to send progress/frame updates
+    from the engine thread back through the WebSocket.
+    """
+    def callback(response) -> None:
+        try:
+            try:
+                if websocket.application_state.name != "CONNECTED":
+                    return
+            except AttributeError:
+                return  # Starlette internal changed — skip safely
+            fut = asyncio.run_coroutine_threadsafe(
+                _send(websocket, response), loop
+            )
+            try:
+                fut.result(timeout=timeout)
+            except Exception:
+                pass  # Send failed or timed out — skip
+        except Exception:
+            pass
+    return callback
+
+
 async def _handle(websocket: WebSocket, req: Request) -> None:
     """Dispatch request by action type."""
     try:
@@ -160,25 +185,7 @@ async def _handle(websocket: WebSocket, req: Request) -> None:
             gen_req = req.to_generate_request()
             loop = asyncio.get_running_loop()
 
-            def on_progress(p: ProgressResponse) -> None:
-                try:
-                    # Guard: skip if WebSocket is already closed
-                    try:
-                        if websocket.application_state.name != "CONNECTED":
-                            return
-                    except AttributeError:
-                        return  # Starlette internal changed — skip safely
-                    fut = asyncio.run_coroutine_threadsafe(
-                        _send(websocket, p), loop
-                    )
-                    # Backpressure: wait briefly for send to complete
-                    # to avoid unbounded future accumulation
-                    try:
-                        fut.result(timeout=1.0)
-                    except Exception:
-                        pass  # Send failed or timed out — skip this progress
-                except Exception:
-                    pass
+            on_progress = _make_thread_callback(websocket, loop, timeout=1.0)
 
             # Serialize GPU access — pipeline is NOT thread-safe
             if _generate_lock is None:
@@ -216,39 +223,8 @@ async def _handle(websocket: WebSocket, req: Request) -> None:
 
             loop = asyncio.get_running_loop()
 
-            def on_anim_progress(p: ProgressResponse) -> None:
-                try:
-                    try:
-                        if websocket.application_state.name != "CONNECTED":
-                            return
-                    except AttributeError:
-                        return
-                    fut = asyncio.run_coroutine_threadsafe(
-                        _send(websocket, p), loop
-                    )
-                    try:
-                        fut.result(timeout=1.0)
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-
-            def on_anim_frame(f: AnimationFrameResponse) -> None:
-                try:
-                    try:
-                        if websocket.application_state.name != "CONNECTED":
-                            return
-                    except AttributeError:
-                        return
-                    fut = asyncio.run_coroutine_threadsafe(
-                        _send(websocket, f), loop
-                    )
-                    try:
-                        fut.result(timeout=2.0)
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
+            on_anim_progress = _make_thread_callback(websocket, loop, timeout=1.0)
+            on_anim_frame = _make_thread_callback(websocket, loop, timeout=2.0)
 
             if _generate_lock is None:
                 raise RuntimeError("Server not fully initialized")

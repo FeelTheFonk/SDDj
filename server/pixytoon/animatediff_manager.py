@@ -96,6 +96,7 @@ class AnimateDiffManager:
                 scheduler=copy.deepcopy(base_pipe.scheduler),
                 feature_extractor=None,
             )
+            self.pipe.to("cuda")
             apply_freeu(self.pipe)
         except Exception:
             # Prevent VRAM leak: release adapter if pipeline creation failed
@@ -130,8 +131,8 @@ class AnimateDiffManager:
                 model_id, torch_dtype=torch.float16,
             ).to("cuda")
 
+        # UNet already PEFT-stripped by ensure_base() above
         unet = get_uncompiled_unet(base_pipe)
-        strip_peft_from_unet(unet)
 
         self.controlnet_pipe = AnimateDiffControlNetPipeline(
             vae=base_pipe.vae,

@@ -8,12 +8,19 @@ echo.
 
 set ROOT=%~dp0
 
-:: ── 1. Launch server in background ────────────────────────────
+:: ── 1. Check if server is already running ────────────────────
+curl -s http://127.0.0.1:9876/health >nul 2>&1
+if not errorlevel 1 (
+    echo [OK] Server already running — skipping launch.
+    goto launch_aseprite
+)
+
+:: ── 2. Launch server in background ────────────────────────────
 echo Starting PixyToon server on ws://127.0.0.1:9876/ws ...
 cd /d "%ROOT%server"
 start "PixyToon Server" cmd /k "uv run python run.py"
 
-:: ── 2. Wait for server to be ready ────────────────────────────
+:: ── 3. Wait for server to be ready ────────────────────────────
 echo Waiting for engine to load...
 echo   (first launch: ~30s load + ~30s torch.compile warmup on first generate)
 set MAX_WAIT=120
@@ -34,7 +41,7 @@ goto wait_server
 :server_ready
 echo [OK] Server is ready.
 
-:: ── 3. Launch Aseprite ────────────────────────────────────────
+:: ── 4. Launch Aseprite ────────────────────────────────────────
 :launch_aseprite
 echo Launching Aseprite...
 start "" "%ROOT%bin\aseprite\aseprite.exe"

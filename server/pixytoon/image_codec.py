@@ -18,8 +18,8 @@ def decode_b64_image(data: str) -> Image.Image:
     try:
         raw = b64decode(data)
         img = Image.open(BytesIO(raw))
-        # Convert palette/LA modes to standard RGB/RGBA
-        if img.mode in ("P", "PA"):
+        # Convert non-standard modes to RGB/RGBA
+        if img.mode in ("P", "PA", "LA"):
             img = img.convert("RGBA")
         elif img.mode == "L":
             img = img.convert("RGB")

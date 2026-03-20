@@ -75,6 +75,16 @@ copy /y "%ROOT%extension\scripts\json.lua" "%ASEPRITE_EXT%\scripts\" >nul
 copy /y "%ROOT%extension\scripts\pixytoon.lua" "%ASEPRITE_EXT%\scripts\" >nul
 echo [OK] Scripts installed to %ASEPRITE_SCRIPTS%
 
+:: ── 6. Copy .env.example if no .env exists ──────────────────
+if not exist "%ROOT%server\.env" (
+    if exist "%ROOT%server\.env.example" (
+        copy /y "%ROOT%server\.env.example" "%ROOT%server\.env" >nul
+        echo [OK] Created server\.env from .env.example (edit to customize)
+    )
+) else (
+    echo [OK] server\.env already exists — keeping current config
+)
+
 :: ── Done ──────────────────────────────────────────────────────
 echo.
 echo  ╔═══════════════════════════════════════╗
@@ -85,5 +95,7 @@ echo.
 echo NOTE: torch.compile requires Visual Studio 2022
 echo       C++ Desktop Development workload for
 echo       optimal performance (Triton backend).
+echo.
+echo TIP:  Edit server\.env to customize settings.
 echo.
 pause

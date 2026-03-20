@@ -79,7 +79,7 @@ async def test_animation(ws, method: str, test_num: int, total: int) -> bool:
             out = OUTPUT_DIR / f"test_{method}_frame{resp['frame_index']:02d}.png"
             out.write_bytes(b64decode(resp["image"]))
             print(f"       Frame {resp['frame_index'] + 1}/{resp['total_frames']} — "
-                  f"{resp['time_ms']}ms, seed={resp['seed']} → {out.name}")
+                  f"{resp['time_ms']}ms, seed={resp['seed']} -> {out.name}")
 
         elif resp["type"] == "animation_complete":
             elapsed = time.perf_counter() - t0
@@ -167,7 +167,7 @@ async def test_chain_img2img(ws, test_num: int, total: int) -> bool:
             out = OUTPUT_DIR / f"test_chain_img2img_frame{resp['frame_index']:02d}.png"
             out.write_bytes(b64decode(resp["image"]))
             print(f"       Frame {resp['frame_index'] + 1}/{resp['total_frames']} — "
-                  f"{resp['time_ms']}ms, seed={resp['seed']} → {out.name}")
+                  f"{resp['time_ms']}ms, seed={resp['seed']} -> {out.name}")
 
         elif resp["type"] == "animation_complete":
             elapsed = time.perf_counter() - t0

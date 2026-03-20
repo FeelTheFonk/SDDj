@@ -2,18 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from .config import settings
-
-_SAFE_NAME = re.compile(r'^[\w\-. ]+$')
-
-
-def _validate_name(name: str, kind: str) -> None:
-    """Reject names with path traversal characters."""
-    if not name or not _SAFE_NAME.match(name) or '..' in name:
-        raise ValueError(f"Invalid {kind} name: {name!r}")
+from .validation import validate_resource_name as _validate_name
 
 
 _TI_EXTENSIONS = {".safetensors", ".bin", ".pt"}

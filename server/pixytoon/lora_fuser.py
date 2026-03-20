@@ -28,14 +28,17 @@ class LoRAFuser:
         if had_lora:
             try:
                 pipe.unfuse_lora()
-                pipe.unload_lora_weights()
-                self.current_name = None
-                self.current_weight = 0.0
             except Exception as e:
                 log.warning("Failed to unfuse pixel art LoRA '%s': %s — state may be corrupted",
                             self.current_name, e)
-                # Do NOT reset current_name/weight — they reflect the actual model state
                 raise
+            # Unfuse succeeded — update tracking state before unload
+            self.current_name = None
+            self.current_weight = 0.0
+            try:
+                pipe.unload_lora_weights()
+            except Exception as e:
+                log.warning("Failed to unload LoRA weights (unfuse already done): %s", e)
 
         if name is None:
             if had_lora and settings.enable_torch_compile:

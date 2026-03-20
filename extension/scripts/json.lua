@@ -170,8 +170,9 @@ local function is_array(t)
   for _ in pairs(t) do
     count = count + 1
   end
+  if count == 0 then return true end  -- empty table → encode as []
   -- A table is an array if it has contiguous integer keys 1..count
-  return t[count] ~= nil and (count == 0 or t[1] ~= nil)
+  return t[1] ~= nil and t[count] ~= nil
 end
 
 local function encode_array(arr)

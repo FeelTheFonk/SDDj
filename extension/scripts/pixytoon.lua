@@ -618,15 +618,24 @@ local function capture_mask()
     return image_to_base64(mask_img)
   end
 
-  -- Strategy B: look for a layer named "Mask" or "mask"
-  for _, layer in ipairs(spr.layers) do
-    if layer.name == "Mask" or layer.name == "mask" then
-      local cel = layer:cel(app.frame)
-      if cel and cel.image then
-        return image_to_base64(cel.image)
+  -- Strategy B: look for a layer named "Mask" or "mask" (recursive into groups)
+  local function find_mask_layer(layers)
+    for _, layer in ipairs(layers) do
+      if layer.name == "Mask" or layer.name == "mask" then
+        local cel = layer:cel(app.frame)
+        if cel and cel.image then
+          return image_to_base64(cel.image)
+        end
+      end
+      if layer.isGroup and layer.layers then
+        local result = find_mask_layer(layer.layers)
+        if result then return result end
       end
     end
+    return nil
   end
+  local mask_b64 = find_mask_layer(spr.layers)
+  if mask_b64 then return mask_b64 end
 
   -- Strategy C: auto-derive mask from active layer's non-transparent pixels
   -- User draws on a layer → non-transparent pixels become the repaint area
@@ -745,11 +754,31 @@ local function build_dialog()
     tooltip = "Terms to avoid. Pre-filled with pixel art optimized defaults."
   }
 
+  dlg:check{
+    id = "use_neg_ti",
+    label = "Neg. Embeddings",
+    selected = false,
+    tooltip = "Use negative TI embeddings (EasyNegative, etc.) for quality improvement.",
+    onchange = function()
+      dlg:modify{ id = "neg_ti_weight", visible = dlg.data.use_neg_ti }
+    end
+  }
+
+  dlg:slider{
+    id = "neg_ti_weight",
+    label = "Emb. Weight",
+    min = 10,
+    max = 200,
+    value = 100,
+    visible = false,
+    tooltip = "Negative embedding influence (100 = full strength)."
+  }
+
   dlg:combobox{
     id = "output_size",
     label = "Size",
     options = {
-      "512x512", "512x768", "768x512",
+      "512x512", "512x768", "768x512", "768x768",
       "384x384", "256x256", "128x128", "64x64",
     },
     option = "512x512",
@@ -776,7 +805,7 @@ local function build_dialog()
     id = "steps",
     label = "Steps",
     min = 1,
-    max = 50,
+    max = 100,
     value = 8,
     tooltip = "Inference steps. 6-12 for Hyper-SD. More steps = slower but sometimes better."
   }
@@ -785,9 +814,9 @@ local function build_dialog()
     id = "cfg_scale",
     label = "CFG Scale",
     min = 10,
-    max = 200,
+    max = 300,
     value = 50,
-    tooltip = "Classifier-Free Guidance. Higher = more prompt adherence. 3-7 typical."
+    tooltip = "Classifier-Free Guidance (x10). 50=5.0. Higher = more prompt adherence. 3-7 typical."
   }
 
   dlg:slider{
@@ -813,7 +842,7 @@ local function build_dialog()
     id = "pixel_size",
     label = "Target Size",
     min = 8,
-    max = 256,
+    max = 512,
     value = 128,
     tooltip = "Pixel art resolution (before upscale). Lower = more pixelated."
   }
@@ -909,7 +938,7 @@ local function build_dialog()
     id = "anim_duration",
     label = "Duration (ms)",
     min = 50,
-    max = 500,
+    max = 2000,
     value = 100,
     tooltip = "Milliseconds per frame for playback."
   }
@@ -996,6 +1025,16 @@ local function build_dialog()
       local lora_sel = dlg.data.lora_name
       if lora_sel and lora_sel ~= "(default)" then
         req.lora = { name = lora_sel, weight = dlg.data.lora_weight / 100.0 }
+      end
+
+      -- Negative TI embeddings
+      if dlg.data.use_neg_ti and #available_embeddings > 0 then
+        local ti_list = {}
+        local ti_weight = dlg.data.neg_ti_weight / 100.0
+        for _, emb_name in ipairs(available_embeddings) do
+          ti_list[#ti_list + 1] = { name = emb_name, weight = ti_weight }
+        end
+        req.negative_ti = ti_list
       end
 
       -- Source image for img2img / ControlNet
@@ -1098,6 +1137,16 @@ local function build_dialog()
       local lora_sel = dlg.data.lora_name
       if lora_sel and lora_sel ~= "(default)" then
         req.lora = { name = lora_sel, weight = dlg.data.lora_weight / 100.0 }
+      end
+
+      -- Negative TI embeddings (same as single gen)
+      if dlg.data.use_neg_ti and #available_embeddings > 0 then
+        local ti_list = {}
+        local ti_weight = dlg.data.neg_ti_weight / 100.0
+        for _, emb_name in ipairs(available_embeddings) do
+          ti_list[#ti_list + 1] = { name = emb_name, weight = ti_weight }
+        end
+        req.negative_ti = ti_list
       end
 
       -- Source image for img2img / ControlNet modes

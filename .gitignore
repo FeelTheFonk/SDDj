@@ -12,6 +12,10 @@ server/models/
 # Built extension
 dist/
 
+# Environment (secrets, local config)
+.env
+server/.env
+
 # Python
 __pycache__/
 *.pyc

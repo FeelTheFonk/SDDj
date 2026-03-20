@@ -60,6 +60,7 @@ pixytoon/
 │       ├── postprocess.py       # 6-stage pixel art pipeline
 │       ├── image_codec.py       # Base64 encode/decode, resize, composite
 │       ├── rembg_wrapper.py     # Background removal (CPU, lazy-load)
+│       ├── validation.py        # Shared input validation (path traversal guard)
 │       ├── lora_manager.py      # LoRA discovery (path-validated)
 │       ├── ti_manager.py        # Textual Inversion discovery
 │       └── palette_manager.py   # Palette loading (path-validated)
@@ -79,7 +80,7 @@ pixytoon/
 - **Health check** — `GET /health` for readiness polling
 - **Concurrency safe** — GPU access serialized via asyncio lock
 - **Cancellation** — Generation stops cleanly on WebSocket disconnect
-- **Generation timeout** — Configurable max time per generation (default 5min, auto-scaled for animation)
+- **Generation timeout** — Configurable max time per generation (default 10min, auto-scaled for animation)
 
 ## Performance Stack
 

@@ -700,15 +700,17 @@ class DiffusionEngine:
                     source = resize_to_target(chain_source, target_w, target_h)
 
                     if req.mode.value.startswith("controlnet_") and _control_img is not None:
-                        self._ensure_controlnet(req.mode)
-                        image = self._controlnet_pipe(
+                        # ControlNet chain: use img2img from previous frame
+                        # (ControlNet pipelines don't support img2img directly,
+                        # so we fall through to plain img2img for frame coherence)
+                        log.info("Chain frame %d: ControlNet mode uses img2img for frame coherence", frame_idx)
+                        image = self._img2img_pipe(
                             prompt=req.prompt,
                             negative_prompt=effective_neg,
-                            image=_control_img,
+                            image=source,
                             num_inference_steps=req.steps,
                             guidance_scale=req.cfg_scale,
-                            width=target_w,
-                            height=target_h,
+                            strength=req.denoise_strength,
                             generator=generator,
                             clip_skip=req.clip_skip,
                             callback_on_step_end=step_callback,
