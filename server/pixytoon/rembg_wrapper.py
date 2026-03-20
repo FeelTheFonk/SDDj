@@ -17,13 +17,8 @@ __all__ = ["remove_bg", "unload"]
 _onnx_available = True
 try:
     import onnxruntime  # noqa: F401
-except ImportError as _e:
+except ImportError:
     _onnx_available = False
-    import logging as _logging
-    _logging.getLogger("pixytoon.rembg").error(
-        "onnxruntime is not installed — rembg background removal will fail. "
-        "Install with: pip install onnxruntime"
-    )
 
 _session = None
 _session_lock = threading.Lock()

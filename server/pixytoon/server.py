@@ -42,9 +42,10 @@ log = logging.getLogger("pixytoon.server")
 
 engine = DiffusionEngine()
 _generate_lock: asyncio.Lock | None = None
-_generating: dict[int, threading.Event] = {}  # websocket id -> event
+_generating: dict[int, threading.Event] = {}  # connection id -> cancel event
 _active_connections: set[WebSocket] = set()
 _MAX_CONNECTIONS = 5
+_ws_counter = 0  # monotonic connection ID (avoids id() reuse)
 
 
 @asynccontextmanager
@@ -68,6 +69,15 @@ async def _lifespan(application: FastAPI):
 
     log.info("Engine loaded. WebSocket ready on ws://%s:%d/ws", settings.host, settings.port)
     yield
+
+    # Graceful shutdown: close active WebSocket connections
+    for ws in list(_active_connections):
+        try:
+            await ws.close(code=1001, reason="Server shutting down")
+        except Exception:
+            pass
+    _active_connections.clear()
+
     engine.unload()
     log.info("Engine unloaded.")
 
@@ -91,7 +101,9 @@ async def ws_endpoint(websocket: WebSocket) -> None:
         return
     _active_connections.add(websocket)
 
-    ws_id = id(websocket)
+    global _ws_counter
+    _ws_counter += 1
+    ws_id = _ws_counter
     _generating[ws_id] = threading.Event()
     log.info("Client connected: %s", websocket.client)
 
@@ -107,7 +119,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                 ))
                 continue
 
-            await _handle(websocket, req)
+            await _handle(websocket, req, ws_id)
 
     except WebSocketDisconnect:
         log.info("Client disconnected: %s", websocket.client)
@@ -147,14 +159,13 @@ def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop,
     return callback
 
 
-async def _handle(websocket: WebSocket, req: Request) -> None:
+async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
     """Dispatch request by action type."""
     try:
         if req.action == Action.PING:
             await _send(websocket, PongResponse())
 
         elif req.action == Action.CANCEL:
-            ws_id = id(websocket)
             if _generating.get(ws_id, threading.Event()).is_set():
                 engine.cancel()
                 # Don't send response here — the GenerationCancelled exception
@@ -190,7 +201,6 @@ async def _handle(websocket: WebSocket, req: Request) -> None:
             # Serialize GPU access — pipeline is NOT thread-safe
             if _generate_lock is None:
                 raise RuntimeError("Server not fully initialized")
-            ws_id = id(websocket)
             async with _generate_lock:
                 _generating[ws_id].set()
                 try:
@@ -233,7 +243,6 @@ async def _handle(websocket: WebSocket, req: Request) -> None:
                 settings.generation_timeout,
                 anim_req.frame_count * 30,
             )
-            ws_id = id(websocket)
             async with _generate_lock:
                 _generating[ws_id].set()
                 try:
@@ -296,9 +305,10 @@ async def _handle(websocket: WebSocket, req: Request) -> None:
 
 async def _send(websocket: WebSocket, response) -> None:
     try:
-        await websocket.send_text(response.model_dump_json())
+        text = response.model_dump_json()
+        await websocket.send_text(text)
     except (WebSocketDisconnect, RuntimeError):
-        pass  # Client already disconnected
+        pass  # Client already disconnected or connection closing
 
 
 # ─────────────────────────────────────────────────────────────
@@ -324,7 +334,7 @@ def main() -> None:
         host=settings.host,
         port=settings.port,
         log_level="info",
-        ws_max_size=16 * 1024 * 1024,  # 16MB max WebSocket message
+        ws_max_size=50 * 1024 * 1024,  # 50MB max WebSocket message
     )
 
 

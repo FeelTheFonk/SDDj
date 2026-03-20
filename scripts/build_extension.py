@@ -12,12 +12,16 @@ def build() -> None:
     out.mkdir(exist_ok=True)
     target = out / "pixytoon.aseprite-extension"
 
+    _exclude = {".DS_Store", "Thumbs.db", ".gitkeep"}
+    _exclude_dirs = {"__pycache__", ".git", "node_modules"}
+
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in ext_dir.rglob("*"):
-            if item.is_file():
-                arcname = item.relative_to(ext_dir)
-                zf.write(item, arcname)
-                print(f"  + {arcname}")
+            if item.is_file() and item.name not in _exclude:
+                if not any(p in _exclude_dirs for p in item.relative_to(ext_dir).parts):
+                    arcname = item.relative_to(ext_dir)
+                    zf.write(item, arcname)
+                    print(f"  + {arcname}")
 
     print(f"\n[OK] Built: {target}")
     print(f"  Size: {target.stat().st_size / 1024:.1f} KB")

@@ -43,8 +43,13 @@ def suspended(helper):
         yield
         return
 
-    helper.disable()
-    log.info("DeepCache temporarily disabled")
+    try:
+        helper.disable()
+        log.info("DeepCache temporarily disabled")
+    except Exception:
+        log.warning("Failed to disable DeepCache — proceeding anyway")
+        yield
+        return
 
     try:
         yield

@@ -13,17 +13,29 @@ def round8(v: int) -> int:
     return ((v + 4) // 8) * 8
 
 
+_MAX_IMAGE_PIXELS = 2048 * 2048  # 4M pixels max
+
+
 def decode_b64_image(data: str) -> Image.Image:
     """Decode a base64-encoded PNG into a PIL Image (preserves alpha if present)."""
     try:
         raw = b64decode(data)
         img = Image.open(BytesIO(raw))
+        w, h = img.size
+        if w * h > _MAX_IMAGE_PIXELS:
+            raise ValueError(
+                f"Image too large: {w}x{h} ({w * h} pixels, max {_MAX_IMAGE_PIXELS})"
+            )
         # Convert non-standard modes to RGB/RGBA
         if img.mode in ("P", "PA", "LA"):
             img = img.convert("RGBA")
-        elif img.mode == "L":
+        elif img.mode in ("L", "I", "F"):
+            img = img.convert("RGB")
+        elif img.mode == "CMYK":
             img = img.convert("RGB")
         return img
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Invalid base64 image data: {e}") from e
 

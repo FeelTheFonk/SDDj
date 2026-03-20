@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -15,7 +15,7 @@ _SERVER_ROOT = Path(__file__).resolve().parent.parent
 class Settings(BaseSettings):
     # ── Network ──────────────────────────────────────────────
     host: str = "127.0.0.1"
-    port: int = 9876
+    port: int = Field(9876, ge=1, le=65535)
 
     # ── Paths ────────────────────────────────────────────────
     models_dir: Path = _SERVER_ROOT / "models"
@@ -30,11 +30,11 @@ class Settings(BaseSettings):
     # ── Hyper-SD (replaces LCM-LoRA — better color fidelity) ─
     hyper_sd_repo: str = "ByteDance/Hyper-SD"
     hyper_sd_lora_file: str = "Hyper-SD15-8steps-CFG-lora.safetensors"
-    hyper_sd_fuse_scale: float = 0.8
+    hyper_sd_fuse_scale: float = Field(0.8, ge=0.0, le=2.0)
 
     # ── DeepCache ────────────────────────────────────────────
-    deepcache_interval: int = 3
-    deepcache_branch: int = 0
+    deepcache_interval: int = Field(3, ge=1, le=10)
+    deepcache_branch: int = Field(0, ge=0)
 
     # ── Defaults ─────────────────────────────────────────────
     default_steps: int = 8
@@ -60,13 +60,13 @@ class Settings(BaseSettings):
 
     # ── FreeU v2 (free quality boost, no training needed) ────
     enable_freeu: bool = True
-    freeu_s1: float = 0.9
-    freeu_s2: float = 0.2
-    freeu_b1: float = 1.5
-    freeu_b2: float = 1.6
+    freeu_s1: float = Field(0.9, ge=0.0, le=2.0)
+    freeu_s2: float = Field(0.2, ge=0.0, le=2.0)
+    freeu_b1: float = Field(1.5, ge=0.0, le=3.0)
+    freeu_b2: float = Field(1.6, ge=0.0, le=3.0)
 
     # ── Timeouts ─────────────────────────────────────────────
-    generation_timeout: float = 600.0  # 10 minutes max per generation
+    generation_timeout: float = Field(600.0, gt=0.0)  # 10 minutes max per generation
 
     # ── rembg ────────────────────────────────────────────────
     rembg_model: str = "u2net"  # Fast CPU (~3-4s). Alt: birefnet-general (best edges, ~10s), bria-rmbg (SOTA quality)

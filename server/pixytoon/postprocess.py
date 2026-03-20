@@ -112,7 +112,7 @@ def _quantize(
         return _quantize_pil(img, n_colors, method=Image.Quantize.MEDIANCUT), None
     elif method == QuantizeMethod.OCTREE:
         return _quantize_pil(img, n_colors, method=Image.Quantize.MAXCOVERAGE), None
-    return img, None
+    raise ValueError(f"Unknown quantize method: {method}")
 
 
 def _quantize_kmeans(

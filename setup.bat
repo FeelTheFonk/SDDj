@@ -20,9 +20,9 @@ echo [OK] uv found
 
 :: ── 2. Create venv + install deps (torch CUDA 12.8 + Triton) ─
 echo.
-echo [1/4] Installing Python dependencies (torch CUDA 12.8 + Triton)...
+echo [1/6] Installing Python dependencies (torch CUDA 12.8 + Triton)...
 cd /d "%ROOT%server"
-uv venv --python 3.13 2>nul
+uv venv 2>nul
 uv pip install -e .
 if errorlevel 1 (
     echo [X] Dependency install failed
@@ -34,7 +34,7 @@ cd /d "%ROOT%"
 
 :: ── 3. Download models ────────────────────────────────────────
 echo.
-echo [2/4] Downloading models (~10 GB total)...
+echo [2/6] Downloading models (~10 GB total)...
 cd /d "%ROOT%server"
 uv run python "%ROOT%scripts\download_models.py" --all
 if errorlevel 1 (
@@ -47,7 +47,7 @@ cd /d "%ROOT%"
 
 :: ── 4. Build extension ────────────────────────────────────────
 echo.
-echo [3/4] Packaging Aseprite extension...
+echo [3/6] Packaging Aseprite extension...
 cd /d "%ROOT%server"
 uv run python "%ROOT%scripts\build_extension.py"
 if errorlevel 1 (
@@ -60,7 +60,7 @@ cd /d "%ROOT%"
 
 :: ── 5. Install extension into Aseprite ────────────────────────
 echo.
-echo [4/4] Installing scripts into Aseprite...
+echo [4/6] Installing scripts into Aseprite...
 set ASEPRITE_SCRIPTS=%APPDATA%\Aseprite\scripts
 set ASEPRITE_EXT=%APPDATA%\Aseprite\extensions\pixytoon
 rem -- Scripts dir (compiled Aseprite)
@@ -75,7 +75,19 @@ copy /y "%ROOT%extension\scripts\json.lua" "%ASEPRITE_EXT%\scripts\" >nul
 copy /y "%ROOT%extension\scripts\pixytoon.lua" "%ASEPRITE_EXT%\scripts\" >nul
 echo [OK] Scripts installed to %ASEPRITE_SCRIPTS%
 
+:: ── 5. Verify installation ──────────────────────────────────
+echo.
+echo [5/6] Verifying installation...
+cd /d "%ROOT%server"
+uv run python -c "import pixytoon; print('[OK] PixyToon', pixytoon.__version__, 'ready')"
+if errorlevel 1 (
+    echo [!] Warning: Package import check failed - run may still work
+)
+cd /d "%ROOT%"
+
 :: ── 6. Copy .env.example if no .env exists ──────────────────
+echo.
+echo [6/6] Checking environment config...
 if not exist "%ROOT%server\.env" (
     if exist "%ROOT%server\.env.example" (
         copy /y "%ROOT%server\.env.example" "%ROOT%server\.env" >nul

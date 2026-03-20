@@ -69,12 +69,12 @@ class SeedStrategy(str, Enum):
 # ─────────────────────────────────────────────────────────────
 
 class LoRASpec(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=128)
     weight: float = Field(1.0, ge=-2.0, le=2.0)
 
 
 class EmbeddingSpec(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=128)
     weight: float = Field(1.0, ge=-2.0, le=2.0)
 
 
@@ -162,10 +162,21 @@ class AnimationRequest(BaseModel):
     frame_count: int = Field(8, ge=2, le=120)
     frame_duration_ms: int = Field(100, ge=50, le=2000)
     seed_strategy: SeedStrategy = SeedStrategy.INCREMENT
-    tag_name: Optional[str] = None
+    tag_name: Optional[str] = Field(None, max_length=64)
     # AnimateDiff-specific
     enable_freeinit: bool = False
     freeinit_iterations: int = Field(2, ge=1, le=3)
+
+    @model_validator(mode='after')
+    def _check_mode_images(self):
+        if self.mode == GenerationMode.IMG2IMG and self.source_image is None:
+            raise ValueError("img2img animation requires source_image")
+        if self.mode == GenerationMode.INPAINT:
+            if self.source_image is None or self.mask_image is None:
+                raise ValueError("inpaint animation requires source_image and mask_image")
+        if self.mode.value.startswith("controlnet_") and self.control_image is None:
+            raise ValueError(f"{self.mode.value} animation requires control_image")
+        return self
 
 
 class Request(BaseModel):

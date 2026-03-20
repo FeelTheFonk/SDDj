@@ -110,7 +110,7 @@ PyTorch ≥ 2.0 uses `scaled_dot_product_attention` (SDP) **by default** in diff
 - **FlashAttention2** kernels (integrated in PyTorch ≥ 2.2) — fused, memory-efficient
 - **Math fallback** — for unsupported head dimensions
 
-A separate `flash-attn` package is **not required** — PyTorch 2.10 includes FA2 natively via SDP. xformers is superseded by native SDP and provides no benefit on PyTorch ≥ 2.0.
+A separate `flash-attn` package is **not required** — PyTorch ≥ 2.1 includes FA2 natively via SDP. xformers is superseded by native SDP and provides no benefit on PyTorch ≥ 2.0.
 
 SageAttention (thu-ml) targets long-sequence attention and offers minimal gains on SD1.5's short UNet sequences (77 tokens, small head dims). Not justified given installation complexity.
 
@@ -244,7 +244,7 @@ For inpainting, set `mode` to `"inpaint"` and include `source_image` (base64 PNG
 | `steps`     | 1 - 100              |
 | `cfg_scale` | 0.0 - 30.0           |
 | `clip_skip` | 1 - 12               |
-| `denoise`   | 0.0 - 1.0            |
+| `denoise_strength` | 0.0 - 1.0     |
 | `lora.weight` | -2.0 - 2.0 (negative LoRA) |
 | `colors`    | 2 - 256              |
 

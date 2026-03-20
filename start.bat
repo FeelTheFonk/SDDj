@@ -27,7 +27,7 @@ set MAX_WAIT=120
 set WAITED=0
 
 :wait_server
-curl -s http://127.0.0.1:9876/health >nul 2>&1
+curl -s http://127.0.0.1:9876/health 2>nul | findstr "true" >nul 2>&1
 if not errorlevel 1 goto server_ready
 if %WAITED% geq %MAX_WAIT% (
     echo [WARN] Server not responding after %MAX_WAIT%s — launching Aseprite anyway.

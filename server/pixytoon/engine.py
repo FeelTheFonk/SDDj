@@ -314,6 +314,7 @@ class DiffusionEngine:
 
                 # Resolve seed
                 seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
+                seed = seed % (2**32)  # clamp to valid range
                 generator = torch.Generator("cuda").manual_seed(seed)
 
                 # Set pixel art LoRA — only if client explicitly specifies one.
@@ -369,10 +370,12 @@ class DiffusionEngine:
 
         except torch.cuda.OutOfMemoryError:
             log.error("CUDA OOM — clearing VRAM cache")
+            gc.collect()
             torch.cuda.empty_cache()
             raise
         finally:
             self._cancel_event.clear()
+            gc.collect()
 
     # ─── PRIVATE GENERATION METHODS ──────────────────────────
 
@@ -567,6 +570,7 @@ class DiffusionEngine:
         """
         frames: list[AnimationFrameResponse] = []
         base_seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
+        base_seed = base_seed % (2**32)  # clamp to valid range
         chain_source: Optional[Image.Image] = None
 
         effective_neg = self._build_effective_negative(req.negative_prompt, req.negative_ti)
