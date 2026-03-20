@@ -33,6 +33,20 @@ local function decode_string(s, i)
       elseif esc == 'u' then
         local hex = s:sub(j+1, j+4)
         local cp = tonumber(hex, 16)
+        j = j + 4
+        -- Handle UTF-16 surrogate pairs (emoji / astral plane)
+        if cp >= 0xD800 and cp <= 0xDBFF then
+          -- High surrogate — expect \uXXXX low surrogate
+          if s:sub(j+1, j+2) == '\\u' then
+            local low_hex = s:sub(j+3, j+6)
+            local low = tonumber(low_hex, 16)
+            if low and low >= 0xDC00 and low <= 0xDFFF then
+              cp = 0x10000 + (cp - 0xD800) * 0x400 + (low - 0xDC00)
+              j = j + 6
+            end
+          end
+        end
+        -- Encode codepoint as UTF-8
         if cp < 0x80 then
           parts[#parts+1] = string.char(cp)
         elseif cp < 0x800 then
@@ -40,14 +54,21 @@ local function decode_string(s, i)
             0xC0 + math.floor(cp / 64),
             0x80 + (cp % 64)
           )
-        else
+        elseif cp < 0x10000 then
           parts[#parts+1] = string.char(
             0xE0 + math.floor(cp / 4096),
             0x80 + math.floor((cp % 4096) / 64),
             0x80 + (cp % 64)
           )
+        else
+          -- 4-byte UTF-8 (astral plane)
+          parts[#parts+1] = string.char(
+            0xF0 + math.floor(cp / 262144),
+            0x80 + math.floor((cp % 262144) / 4096),
+            0x80 + math.floor((cp % 4096) / 64),
+            0x80 + (cp % 64)
+          )
         end
-        j = j + 4
       end
     else
       parts[#parts+1] = c
@@ -145,12 +166,12 @@ end
 local encode_value -- forward
 
 local function is_array(t)
-  local i = 0
+  local count = 0
   for _ in pairs(t) do
-    i = i + 1
-    if t[i] == nil then return false end
+    count = count + 1
   end
-  return true
+  -- A table is an array if it has contiguous integer keys 1..count
+  return t[count] ~= nil and (count == 0 or t[1] ~= nil)
 end
 
 local function encode_array(arr)

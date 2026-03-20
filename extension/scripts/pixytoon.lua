@@ -197,16 +197,19 @@ handle_response = function(resp)
       local pct = math.floor((resp.step / resp.total) * 100)
       local eta_str = ""
 
-      -- ETA calculation
+      -- ETA calculation (guard: step must be > 1 to avoid division by zero)
       local now = os.clock()
-      if gen_step_start and resp.step > 1 then
+      if gen_step_start and resp.step > 1 and resp.total > 0 then
         local elapsed = now - gen_step_start
-        local avg_per_step = elapsed / (resp.step - 1)
-        local remaining = avg_per_step * (resp.total - resp.step)
-        if remaining < 60 then
-          eta_str = string.format(" — ~%.0fs left", remaining)
-        else
-          eta_str = string.format(" — ~%.1fmin left", remaining / 60)
+        local steps_done = resp.step - 1
+        if steps_done > 0 then
+          local avg_per_step = elapsed / steps_done
+          local remaining = avg_per_step * (resp.total - resp.step)
+          if remaining < 60 then
+            eta_str = string.format(" — ~%.0fs left", remaining)
+          else
+            eta_str = string.format(" — ~%.1fmin left", remaining / 60)
+          end
         end
       end
 
@@ -237,13 +240,13 @@ handle_response = function(resp)
     if list_type == "loras" and resp.items then
       available_loras = resp.items
       if dlg and #available_loras > 0 then
-        -- Build options and auto-select first available LoRA
+        -- Build options — default to "" (no LoRA); server handles default_pixel_lora independently
         local options = { "" }  -- empty = no LoRA
         for _, name in ipairs(available_loras) do
           options[#options + 1] = name
         end
-        dlg:modify{ id = "lora_name", options = options, option = available_loras[1] }
-        update_status("Loaded " .. #available_loras .. " LoRA(s) — " .. available_loras[1] .. " selected")
+        dlg:modify{ id = "lora_name", options = options, option = "" }
+        update_status("Loaded " .. #available_loras .. " LoRA(s)")
       end
     elseif list_type == "palettes" and resp.items then
       available_palettes = resp.items
@@ -262,7 +265,7 @@ handle_response = function(resp)
         for _, name in ipairs(available_embeddings) do
           options[#options + 1] = name
         end
-        dlg:modify{ id = "neg_ti", options = options, option = available_embeddings[1] }
+        dlg:modify{ id = "neg_ti", options = options, option = "" }
         update_status("Loaded " .. #available_embeddings .. " embedding(s)")
       end
     end
@@ -408,7 +411,7 @@ local function build_dialog()
 
   dlg:slider{
     id = "cfg",
-    label = "CFG (x10)",
+    label = "CFG Scale",
     min = 10,        -- 1.0
     max = 100,       -- 10.0 — wider range for flexibility
     value = 50,      -- 5.0 — matches server default_cfg
@@ -422,7 +425,7 @@ local function build_dialog()
 
   dlg:slider{
     id = "denoise",
-    label = "Denoise",
+    label = "Denoise %",
     min = 0,
     max = 100,
     value = 75,      -- matches server default_denoise
@@ -440,7 +443,7 @@ local function build_dialog()
 
   dlg:slider{
     id = "lora_weight",
-    label = "Weight (x100)",
+    label = "Weight %",
     min = -200,
     max = 200,
     value = 100,     -- 1.0 — full LoRA strength default
@@ -546,6 +549,7 @@ local function build_dialog()
         steps = dlg.data.steps,
         cfg_scale = dlg.data.cfg / 10.0,
         denoise_strength = dlg.data.denoise / 100.0,
+        clip_skip = 2,
         post_process = {
           pixelate = {
             enabled = dlg.data.pixelate,
@@ -562,14 +566,23 @@ local function build_dialog()
         },
       }
 
-      -- Custom palette colors
+      -- Custom palette colors (with hex validation)
       if dlg.data.palette_mode == "custom" then
         local colors_str = dlg.data.palette_custom_colors or ""
         if colors_str ~= "" then
           local colors = {}
+          local invalid = false
           for hex in colors_str:gmatch("[^,%s]+") do
+            -- Validate: must be #RRGGBB or RRGGBB
+            local clean = hex:match("^#?(%x%x%x%x%x%x)$") or hex:match("^#?(%x%x%x)$")
+            if not clean then
+              app.alert("Invalid hex color: " .. hex .. "\nExpected format: #RRGGBB or #RGB")
+              invalid = true
+              break
+            end
             colors[#colors + 1] = hex
           end
+          if invalid then return end
           if #colors > 0 then
             req.post_process.palette.colors = colors
           end
@@ -636,3 +649,6 @@ end
 -- ─── LAUNCH ──────────────────────────────────────────────────
 
 build_dialog()
+
+-- Auto-connect on dialog open
+connect()

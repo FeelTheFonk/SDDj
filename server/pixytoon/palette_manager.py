@@ -12,6 +12,8 @@ def _hex_to_rgb(h: str) -> tuple[int, int, int]:
     h = h.lstrip("#")
     if len(h) == 3:
         h = h[0] * 2 + h[1] * 2 + h[2] * 2
+    elif len(h) == 8:
+        h = h[:6]  # Strip alpha channel (RGBA -> RGB)
     if len(h) != 6:
         raise ValueError(f"Invalid hex color: #{h}")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)

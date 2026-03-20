@@ -134,13 +134,22 @@ def _quantize_kmeans(
     pixels = rgb.reshape(-1, 3).astype(np.float32)
     n_pixels = len(pixels)
 
-    # Skip KMeans if image has fewer unique colors than requested
-    n_unique = min(n_colors + 1, len(np.unique(pixels, axis=0)))
-    if n_unique <= n_colors:
-        centers = [tuple(int(x) for x in c) for c in np.unique(pixels, axis=0).astype(int)]
-        if has_alpha:
-            return Image.fromarray(arr, "RGBA"), centers
-        return Image.fromarray(rgb, "RGB"), centers
+    # Fast approximate unique color count (sample-based to avoid full sort)
+    sample_size = min(4096, n_pixels)
+    if sample_size < n_pixels:
+        indices = np.random.default_rng(42).choice(n_pixels, sample_size, replace=False)
+        sample = pixels[indices]
+    else:
+        sample = pixels
+    n_approx_unique = len(np.unique(sample, axis=0))
+    if n_approx_unique <= n_colors:
+        # Full check only if sample suggests few unique colors
+        n_unique = len(np.unique(pixels, axis=0))
+        if n_unique <= n_colors:
+            centers = [tuple(int(x) for x in c) for c in np.unique(pixels, axis=0).astype(int)]
+            if has_alpha:
+                return Image.fromarray(arr, "RGBA"), centers
+            return Image.fromarray(rgb, "RGB"), centers
 
     kmeans = MiniBatchKMeans(
         n_clusters=n_colors,
@@ -150,11 +159,12 @@ def _quantize_kmeans(
         random_state=42,
     )
     labels = kmeans.fit_predict(pixels)
-    centers_uint8 = kmeans.cluster_centers_.astype(np.uint8)
-    quantized = centers_uint8[labels].reshape(h, w, 3)
+    # Consistent rounding: round THEN cast to uint8 (avoids truncation mismatch)
+    centers_rounded = np.round(kmeans.cluster_centers_).astype(np.uint8)
+    quantized = centers_rounded[labels].reshape(h, w, 3)
 
-    # Extract palette from centers for downstream use
-    palette = [tuple(int(x) for x in np.round(c)) for c in kmeans.cluster_centers_]
+    # Extract palette from rounded centers for downstream use
+    palette = [tuple(int(x) for x in c) for c in centers_rounded]
 
     if has_alpha:
         result = np.dstack([quantized, alpha])
@@ -217,6 +227,9 @@ def _enforce_palette(
     img: Image.Image,
     palette_rgb: list[tuple[int, int, int]],
 ) -> Image.Image:
+    if not palette_rgb:
+        return img
+
     from skimage.color import rgb2lab
 
     arr = np.array(img)
@@ -258,6 +271,9 @@ def _apply_dither(
     mode: DitherMode,
     palette_rgb: list[tuple[int, int, int]],
 ) -> Image.Image:
+    # Dithering with <= 1 color is a no-op
+    if len(palette_rgb) <= 1:
+        return img
     if mode == DitherMode.FLOYD_STEINBERG:
         return _floyd_steinberg(img, palette_rgb)
     elif mode in (DitherMode.BAYER_2X2, DitherMode.BAYER_4X4, DitherMode.BAYER_8X8):

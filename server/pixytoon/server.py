@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -36,6 +37,7 @@ log = logging.getLogger("pixytoon.server")
 
 engine = DiffusionEngine()
 _generate_lock: asyncio.Lock | None = None
+_generating = threading.Event()  # Track if a generation is in progress
 
 
 @asynccontextmanager
@@ -86,10 +88,12 @@ async def ws_endpoint(websocket: WebSocket) -> None:
 
     except WebSocketDisconnect:
         log.info("Client disconnected: %s", websocket.client)
-        engine.cancel()
+        if _generating.is_set():
+            engine.cancel()
     except Exception as e:
         log.exception("WebSocket error: %s", e)
-        engine.cancel()
+        if _generating.is_set():
+            engine.cancel()
 
 
 async def _handle(websocket: WebSocket, req: Request) -> None:
@@ -125,16 +129,20 @@ async def _handle(websocket: WebSocket, req: Request) -> None:
             def on_progress(p: ProgressResponse) -> None:
                 try:
                     # Guard: skip if WebSocket is already closed
-                    if websocket.application_state.name != "CONNECTED":
-                        return
+                    try:
+                        if websocket.application_state.name != "CONNECTED":
+                            return
+                    except AttributeError:
+                        return  # Starlette internal changed — skip safely
                     fut = asyncio.run_coroutine_threadsafe(
                         _send(websocket, p), loop
                     )
-                    def _on_done(f):
-                        exc = f.exception()
-                        if exc:
-                            log.warning("Progress send failed: %s", exc)
-                    fut.add_done_callback(_on_done)
+                    # Backpressure: wait briefly for send to complete
+                    # to avoid unbounded future accumulation
+                    try:
+                        fut.result(timeout=1.0)
+                    except Exception:
+                        pass  # Send failed or timed out — skip this progress
                 except Exception:
                     pass
 
@@ -142,6 +150,7 @@ async def _handle(websocket: WebSocket, req: Request) -> None:
             if _generate_lock is None:
                 raise RuntimeError("Server not fully initialized")
             async with _generate_lock:
+                _generating.set()
                 try:
                     result = await asyncio.wait_for(
                         loop.run_in_executor(
@@ -155,6 +164,8 @@ async def _handle(websocket: WebSocket, req: Request) -> None:
                     raise RuntimeError(
                         f"Generation timed out after {settings.generation_timeout:.0f}s"
                     )
+                finally:
+                    _generating.clear()
             await _send(websocket, result)
 
     except GenerationCancelled:

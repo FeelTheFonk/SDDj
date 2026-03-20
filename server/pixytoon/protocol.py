@@ -61,7 +61,7 @@ class LoRASpec(BaseModel):
 
 class EmbeddingSpec(BaseModel):
     name: str
-    weight: float = Field(1.0, ge=0.0, le=2.0)
+    weight: float = Field(1.0, ge=-2.0, le=2.0)
 
 
 class PixelateSpec(BaseModel):

@@ -51,7 +51,6 @@ pixytoon/
 │       ├── lora_manager.py      # LoRA discovery
 │       ├── ti_manager.py        # Textual Inversion discovery
 │       └── palette_manager.py   # Palette loading
-└── docs/                        # Research notes
 ```
 
 ## Features
@@ -208,6 +207,12 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 | `ENABLE_ATTENTION_SLICING` | `True`                                | Attention slicing (PyTorch < 2.0 fallback) |
 | `ENABLE_VAE_TILING`        | `True`                                | VAE tiling for large images     |
 | `ENABLE_WARMUP`            | `True`                                | Warmup generation at startup    |
+| `DEEPCACHE_INTERVAL`       | `3`                                   | DeepCache skip interval         |
+| `DEEPCACHE_BRANCH`         | `0`                                   | DeepCache branch ID             |
+| `FREEU_S1`                 | `0.9`                                 | FreeU v2 skip scale 1           |
+| `FREEU_S2`                 | `0.2`                                 | FreeU v2 skip scale 2           |
+| `FREEU_B1`                 | `1.5`                                 | FreeU v2 backbone scale 1       |
+| `FREEU_B2`                 | `1.6`                                 | FreeU v2 backbone scale 2       |
 | `GENERATION_TIMEOUT`       | `300.0`                               | Max seconds per generation      |
 | `REMBG_MODEL`              | `birefnet-general`                    | Background removal model        |
 | `REMBG_ON_CPU`             | `True`                                | Run rembg on CPU                |
@@ -230,7 +235,7 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 | Slow first generation          | Normal: torch.compile + Numba JIT warm up on first run      |
 | torch.compile fails            | Install Visual Studio 2022 C++ workload; ensure Triton installed |
 | "Not enough SMs"               | Harmless Triton warning on consumer GPUs, can be ignored    |
-| CUDAGraphs tensor overwrite    | Fixed in v0.1.0: uses `max-autotune` mode. If using `reduce-overhead`, disable DeepCache |
+| CUDAGraphs tensor overwrite    | Uses `default` compile mode. If using `reduce-overhead`, disable DeepCache |
 | Generation timed out           | Increase `PIXYTOON_GENERATION_TIMEOUT` or reduce steps/resolution |
 | LoRA change is slow            | Expected: LoRA weight change triggers recompilation (~30-60s once) |
 

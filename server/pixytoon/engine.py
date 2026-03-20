@@ -7,6 +7,7 @@ and progress callbacks for the WebSocket server.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import warnings
 from io import BytesIO
@@ -85,7 +86,7 @@ class DiffusionEngine:
         self._current_pixel_lora_weight: float = 0.0
         self._loaded_ti_tokens: set[str] = set()
         self._loaded = False
-        self._cancelled = False
+        self._cancel_event = threading.Event()
 
     @property
     def is_loaded(self) -> bool:
@@ -93,7 +94,7 @@ class DiffusionEngine:
 
     def cancel(self) -> None:
         """Signal cancellation — checked at each step callback."""
-        self._cancelled = True
+        self._cancel_event.set()
 
     # ─── LIFECYCLE ───────────────────────────────────────────
 
@@ -438,7 +439,7 @@ class DiffusionEngine:
         if not self._loaded:
             self.load()
 
-        self._cancelled = False
+        self._cancel_event.clear()
 
         try:
             with torch.inference_mode():
@@ -472,7 +473,7 @@ class DiffusionEngine:
 
                 # Progress callback adapter with cancellation support
                 def step_callback(pipe, step_idx, timestep, callback_kwargs):
-                    if self._cancelled:
+                    if self._cancel_event.is_set():
                         raise GenerationCancelled("Generation cancelled by client")
                     if on_progress:
                         on_progress(ProgressResponse(step=step_idx + 1, total=req.steps))
@@ -513,6 +514,7 @@ class DiffusionEngine:
 
         except torch.cuda.OutOfMemoryError:
             log.error("CUDA OOM — clearing VRAM cache")
+            self._cancel_event.clear()  # Reset so next generation isn't immediately cancelled
             torch.cuda.empty_cache()
             raise
 
@@ -530,12 +532,17 @@ class DiffusionEngine:
             generator=generator,
             clip_skip=req.clip_skip,
             callback_on_step_end=callback,
+            output_type="pil",
         ).images[0]
 
     def _img2img(self, req, generator, callback, effective_neg):
         if req.source_image is None:
             raise ValueError("img2img requires source_image")
         source = _decode_b64_image(req.source_image)
+        # Resize source to match requested dimensions for predictable output
+        target_w, target_h = _round8(req.width), _round8(req.height)
+        if source.size != (target_w, target_h):
+            source = source.resize((target_w, target_h), Image.LANCZOS)
         torch.compiler.cudagraph_mark_step_begin()
         return self._img2img_pipe(
             prompt=req.prompt,
@@ -547,6 +554,7 @@ class DiffusionEngine:
             generator=generator,
             clip_skip=req.clip_skip,
             callback_on_step_end=callback,
+            output_type="pil",
         ).images[0]
 
     def _controlnet_generate(self, req, generator, callback, effective_neg):
@@ -558,6 +566,10 @@ class DiffusionEngine:
 
         width = _round8(req.width)
         height = _round8(req.height)
+
+        # Resize control image to match generation dimensions
+        if control.size != (width, height):
+            control = control.resize((width, height), Image.LANCZOS)
 
         torch.compiler.cudagraph_mark_step_begin()
         return self._controlnet_pipe(
@@ -571,6 +583,7 @@ class DiffusionEngine:
             generator=generator,
             clip_skip=req.clip_skip,
             callback_on_step_end=callback,
+            output_type="pil",
         ).images[0]
 
 

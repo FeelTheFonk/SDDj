@@ -39,16 +39,11 @@ class Settings(BaseSettings):
     default_cfg: float = 5.0
     default_width: int = 512
     default_height: int = 512
-    default_denoise: float = 0.75
-    default_quantize_colors: int = 32
 
     # ── Default pixel art LoRA (loaded before warmup) ────────
     # "auto" = first .safetensors in loras_dir, "" = none
     default_pixel_lora: str = "auto"
     default_pixel_lora_weight: float = 1.0
-
-    # ── Default negative TI (auto-load from embeddings dir) ───
-    default_negative_ti: str = "auto"
 
     # ── CLIP skip (2 = recommended for pixel art / stylized) ──
     default_clip_skip: int = 2
