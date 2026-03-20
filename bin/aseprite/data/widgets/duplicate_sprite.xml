@@ -1,0 +1,20 @@
+<!-- Aseprite -->
+<!-- Copyright (C) 2001-2016 by David Capello -->
+<gui>
+<window id="duplicate_sprite" text="@.title">
+  <box vertical="true">
+    <grid columns="2">
+      <label text="@.duplicate" />
+      <label text="" id="src_name" cell_align="horizontal" />
+
+      <label text="@.as" for="dst_name" />
+      <entry maxsize="256" id="dst_name" magnet="true" cell_align="horizontal" />
+    </grid>
+    <check text="@.merged_layers" id="flatten" />
+    <box horizontal="true" homogeneous="true">
+      <button text="@general.ok" closewindow="true" id="ok" magnet="true" />
+      <button text="@general.cancel" closewindow="true" />
+    </box>
+  </box>
+</window>
+</gui>

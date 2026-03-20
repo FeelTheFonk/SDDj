@@ -1,5 +1,6 @@
 # Aseprite binary (large, built from source)
-bin/
+bin/aseprite/data/
+bin/aseprite/icudtl.dat
 
 # Models (large, downloaded at runtime)
 server/models/
