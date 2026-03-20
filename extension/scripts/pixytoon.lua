@@ -54,9 +54,7 @@ local ws = nil
 local dlg = nil
 local connected = false
 local generating = false
-local available_loras = {}
 local available_palettes = {}
-local available_embeddings = {}
 local resources_requested = false
 local connect_timer = nil
 local gen_step_start = nil
@@ -184,9 +182,7 @@ end
 
 request_resources = function()
   resources_requested = true
-  send({ action = "list_loras" })
   send({ action = "list_palettes" })
-  send({ action = "list_embeddings" })
 end
 
 -- ─── RESPONSE HANDLER ────────────────────────────────────────
@@ -237,18 +233,7 @@ handle_response = function(resp)
 
   elseif resp.type == "list" then
     local list_type = resp.list_type or ""
-    if list_type == "loras" and resp.items then
-      available_loras = resp.items
-      if dlg and #available_loras > 0 then
-        -- Build options — default to "" (no LoRA); server handles default_pixel_lora independently
-        local options = { "" }  -- empty = no LoRA
-        for _, name in ipairs(available_loras) do
-          options[#options + 1] = name
-        end
-        dlg:modify{ id = "lora_name", options = options, option = "" }
-        update_status("Loaded " .. #available_loras .. " LoRA(s)")
-      end
-    elseif list_type == "palettes" and resp.items then
+    if list_type == "palettes" and resp.items then
       available_palettes = resp.items
       if dlg and #available_palettes > 0 then
         local options = {}
@@ -257,16 +242,6 @@ handle_response = function(resp)
         end
         dlg:modify{ id = "palette_name", options = options }
         update_status("Loaded " .. #available_palettes .. " palette(s)")
-      end
-    elseif list_type == "embeddings" and resp.items then
-      available_embeddings = resp.items
-      if dlg and #available_embeddings > 0 then
-        local options = { "" }  -- empty = no TI
-        for _, name in ipairs(available_embeddings) do
-          options[#options + 1] = name
-        end
-        dlg:modify{ id = "neg_ti", options = options, option = "" }
-        update_status("Loaded " .. #available_embeddings .. " embedding(s)")
       end
     end
 
@@ -365,7 +340,7 @@ local function build_dialog()
     end
   }
 
-  -- ── Generation Settings ──
+  -- ── Generation ──
   dlg:separator{ text = "Generation" }
 
   dlg:combobox{
@@ -382,39 +357,17 @@ local function build_dialog()
   dlg:entry{
     id = "prompt",
     label = "Prompt",
-    text = "pixel art, PixArFK, game sprite, 16-bit style, sharp pixels, clean edges",
-  }
-
-  dlg:entry{
-    id = "neg_prompt",
-    label = "Neg. Prompt",
-    text = "blurry, antialiased, smooth gradient, photorealistic, 3d render, soft edges, anti-aliasing, bokeh, depth of field, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, bad proportions, extra limbs, missing limbs, extra fingers, fused fingers, poorly drawn hands, poorly drawn face, ugly, realistic, photo, high resolution, complex shading",
+    text = "pixel art, PixArFK, game sprite, sharp pixels",
   }
 
   dlg:combobox{
     id = "output_size",
-    label = "Gen Size",
+    label = "Size",
     options = {
       "512x512", "512x768", "768x512",
       "384x384", "256x256", "128x128", "64x64",
     },
     option = "512x512",
-  }
-
-  dlg:slider{
-    id = "steps",
-    label = "Steps",
-    min = 2,
-    max = 20,
-    value = 8,      -- Hyper-SD 8-step LoRA is optimized for 8 steps
-  }
-
-  dlg:slider{
-    id = "cfg",
-    label = "CFG Scale",
-    min = 10,        -- 1.0
-    max = 100,       -- 10.0 — wider range for flexibility
-    value = 50,      -- 5.0 — matches server default_cfg
   }
 
   dlg:entry{
@@ -425,38 +378,10 @@ local function build_dialog()
 
   dlg:slider{
     id = "denoise",
-    label = "Denoise %",
+    label = "Strength %",
     min = 0,
     max = 100,
-    value = 75,      -- matches server default_denoise
-  }
-
-  -- ── LoRA ──
-  dlg:separator{ text = "LoRA" }
-
-  dlg:combobox{
-    id = "lora_name",
-    label = "LoRA",
-    options = { "" },  -- populated on connect, auto-selects first
-    option = "",
-  }
-
-  dlg:slider{
-    id = "lora_weight",
-    label = "Weight %",
-    min = -200,
-    max = 200,
-    value = 100,     -- 1.0 — full LoRA strength default
-  }
-
-  -- ── Textual Inversion (Negative Embeddings) ──
-  dlg:separator{ text = "Neg. Embeddings" }
-
-  dlg:combobox{
-    id = "neg_ti",
-    label = "Embedding",
-    options = { "" },  -- populated on connect
-    option = "",
+    value = 75,
   }
 
   -- ── Post-Processing ──
@@ -537,19 +462,15 @@ local function build_dialog()
       local gw, gh = size_str:match("(%d+)x(%d+)")
       gw, gh = tonumber(gw), tonumber(gh)
 
-      -- Build request
+      -- Build request (server handles neg_prompt, steps, cfg, LoRA, embeddings defaults)
       local req = {
         action = "generate",
         prompt = dlg.data.prompt,
-        negative_prompt = dlg.data.neg_prompt,
         mode = dlg.data.mode,
         width = gw,
         height = gh,
         seed = tonumber(dlg.data.seed) or -1,
-        steps = dlg.data.steps,
-        cfg_scale = dlg.data.cfg / 10.0,
         denoise_strength = dlg.data.denoise / 100.0,
-        clip_skip = 2,
         post_process = {
           pixelate = {
             enabled = dlg.data.pixelate,
@@ -573,7 +494,6 @@ local function build_dialog()
           local colors = {}
           local invalid = false
           for hex in colors_str:gmatch("[^,%s]+") do
-            -- Validate: must be #RRGGBB or RRGGBB
             local clean = hex:match("^#?(%x%x%x%x%x%x)$") or hex:match("^#?(%x%x%x)$")
             if not clean then
               app.alert("Invalid hex color: " .. hex .. "\nExpected format: #RRGGBB or #RGB")
@@ -587,23 +507,6 @@ local function build_dialog()
             req.post_process.palette.colors = colors
           end
         end
-      end
-
-      -- LoRA
-      local lora_name = dlg.data.lora_name
-      if lora_name and lora_name ~= "" then
-        req.lora = {
-          name = lora_name,
-          weight = dlg.data.lora_weight / 100.0,
-        }
-      end
-
-      -- Negative TI embedding
-      local ti_name = dlg.data.neg_ti
-      if ti_name and ti_name ~= "" then
-        req.negative_ti = {
-          { name = ti_name, weight = 1.0 },
-        }
       end
 
       -- Source image for img2img / ControlNet
@@ -631,12 +534,12 @@ local function build_dialog()
 
   dlg:button{
     id = "refresh_btn",
-    text = "Refresh Lists",
+    text = "Refresh Palettes",
     onclick = function()
       if connected then
         resources_requested = false
         request_resources()
-        update_status("Refreshing resource lists...")
+        update_status("Refreshing palettes...")
       else
         update_status("Not connected")
       end

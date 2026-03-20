@@ -449,11 +449,14 @@ class DiffusionEngine:
                 seed = req.seed if req.seed >= 0 else int(torch.randint(0, 2**32, (1,)).item())
                 generator = torch.Generator("cuda").manual_seed(seed)
 
-                # Set pixel art LoRA if requested
-                lora_name = req.lora.name if req.lora else None
-                lora_weight = req.lora.weight if req.lora else 1.0
-                if lora_name != self._current_pixel_lora or lora_weight != self._current_pixel_lora_weight:
-                    self.set_pixel_lora(lora_name, lora_weight)
+                # Set pixel art LoRA — only if client explicitly specifies one.
+                # When req.lora is None (client omitted field), keep whatever
+                # LoRA is currently fused (typically the default_pixel_lora).
+                if req.lora is not None:
+                    lora_name = req.lora.name
+                    lora_weight = req.lora.weight
+                    if lora_name != self._current_pixel_lora or lora_weight != self._current_pixel_lora_weight:
+                        self.set_pixel_lora(lora_name, lora_weight)
 
                 # Build effective negative prompt with TI tokens
                 effective_neg = req.negative_prompt or ""
