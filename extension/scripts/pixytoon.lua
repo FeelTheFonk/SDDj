@@ -554,8 +554,8 @@ handle_response = function(resp)
       -- Small delay then trigger next generation
       local loop_timer = Timer{
         interval = 0.1,
-        ontick = function(t)
-          t:stop()
+        ontick = function()
+          if loop_timer then loop_timer:stop() end
           if loop_mode and dlg and connected and not generating then
             -- Re-trigger the generate button click
             local gw, gh = parse_size()
@@ -1119,8 +1119,8 @@ start_live_timer = function()
       end
       live_cooldown_timer = Timer{
         interval = 0.2,
-        ontick = function(t)
-          t:stop()
+        ontick = function()
+          if live_cooldown_timer then live_cooldown_timer:stop() end
           if not live_mode or live_request_inflight then return end
           if live_stroke_cooldown and (os.clock() - live_stroke_cooldown) < 0.18 then return end
 
