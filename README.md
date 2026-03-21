@@ -1,6 +1,12 @@
 # PixyToon
 
+![demo1](https://github.com/user-attachments/assets/0ca19204-fdcd-46fb-86d1-23a48226f9ef)
+
+---
+
 Local SOTA pixel art generation and animation for Aseprite via Stable Diffusion 1.5 + AnimateDiff.
+
+---
 
 ## Quick Start
 
