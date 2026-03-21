@@ -218,6 +218,7 @@ class RealtimeUpdateRequest(BaseModel):
     denoise_strength: Optional[float] = Field(None, ge=0.05, le=0.95)
     steps: Optional[int] = Field(None, ge=2, le=8)
     cfg_scale: Optional[float] = Field(None, ge=1.0, le=10.0)
+    clip_skip: Optional[int] = Field(None, ge=1, le=12)
     seed: Optional[int] = None
 
 
@@ -287,7 +288,7 @@ class Request(BaseModel):
     def to_realtime_update(self) -> RealtimeUpdateRequest:
         _update_keys = {
             "prompt", "negative_prompt", "denoise_strength",
-            "steps", "cfg_scale", "seed",
+            "steps", "cfg_scale", "clip_skip", "seed",
         }
         data = {k: v for k, v in self.model_dump(exclude_none=True).items()
                 if k in _update_keys}

@@ -109,9 +109,11 @@ def _quantize(
     if method == QuantizeMethod.KMEANS:
         return _quantize_kmeans(img, n_colors)
     elif method == QuantizeMethod.MEDIAN_CUT:
-        return _quantize_pil(img, n_colors, method=Image.Quantize.MEDIANCUT), None
+        img = _quantize_pil(img, n_colors, method=Image.Quantize.MEDIANCUT)
+        return img, _extract_palette_fast(img)
     elif method == QuantizeMethod.OCTREE:
-        return _quantize_pil(img, n_colors, method=Image.Quantize.MAXCOVERAGE), None
+        img = _quantize_pil(img, n_colors, method=Image.Quantize.MAXCOVERAGE)
+        return img, _extract_palette_fast(img)
     raise ValueError(f"Unknown quantize method: {method}")
 
 
@@ -285,6 +287,19 @@ def _apply_dither(
         }[mode]
         return _bayer_dither(img, palette_rgb, size)
     return img
+
+
+def _extract_palette_fast(img: Image.Image) -> list[tuple[int, int, int]]:
+    """Extract unique colors from a quantized image (fast, no KMeans)."""
+    arr = np.array(img)
+    if arr.ndim == 3 and arr.shape[2] == 4:
+        rgb = arr[:, :, :3]
+    elif arr.ndim == 3:
+        rgb = arr
+    else:
+        rgb = arr.reshape(-1, 1).repeat(3, axis=1)
+    unique = np.unique(rgb.reshape(-1, 3), axis=0)
+    return [tuple(int(x) for x in c) for c in unique]
 
 
 def _extract_palette(img: Image.Image, n_colors: int) -> list[tuple[int, int, int]]:

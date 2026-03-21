@@ -43,7 +43,7 @@ def decode_b64_image(data: str) -> Image.Image:
 def encode_image_b64(image: Image.Image) -> str:
     """Encode a PIL Image to base64 PNG string."""
     buf = BytesIO()
-    image.save(buf, format="PNG")
+    image.save(buf, format="PNG", compress_level=1)
     return b64encode(buf.getvalue()).decode("ascii")
 
 
@@ -61,7 +61,15 @@ def decode_b64_mask(data: str) -> Image.Image:
     """
     try:
         raw = b64decode(data)
-        return Image.open(BytesIO(raw)).convert("L")
+        img = Image.open(BytesIO(raw))
+        w, h = img.size
+        if w * h > _MAX_IMAGE_PIXELS:
+            raise ValueError(
+                f"Mask too large: {w}x{h} ({w * h} pixels, max {_MAX_IMAGE_PIXELS})"
+            )
+        return img.convert("L")
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Invalid base64 mask data: {e}") from e
 

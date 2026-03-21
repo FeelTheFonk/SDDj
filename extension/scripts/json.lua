@@ -27,6 +27,8 @@ local function decode_string(s, i)
       if esc == 'n' then parts[#parts+1] = '\n'
       elseif esc == 't' then parts[#parts+1] = '\t'
       elseif esc == 'r' then parts[#parts+1] = '\r'
+      elseif esc == 'b' then parts[#parts+1] = '\b'
+      elseif esc == 'f' then parts[#parts+1] = '\f'
       elseif esc == '\\' then parts[#parts+1] = '\\'
       elseif esc == '"' then parts[#parts+1] = '"'
       elseif esc == '/' then parts[#parts+1] = '/'
@@ -138,7 +140,15 @@ decode_value = function(s, i)
     return nil, i + 4
   else
     -- number
-    local _, e, num = s:find("^(-?%d+%.?%d*[eE]?[+-]?%d*)", i)
+    local _, e, num = s:find("^(-?%d+%.?%d*)", i)
+    if num then
+      -- Check for exponent part (requires digits after e/E)
+      local _, e2, exp = s:find("^([eE][+-]?%d+)", e + 1)
+      if exp then
+        num = num .. exp
+        e = e2
+      end
+    end
     if not num then error("Invalid number at " .. i) end
     return tonumber(num), e + 1
   end

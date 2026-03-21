@@ -43,6 +43,11 @@ echo [OK] Server is ready.
 
 :: ── 4. Launch Aseprite ────────────────────────────────────────
 :launch_aseprite
+if not exist "%ROOT%bin\aseprite\aseprite.exe" (
+    echo [WARN] Aseprite not found at %ROOT%bin\aseprite\aseprite.exe
+    echo        Please launch Aseprite manually and run: File ^> Scripts ^> PixyToon
+    goto end_info
+)
 echo Launching Aseprite...
 start "" "%ROOT%bin\aseprite\aseprite.exe"
 
@@ -51,9 +56,10 @@ echo  ╔═══════════════════════�
 echo  ║   Server running in background        ║
 echo  ║   In Aseprite:                        ║
 echo  ║     File ^> Scripts ^> PixyToon         ║
-echo  ║     Connect ^> Generate                ║
+echo  ║     Connect ^> Generate / Live Paint   ║
 echo  ╚═══════════════════════════════════════╝
 echo.
+:end_info
 echo Press any key to stop the server...
 pause >nul
 

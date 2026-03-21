@@ -91,6 +91,11 @@ local live_frame_id = 0
 local live_request_inflight = false
 local live_preview_layer = nil
 local live_last_prompt = nil
+local live_preview_sprite = nil
+
+-- Generation timeout
+local gen_timeout_timer = nil
+local GEN_TIMEOUT_SECONDS = 300  -- 5 minutes
 
 -- Forward declarations
 local handle_response
@@ -102,6 +107,8 @@ local stop_heartbeat
 local stop_live_timer
 local start_live_timer
 local live_update_preview
+local stop_gen_timeout
+local start_gen_timeout
 
 -- ─── HELPERS ─────────────────────────────────────────────────
 
@@ -177,6 +184,7 @@ local function set_connected(state)
     if generating then generating = false end
     if animating then animating = false end
     stop_live_timer()
+    stop_gen_timeout()
     live_mode = false
     live_request_inflight = false
   end
@@ -207,6 +215,35 @@ start_heartbeat = function()
     end,
   }
   heartbeat_timer:start()
+end
+
+stop_gen_timeout = function()
+  if gen_timeout_timer then
+    if gen_timeout_timer.isRunning then gen_timeout_timer:stop() end
+    gen_timeout_timer = nil
+  end
+end
+
+start_gen_timeout = function()
+  stop_gen_timeout()
+  gen_timeout_timer = Timer{
+    interval = GEN_TIMEOUT_SECONDS,
+    ontick = function()
+      stop_gen_timeout()
+      if generating or animating then
+        generating = false
+        animating = false
+        gen_step_start = nil
+        if dlg then
+          update_status("Timed out — no response from server")
+          dlg:modify{ id = "generate_btn", enabled = not live_mode }
+          dlg:modify{ id = "animate_btn", enabled = not live_mode }
+          dlg:modify{ id = "cancel_btn", enabled = false }
+        end
+      end
+    end,
+  }
+  gen_timeout_timer:start()
 end
 
 local function connect()
@@ -272,10 +309,12 @@ local function disconnect()
   generating = false
   animating = false
   stop_live_timer()
+  stop_gen_timeout()
   live_mode = false
   live_request_inflight = false
   live_canvas_hash = nil
   live_preview_layer = nil
+  live_preview_sprite = nil
   update_status("Disconnected")
 end
 
@@ -329,6 +368,7 @@ handle_response = function(resp)
   elseif resp.type == "result" then
     generating = false
     gen_step_start = nil
+    stop_gen_timeout()
     if dlg then
       update_status("Done (" .. tostring(resp.time_ms or "?") .. "ms, seed=" .. tostring(resp.seed or "?") .. ")")
       dlg:modify{ id = "generate_btn", enabled = true }
@@ -344,6 +384,7 @@ handle_response = function(resp)
   elseif resp.type == "animation_complete" then
     animating = false
     gen_step_start = nil
+    stop_gen_timeout()
     if dlg then
       local tag_str = ""
       if resp.tag_name and resp.tag_name ~= "" then tag_str = ", tag=" .. resp.tag_name end
@@ -378,6 +419,7 @@ handle_response = function(resp)
     generating = false
     animating = false
     gen_step_start = nil
+    stop_gen_timeout()
 
     if was_animating and anim_frame_count > 0 then
       local spr = app.sprite
@@ -460,6 +502,20 @@ handle_response = function(resp)
     live_mode = false
     live_request_inflight = false
     live_canvas_hash = nil
+    -- Clean up preview layer
+    if live_preview_layer then
+      local spr = app.sprite
+      if spr then
+        pcall(function()
+          local cel = live_preview_layer:cel(app.frame)
+          if cel then spr:deleteCel(cel) end
+          spr:deleteLayer(live_preview_layer)
+        end)
+      end
+      live_preview_layer = nil
+      live_preview_sprite = nil
+      pcall(app.refresh)
+    end
     if dlg then
       update_status("Live mode stopped")
       dlg:modify{ id = "live_btn", text = "START LIVE" }
@@ -518,7 +574,7 @@ import_animation_frame = function(resp)
 
   local ok, err = pcall(function()
     local f = io.open(tmp, "wb")
-    if not f then return end
+    if not f then error("Failed to open temp file for writing") end
     f:write(img_data)
     f:close()
 
@@ -644,14 +700,29 @@ local function capture_mask()
     local mask_img = Image(spr.width, spr.height, ColorMode.GRAY)
     mask_img:clear(Color{ gray = 0 })
     local ox, oy = cel.position.x, cel.position.y
-    for y = 0, img.height - 1 do
-      for x = 0, img.width - 1 do
-        local px = img:getPixel(x, y)
-        local a = app.pixelColor.rgbaA(px)
-        if a > 0 then
-          local sx, sy = ox + x, oy + y
-          if sx >= 0 and sx < spr.width and sy >= 0 and sy < spr.height then
-            mask_img:drawPixel(sx, sy, Color{ gray = 255 })
+    if spr.colorMode == ColorMode.RGB then
+      for y = 0, img.height - 1 do
+        for x = 0, img.width - 1 do
+          local px = img:getPixel(x, y)
+          local a = app.pixelColor.rgbaA(px)
+          if a > 0 then
+            local sx, sy = ox + x, oy + y
+            if sx >= 0 and sx < spr.width and sy >= 0 and sy < spr.height then
+              mask_img:drawPixel(sx, sy, Color{ gray = 255 })
+            end
+          end
+        end
+      end
+    else
+      -- For non-RGB modes (indexed, grayscale), draw through sprite rendering
+      local tmp_img = Image(spr.spec)
+      tmp_img:clear()
+      tmp_img:drawImage(cel.image, cel.position)
+      for y = 0, spr.height - 1 do
+        for x = 0, spr.width - 1 do
+          local px = tmp_img:getPixel(x, y)
+          if px ~= 0 then
+            mask_img:drawPixel(x, y, Color{ gray = 255 })
           end
         end
       end
@@ -690,7 +761,23 @@ start_live_timer = function()
     ontick = function()
       if not live_mode or not connected or live_request_inflight then return end
       local spr = app.sprite
-      if spr == nil then return end
+      if spr == nil then
+        -- Sprite was closed — stop live mode
+        send({ action = "realtime_stop" })
+        stop_live_timer()
+        live_mode = false
+        live_request_inflight = false
+        live_preview_layer = nil
+        live_preview_sprite = nil
+        if dlg then
+          update_status("Live stopped (sprite closed)")
+          dlg:modify{ id = "live_btn", text = "START LIVE" }
+          dlg:modify{ id = "live_accept_btn", visible = false }
+          dlg:modify{ id = "generate_btn", enabled = true }
+          dlg:modify{ id = "animate_btn", enabled = true }
+        end
+        return
+      end
 
       -- Hide preview layer for capture
       local was_visible = true
@@ -722,12 +809,14 @@ start_live_timer = function()
       local b64 = image_to_base64(flat_img)
       if not b64 then return end
       live_frame_id = live_frame_id + 1
-      live_request_inflight = true
-      send({
+      local sent = send({
         action = "realtime_frame",
         image = b64,
         frame_id = live_frame_id,
       })
+      if sent then
+        live_request_inflight = true
+      end
     end,
   }
   live_timer:start()
@@ -738,7 +827,7 @@ live_update_preview = function(resp)
   if spr == nil then return end
 
   -- Find or create preview layer
-  if live_preview_layer == nil or not pcall(function() return live_preview_layer.name end) then
+  if live_preview_layer == nil or live_preview_sprite ~= spr or not pcall(function() return live_preview_layer.name end) then
     live_preview_layer = nil
     for _, layer in ipairs(spr.layers) do
       if layer.name == "_pixytoon_live" then
@@ -750,6 +839,7 @@ live_update_preview = function(resp)
       live_preview_layer = spr:newLayer()
       live_preview_layer.name = "_pixytoon_live"
     end
+    live_preview_sprite = spr
   end
 
   local img_data = base64_decode(resp.image)
@@ -943,11 +1033,15 @@ local function build_dialog()
 
   dlg:slider{
     id = "neg_ti_weight",
-    label = "Emb. Weight",
+    label = "Emb. (1.00)",
     min = 10,
     max = 200,
     value = 100,
     visible = false,
+    onchange = function()
+      dlg:modify{ id = "neg_ti_weight",
+        label = string.format("Emb. (%.2f)", dlg.data.neg_ti_weight / 100.0) }
+    end,
   }
 
   dlg:combobox{
@@ -955,7 +1049,8 @@ local function build_dialog()
     label = "Size",
     options = {
       "512x512", "512x768", "768x512", "768x768",
-      "384x384", "256x256", "128x128", "64x64",
+      "384x384", "256x256", "128x128", "96x96",
+      "64x64", "48x48", "32x32",
     },
     option = "512x512",
   }
@@ -1020,18 +1115,24 @@ local function build_dialog()
 
   dlg:slider{
     id = "pixel_size",
-    label = "Target Size",
+    label = "Target (128px)",
     min = 8,
     max = 512,
     value = 128,
+    onchange = function()
+      dlg:modify{ id = "pixel_size", label = "Target (" .. dlg.data.pixel_size .. "px)" }
+    end,
   }
 
   dlg:slider{
     id = "colors",
-    label = "Colors",
+    label = "Colors (32)",
     min = 2,
     max = 256,
     value = 32,
+    onchange = function()
+      dlg:modify{ id = "colors", label = "Colors (" .. dlg.data.colors .. ")" }
+    end,
   }
 
   dlg:combobox{
@@ -1117,13 +1218,13 @@ local function build_dialog()
 
   dlg:slider{
     id = "anim_denoise",
-    label = "Denoise (0.30)",
+    label = "Strength (0.30)",
     min = 5,
     max = 100,
     value = 30,
     onchange = function()
       dlg:modify{ id = "anim_denoise",
-        label = string.format("Denoise (%.2f)", dlg.data.anim_denoise / 100.0) }
+        label = string.format("Strength (%.2f)", dlg.data.anim_denoise / 100.0) }
     end,
   }
 
@@ -1256,6 +1357,7 @@ local function build_dialog()
 
       generating = true
       gen_step_start = os.clock()
+      start_gen_timeout()
       dlg:modify{ id = "generate_btn", enabled = false }
       dlg:modify{ id = "cancel_btn", enabled = true }
       update_status("Generating...")
@@ -1312,6 +1414,7 @@ local function build_dialog()
 
       animating = true
       gen_step_start = os.clock()
+      start_gen_timeout()
       dlg:modify{ id = "animate_btn", enabled = false }
       dlg:modify{ id = "cancel_btn", enabled = true }
       update_status("Animating...")

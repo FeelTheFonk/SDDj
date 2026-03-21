@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ── Default pixel art LoRA (loaded before warmup) ────────
     # "auto" = first .safetensors in loras_dir, "" = none
     default_pixel_lora: str = "auto"
-    default_pixel_lora_weight: float = 1.0
+    default_pixel_lora_weight: float = Field(1.0, ge=0.0, le=2.0)
 
     # ── CLIP skip (2 = recommended for pixel art / stylized) ──
     default_clip_skip: int = 2
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     def _warn_missing_dirs(self):
         import logging
         _log = logging.getLogger("pixytoon.config")
-        for name in ("models_dir", "loras_dir", "embeddings_dir", "palettes_dir"):
+        for name in ("models_dir", "checkpoints_dir", "loras_dir", "embeddings_dir", "palettes_dir"):
             d = getattr(self, name)
             if not d.is_dir():
                 _log.warning("Directory does not exist: %s=%s", name, d)

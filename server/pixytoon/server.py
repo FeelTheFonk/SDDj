@@ -50,6 +50,7 @@ _active_connections: set[WebSocket] = set()
 _MAX_CONNECTIONS = 5
 _ws_counter = 0  # monotonic connection ID (avoids id() reuse)
 _realtime_owner: int | None = None  # ws_id that owns realtime mode (None = free)
+_realtime_ws: WebSocket | None = None  # WebSocket of the realtime owner (for auto-stop notify)
 _realtime_timeout_task: asyncio.Task | None = None  # auto-stop timer
 
 
@@ -341,7 +342,7 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
 # ─────────────────────────────────────────────────────────────
 
 async def _handle_realtime_start(websocket: WebSocket, req: Request, ws_id: int) -> None:
-    global _realtime_owner, _realtime_timeout_task
+    global _realtime_owner, _realtime_ws, _realtime_timeout_task
 
     if _realtime_owner is not None and _realtime_owner != ws_id:
         await _send(websocket, ErrorResponse(
@@ -364,14 +365,20 @@ async def _handle_realtime_start(websocket: WebSocket, req: Request, ws_id: int)
     rt_req = req.to_realtime_start()
     loop = asyncio.get_running_loop()
 
+    # Claim ownership BEFORE async work to prevent race condition
+    _realtime_owner = ws_id
+    _realtime_ws = websocket
+
     try:
         result = await loop.run_in_executor(
             None, lambda: engine.start_realtime(rt_req),
         )
-        _realtime_owner = ws_id
         _reset_realtime_timeout()
         await _send(websocket, result)
     except Exception as e:
+        # Release ownership on failure
+        _realtime_owner = None
+        _realtime_ws = None
         log.exception("Failed to start realtime: %s", e)
         await _send(websocket, ErrorResponse(code="ENGINE_ERROR", message=str(e)))
 
@@ -389,6 +396,14 @@ async def _handle_realtime_frame(websocket: WebSocket, req: Request, ws_id: int)
         await _send(websocket, ErrorResponse(
             code="INVALID_REQUEST",
             message="realtime_frame requires image",
+        ))
+        return
+
+    # Safety: skip frame if GPU is busy (e.g. overlapping executor calls)
+    if _generate_lock is not None and _generate_lock.locked():
+        await _send(websocket, ErrorResponse(
+            code="GPU_BUSY",
+            message="Frame skipped — GPU busy",
         ))
         return
 
@@ -441,7 +456,7 @@ async def _handle_realtime_stop(websocket: WebSocket, ws_id: int) -> None:
 
 async def _cleanup_realtime(ws_id: int) -> None:
     """Stop realtime mode if owned by ws_id. Safe to call multiple times."""
-    global _realtime_owner, _realtime_timeout_task
+    global _realtime_owner, _realtime_ws, _realtime_timeout_task
 
     if _realtime_owner != ws_id:
         return
@@ -457,6 +472,7 @@ async def _cleanup_realtime(ws_id: int) -> None:
         log.warning("Realtime cleanup error: %s", e)
 
     _realtime_owner = None
+    _realtime_ws = None
     log.info("Realtime session cleaned up for ws_id=%d", ws_id)
 
 
@@ -469,15 +485,25 @@ def _reset_realtime_timeout() -> None:
 
     async def _auto_stop():
         await asyncio.sleep(settings.realtime_timeout)
-        global _realtime_owner
+        global _realtime_owner, _realtime_ws
         if _realtime_owner is not None:
             log.info("Realtime auto-stop: no frame for %.0fs", settings.realtime_timeout)
+            ws = _realtime_ws
             loop = asyncio.get_running_loop()
             try:
                 await loop.run_in_executor(None, engine.stop_realtime)
             except Exception:
                 pass
             _realtime_owner = None
+            _realtime_ws = None
+            # Notify client that realtime was auto-stopped
+            if ws is not None:
+                try:
+                    await _send(ws, RealtimeStoppedResponse(
+                        message="Real-time mode auto-stopped (timeout)",
+                    ))
+                except Exception:
+                    pass
 
     try:
         loop = asyncio.get_running_loop()

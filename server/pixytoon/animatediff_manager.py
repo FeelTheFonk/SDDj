@@ -153,10 +153,12 @@ class AnimateDiffManager:
 
     def unload(self) -> None:
         """Release all AnimateDiff resources."""
+        import gc
         import torch
         self.motion_adapter = None
         self.pipe = None
         self.controlnet_pipe = None
         self.controlnet_mode = None
+        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

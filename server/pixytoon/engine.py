@@ -86,9 +86,10 @@ class GenerationCancelled(Exception):
 
 
 class RealtimeState:
-    """Mutable state for a real-time paint session."""
+    """Mutable state for a real-time paint session (thread-safe)."""
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self.active: bool = False
         self.prompt: str = ""
         self.negative_prompt: str = ""
@@ -544,6 +545,7 @@ class DiffusionEngine:
             raise
         finally:
             self._cancel_event.clear()
+            gc.collect()
 
     def _generate_chain(
         self,
@@ -576,6 +578,8 @@ class DiffusionEngine:
             # Swap both pipelines to use the clean raw UNet directly.
             self._pipe.unet = raw_unet
             self._img2img_pipe.unet = raw_unet
+            if self._controlnet_pipe is not None:
+                self._controlnet_pipe.unet = raw_unet
             try:
                 # Purge dynamo code cache to prevent stale guard recompilation
                 # on the raw UNet. Without this, dynamo recognizes _orig_mod
@@ -590,6 +594,8 @@ class DiffusionEngine:
                 # Restore compiled UNet before DeepCache re-enables
                 self._pipe.unet = compiled_unet
                 self._img2img_pipe.unet = compiled_unet
+                if self._controlnet_pipe is not None:
+                    self._controlnet_pipe.unet = compiled_unet
 
     @torch.compiler.disable
     def _generate_chain_inner(
@@ -845,6 +851,7 @@ class DiffusionEngine:
                 log.warning("FreeInit unavailable: %s", e)
 
         seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
+        seed = seed % (2**32)  # clamp to valid CUDA generator range
         generator = torch.Generator("cuda").manual_seed(seed)
 
         effective_neg = self._build_effective_negative(req.negative_prompt, req.negative_ti)
@@ -980,7 +987,7 @@ class DiffusionEngine:
 
     def _cache_prompt_embeds(self, rt: RealtimeState) -> None:
         """Compute and cache prompt embeddings if prompt changed."""
-        prompt_hash = hash((rt.prompt, rt.negative_prompt))
+        prompt_hash = hash((rt.prompt, rt.negative_prompt, rt.clip_skip))
         if prompt_hash == rt._prompt_hash and rt.prompt_embeds is not None:
             return  # Already cached
 
@@ -1012,40 +1019,52 @@ class DiffusionEngine:
 
         t0 = time.perf_counter()
 
-        # Handle prompt override
-        if prompt_override is not None and prompt_override != rt.prompt:
-            rt.prompt = prompt_override
-            self._cache_prompt_embeds(rt)
+        with rt._lock:
+            # Handle prompt override
+            if prompt_override is not None and prompt_override != rt.prompt:
+                rt.prompt = prompt_override
+                self._cache_prompt_embeds(rt)
+
+            # Snapshot volatile state under lock
+            _prompt_embeds = rt.prompt_embeds
+            _neg_embeds = rt.negative_prompt_embeds
+            _steps = rt.steps
+            _cfg = rt.cfg_scale
+            _denoise = rt.denoise_strength
+            _seed = rt._resolved_seed
+            _width = rt.width
+            _height = rt.height
+            _pp = rt.post_process
 
         try:
             with torch.inference_mode():
                 # Decode input canvas
                 source = decode_b64_image(image_b64).convert("RGB")
-                source = resize_to_target(source, rt.width, rt.height)
+                source = resize_to_target(source, _width, _height)
 
                 # Generator with fixed seed for coherence
-                generator = torch.Generator("cuda").manual_seed(rt._resolved_seed)
+                generator = torch.Generator("cuda").manual_seed(_seed)
 
                 # Reset scheduler state for clean inference
                 self._img2img_pipe.scheduler = pipeline_factory.fresh_scheduler(self._pipe)
 
                 # Run img2img with cached prompt embeddings
                 kwargs = dict(
-                    prompt_embeds=rt.prompt_embeds,
+                    prompt_embeds=_prompt_embeds,
                     image=source,
-                    num_inference_steps=rt.steps,
-                    guidance_scale=rt.cfg_scale,
-                    strength=rt.denoise_strength,
+                    num_inference_steps=_steps,
+                    guidance_scale=_cfg,
+                    strength=_denoise,
                     generator=generator,
                     output_type="pil",
                 )
-                if rt.negative_prompt_embeds is not None:
-                    kwargs["negative_prompt_embeds"] = rt.negative_prompt_embeds
+                if _neg_embeds is not None:
+                    kwargs["negative_prompt_embeds"] = _neg_embeds
 
                 result_image = self._img2img_pipe(**kwargs).images[0]
 
             # Post-process (palette, pixelate, quantize)
-            result_image = postprocess_apply(result_image, rt.post_process)
+            result_image = postprocess_apply(result_image, _pp)
 
             # Encode
             b64_result = encode_image_b64(result_image)
@@ -1074,30 +1093,34 @@ class DiffusionEngine:
         if not rt.active:
             return
 
-        prompt_changed = False
-        if req.prompt is not None and req.prompt != rt.prompt:
-            rt.prompt = req.prompt
-            prompt_changed = True
-        if req.negative_prompt is not None and req.negative_prompt != rt.negative_prompt:
-            rt.negative_prompt = req.negative_prompt
-            prompt_changed = True
-        if req.denoise_strength is not None:
-            rt.denoise_strength = req.denoise_strength
-        if req.steps is not None:
-            rt.steps = req.steps
-        if req.cfg_scale is not None:
-            rt.cfg_scale = req.cfg_scale
-        if req.seed is not None:
-            if req.seed >= 0:
-                rt.seed = req.seed
-                rt._resolved_seed = req.seed % (2**32)
-            else:
-                rt.seed = -1
-                rt._resolved_seed = random.randint(0, 2**32 - 1)
+        with rt._lock:
+            prompt_changed = False
+            if req.prompt is not None and req.prompt != rt.prompt:
+                rt.prompt = req.prompt
+                prompt_changed = True
+            if req.negative_prompt is not None and req.negative_prompt != rt.negative_prompt:
+                rt.negative_prompt = req.negative_prompt
+                prompt_changed = True
+            if req.denoise_strength is not None:
+                rt.denoise_strength = req.denoise_strength
+            if req.steps is not None:
+                rt.steps = req.steps
+            if req.cfg_scale is not None:
+                rt.cfg_scale = req.cfg_scale
+            if req.clip_skip is not None:
+                rt.clip_skip = req.clip_skip
+                prompt_changed = True  # clip_skip affects prompt embeddings
+            if req.seed is not None:
+                if req.seed >= 0:
+                    rt.seed = req.seed
+                    rt._resolved_seed = req.seed % (2**32)
+                else:
+                    rt.seed = -1
+                    rt._resolved_seed = random.randint(0, 2**32 - 1)
 
-        # Re-cache prompt embeddings if text changed
-        if prompt_changed:
-            self._cache_prompt_embeds(rt)
+            # Re-cache prompt embeddings if text or clip_skip changed
+            if prompt_changed:
+                self._cache_prompt_embeds(rt)
 
         log.debug("Realtime params updated: steps=%d, cfg=%.1f, denoise=%.2f",
                   rt.steps, rt.cfg_scale, rt.denoise_strength)

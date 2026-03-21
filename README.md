@@ -47,7 +47,7 @@ pixytoon/
 │   ├── run.py                   # Entry point
 │   ├── palettes/                # 7 preset palettes (JSON)
 │   └── pixytoon/                # Python package
-│       ├── __init__.py          # Package version (0.2.0)
+│       ├── __init__.py          # Package version (0.3.0)
 │       ├── config.py            # Pydantic Settings (env vars)
 │       ├── protocol.py          # WebSocket schemas (Pydantic v2)
 │       ├── engine.py            # SD1.5 SOTA pipeline orchestrator
@@ -69,6 +69,7 @@ pixytoon/
 ## Features
 
 - **txt2img / img2img / inpaint / ControlNet** — OpenPose, Canny, Scribble, Lineart (v1.1)
+- **Live Paint** (v0.3.0) — Real-time AI-assisted painting: paint in Aseprite, see AI-enhanced results live (~200-500ms latency)
 - **Animation** — Dual-method: Frame Chain (img2img chaining) + AnimateDiff (motion module temporal consistency)
 - **AnimateDiff** — Motion adapter v1-5-3, FreeInit support, auto DeepCache disable/re-enable, ControlNet compatible
 - **LoRA stacking** — Hyper-SD (speed) + pixel art LoRA (style, ±2.0 weight range)
@@ -138,6 +139,10 @@ Connect to `ws://127.0.0.1:9876/ws`. All messages are JSON.
 | `list_palettes`      | List available palettes            |
 | `list_controlnets`   | List available ControlNet modes    |
 | `list_embeddings`    | List available TI embeddings       |
+| `realtime_start`     | Start real-time paint session       |
+| `realtime_frame`     | Send canvas frame for live processing |
+| `realtime_update`    | Hot-update realtime parameters      |
+| `realtime_stop`      | Stop real-time paint session        |
 
 ### Generate Request
 
@@ -223,6 +228,65 @@ For inpainting, set `mode` to `"inpaint"` and include `source_image` (base64 PNG
 | `enable_freeinit`   | boolean                              | `false`       |
 | `freeinit_iterations` | 1 - 3                              | `2`           |
 
+### Real-Time Paint Request
+
+Start a live paint session:
+
+```json
+{
+  "action": "realtime_start",
+  "prompt": "pixel art character",
+  "negative_prompt": "blurry, photorealistic",
+  "width": 512,
+  "height": 512,
+  "seed": -1,
+  "steps": 4,
+  "cfg_scale": 2.5,
+  "denoise_strength": 0.5,
+  "clip_skip": 2,
+  "lora": { "name": "pixelart_redmond", "weight": 1.0 },
+  "post_process": { "..." }
+}
+```
+
+Send canvas frames for processing:
+
+```json
+{
+  "action": "realtime_frame",
+  "image": "<base64 PNG — current canvas>",
+  "frame_id": 1,
+  "prompt": "optional prompt override"
+}
+```
+
+Hot-update parameters mid-session (all fields optional):
+
+```json
+{
+  "action": "realtime_update",
+  "prompt": "new prompt",
+  "denoise_strength": 0.6,
+  "steps": 3,
+  "cfg_scale": 3.0,
+  "clip_skip": 2,
+  "seed": 42
+}
+```
+
+Stop the session:
+
+```json
+{ "action": "realtime_stop" }
+```
+
+| Field               | Values / Constraint                  | Default       |
+|---------------------|--------------------------------------|---------------|
+| `steps`             | 2 - 8                                | `4`           |
+| `cfg_scale`         | 1.0 - 10.0                           | `2.5`         |
+| `denoise_strength`  | 0.05 - 0.95                          | `0.5`         |
+| `clip_skip`         | 1 - 12                               | `2`           |
+
 ### Response Types
 
 | Type                 | Fields                                                              |
@@ -231,9 +295,12 @@ For inpainting, set `mode` to `"inpaint"` and include `source_image` (base64 PNG
 | `result`             | `image` (b64 PNG), `seed`, `time_ms`, `width`, `height`            |
 | `animation_frame`    | `frame_index`, `total_frames`, `image` (b64 PNG), `seed`, `time_ms`, `width`, `height` |
 | `animation_complete` | `total_frames`, `total_time_ms`, `tag_name` (opt)                  |
-| `error`              | `code` (`ENGINE_ERROR`, `OOM`, `CANCELLED`, `TIMEOUT`, `INVALID_REQUEST`, `MAX_CONNECTIONS`, `UNKNOWN_ACTION`), `message` |
+| `error`              | `code` (`ENGINE_ERROR`, `OOM`, `CANCELLED`, `TIMEOUT`, `INVALID_REQUEST`, `MAX_CONNECTIONS`, `UNKNOWN_ACTION`, `REALTIME_BUSY`, `REALTIME_NOT_ACTIVE`, `GPU_BUSY`), `message` |
 | `list`               | `list_type`, `items`                                                |
 | `pong`               | (no fields)                                                         |
+| `realtime_ready`     | `message`                                                           |
+| `realtime_result`    | `image` (b64 PNG), `latency_ms`, `frame_id`, `width`, `height`     |
+| `realtime_stopped`   | `message`                                                           |
 
 ### Input Validation
 
@@ -298,6 +365,10 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 | `ANIMATEDIFF_MODEL`        | `guoyww/animatediff-motion-adapter-v1-5-3` | AnimateDiff motion adapter |
 | `ENABLE_FREEINIT`          | `False`                               | FreeInit for AnimateDiff        |
 | `FREEINIT_ITERATIONS`      | `2`                                   | FreeInit iteration count        |
+| `REALTIME_TIMEOUT`         | `60.0`                                | Auto-stop if no frame for N seconds |
+| `REALTIME_DEFAULT_STEPS`   | `4`                                   | Default realtime inference steps |
+| `REALTIME_DEFAULT_CFG`     | `2.5`                                 | Default realtime CFG scale      |
+| `REALTIME_DEFAULT_DENOISE` | `0.5`                                 | Default realtime denoise strength |
 
 ## HTTP Endpoints
 
@@ -323,6 +394,9 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 | AnimateDiff OOM                | AnimateDiff needs ~8-10GB VRAM; reduce `frame_count` or resolution |
 | AnimateDiff slow first run     | Motion adapter downloads on first use (~97MB); subsequent runs use cache |
 | Chain animation hangs          | Fixed in v0.1.5: dynamo.reset + scheduler reset + RGBA→RGB fix     |
+| Live Paint not starting        | Ensure no generation is in progress (GPU_BUSY); check server logs  |
+| Live Paint high latency        | Reduce steps (2-3), reduce resolution, ensure no other GPU load    |
+| Live Paint auto-stopped        | Session times out after 60s of inactivity (configurable via `PIXYTOON_REALTIME_TIMEOUT`) |
 
 ## License
 

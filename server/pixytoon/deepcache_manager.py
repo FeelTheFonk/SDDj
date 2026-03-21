@@ -52,8 +52,8 @@ def enable(helper) -> None:
 def suspended(helper):
     """Context manager: disable DeepCache on enter, re-enable on exit.
 
-    Raises if disable fails — AnimateDiff/chain MUST run without DeepCache
-    (5D latent shapes are incompatible with DeepCache's 4D caching).
+    If disable fails, logs a warning and proceeds — AnimateDiff/chain should
+    run without DeepCache (5D latent shapes are incompatible with 4D caching).
     """
     if helper is None:
         yield

@@ -75,7 +75,7 @@ copy /y "%ROOT%extension\scripts\json.lua" "%ASEPRITE_EXT%\scripts\" >nul
 copy /y "%ROOT%extension\scripts\pixytoon.lua" "%ASEPRITE_EXT%\scripts\" >nul
 echo [OK] Scripts installed to %ASEPRITE_SCRIPTS%
 
-:: ── 5. Verify installation ──────────────────────────────────
+:: ── 6. Verify installation ──────────────────────────────────
 echo.
 echo [5/6] Verifying installation...
 cd /d "%ROOT%server"
@@ -85,7 +85,7 @@ if errorlevel 1 (
 )
 cd /d "%ROOT%"
 
-:: ── 6. Copy .env.example if no .env exists ──────────────────
+:: ── 7. Copy .env.example if no .env exists ──────────────────
 echo.
 echo [6/6] Checking environment config...
 if not exist "%ROOT%server\.env" (
