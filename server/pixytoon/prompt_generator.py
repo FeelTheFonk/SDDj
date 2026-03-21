@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -74,6 +75,11 @@ class PromptGenerator:
                 components[category] = random.choice(items)
 
         if template is None:
+            template = self._default_template
+
+        # Sanitize template: reject attribute/index access patterns (security)
+        if re.search(r"\{[^}]*[.\[\]]", template):
+            log.warning("Template rejected (unsafe pattern): %s", template[:80])
             template = self._default_template
 
         # Only include categories that exist in the template

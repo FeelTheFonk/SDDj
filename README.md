@@ -11,8 +11,8 @@ Local SOTA pixel art generation and animation for Aseprite via Stable Diffusion 
 ## Quick Start
 
 ```
-setup.bat         <- One-click: install deps, download models, build extension
-start.bat         <- One-click: launch server + Aseprite
+setup.ps1         <- One-click: install deps, download models, build extension
+start.ps1         <- One-click: launch server + Aseprite
 ```
 
 ## Architecture
@@ -31,8 +31,8 @@ Aseprite (Lua WebSocket) <-> PixyToon Server (Python FastAPI)
 
 ```
 pixytoon/
-├── setup.bat                    # One-click setup
-├── start.bat                    # One-click start (health-check polling)
+├── setup.ps1                    # One-click setup (PowerShell 7)
+├── start.ps1                    # One-click start (PowerShell 7)
 ├── bin/
 │   └── aseprite/                # Compiled Aseprite v1.3.17
 │       └── aseprite.exe
@@ -59,10 +59,19 @@ pixytoon/
 │   ├── test_generate.py         # Test: txt2img, img2img, inpaint
 │   ├── test_animation.py        # Test: chain, animatediff, chain-img2img
 │   └── test_inpaint.py          # Test: inpaint (high/low denoise)
+├── docs/
+│   ├── GUIDE.md                 # Complete user guide
+│   ├── COOKBOOK.md               # Recipes and workflows
+│   └── LIVE-PAINT.md            # Live paint technical deep-dive
 ├── server/
 │   ├── pyproject.toml           # Dependencies (torch CUDA 12.8)
 │   ├── run.py                   # Entry point
 │   ├── palettes/                # 7 preset palettes (JSON)
+│   ├── presets/                 # Built-in and user-saved generation presets
+│   ├── data/prompts/            # Auto-prompt generator data files
+│   ├── models/                  # Downloaded models (auto-populated)
+│   │   ├── loras/               # User LoRA files (.safetensors)
+│   │   └── embeddings/          # Textual Inversion embeddings
 │   └── pixytoon/                # Python package
 │       ├── __init__.py          # Package version (0.5.0)
 │       ├── config.py            # Pydantic Settings (env vars)
@@ -80,9 +89,9 @@ pixytoon/
 │       ├── validation.py        # Shared input validation (path traversal guard)
 │       ├── lora_manager.py      # LoRA discovery (path-validated)
 │       ├── ti_manager.py        # Textual Inversion discovery
-│       └── palette_manager.py   # Palette loading (path-validated)
-│   ├── presets/              # Built-in and user-saved generation presets
-│   ├── data/prompts/         # Auto-prompt generator data files
+│       ├── palette_manager.py   # Palette loading (path-validated)
+│       ├── presets_manager.py   # Preset save/load/delete
+│       └── prompt_generator.py  # Auto-prompt generation from templates
 ```
 
 ## Features
@@ -334,7 +343,7 @@ Stop the session:
 | `realtime_ready`     | `message`                                                           |
 | `realtime_result`    | `image` (b64 PNG), `latency_ms`, `frame_id`, `width`, `height`, `roi_x` (opt), `roi_y` (opt) |
 | `realtime_stopped`   | `message`                                                           |
-| `prompt_result`      | `prompt`, `components`                                              |
+| `prompt_result`      | `prompt`, `negative_prompt`, `components`                           |
 | `preset`             | `name`, `data`                                                      |
 | `preset_saved`       | `name`                                                              |
 | `preset_deleted`     | `name`                                                              |
@@ -373,13 +382,21 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 |----------------------------|---------------------------------------|---------------------------------|
 | `HOST`                     | `127.0.0.1`                           | Server bind address             |
 | `PORT`                     | `9876`                                | Server port                     |
+| `MODELS_DIR`               | `server/models`                       | Root models directory           |
+| `LORAS_DIR`                | `server/models/loras`                 | LoRA files (.safetensors)       |
+| `EMBEDDINGS_DIR`           | `server/models/embeddings`            | Textual Inversion embeddings    |
+| `PALETTES_DIR`             | `server/palettes`                     | Palette JSON files              |
+| `PRESETS_DIR`              | `server/presets`                      | Generation presets              |
 | `DEFAULT_CHECKPOINT`       | `Lykon/dreamshaper-8`                 | SD1.5 checkpoint                |
 | `HYPER_SD_REPO`            | `ByteDance/Hyper-SD`                  | Hyper-SD HuggingFace repo       |
 | `HYPER_SD_LORA_FILE`       | `Hyper-SD15-8steps-CFG-lora.safetensors` | Hyper-SD LoRA filename       |
 | `HYPER_SD_FUSE_SCALE`      | `0.8`                                 | Hyper-SD LoRA fusion scale      |
 | `DEFAULT_STEPS`            | `8`                                   | Default inference steps         |
 | `DEFAULT_CFG`              | `5.0`                                 | Default CFG scale               |
+| `DEFAULT_WIDTH`            | `512`                                 | Default output width            |
+| `DEFAULT_HEIGHT`           | `512`                                 | Default output height           |
 | `DEFAULT_CLIP_SKIP`        | `2`                                   | CLIP skip layers (2 = stylized) |
+| `DEFAULT_PIXEL_LORA`       | `auto`                                | Default pixel LoRA (`auto` = first found, `""` = none) |
 | `DEFAULT_PIXEL_LORA_WEIGHT`| `1.0`                                 | Default LoRA fuse weight        |
 | `ENABLE_TORCH_COMPILE`     | `True`                                | UNet compilation (requires Triton + MSVC) |
 | `COMPILE_MODE`             | `default`                             | torch.compile mode (`default` / `max-autotune` / `reduce-overhead`) |

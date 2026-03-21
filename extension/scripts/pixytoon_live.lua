@@ -59,10 +59,6 @@ end
 -- Sends the cached capture as a realtime frame (called by cooldown debounce).
 local function send_live_frame()
   if not PT.live.mode or PT.live.request_inflight then return end
-  if PT.live.stroke_cooldown
-      and (os.clock() - PT.live.stroke_cooldown) < PT.cfg.LIVE_COOLDOWN_THRESHOLD then
-    return
-  end
 
   local curr_img = PT.live.cached_capture
   if not curr_img then return end
@@ -170,17 +166,25 @@ function PT.start_live_timer()
       -- Cache capture for cooldown callback (avoids second drawSprite)
       PT.live.cached_capture = flat_img
 
-      -- Debounce: create fresh cooldown timer each cycle to avoid stale state
+      -- Debounce via cooldown: waits for drawing to pause before sending.
+      -- If no frame is inflight, send immediately (first change after idle).
       PT.live.cooldown_timer = PT.stop_timer(PT.live.cooldown_timer)
-      PT.live.stroke_cooldown = os.clock()
-      PT.live.cooldown_timer = Timer{
-        interval = PT.cfg.LIVE_COOLDOWN_INTERVAL,
-        ontick = function()
-          PT.live.cooldown_timer = PT.stop_timer(PT.live.cooldown_timer)
-          send_live_frame()
-        end,
-      }
-      PT.live.cooldown_timer:start()
+      if not PT.live.stroke_cooldown then
+        -- First change after idle: send immediately
+        PT.live.stroke_cooldown = os.clock()
+        send_live_frame()
+      else
+        -- Active drawing: debounce until pause
+        PT.live.stroke_cooldown = os.clock()
+        PT.live.cooldown_timer = Timer{
+          interval = PT.cfg.LIVE_COOLDOWN_INTERVAL,
+          ontick = function()
+            PT.live.cooldown_timer = PT.stop_timer(PT.live.cooldown_timer)
+            send_live_frame()
+          end,
+        }
+        PT.live.cooldown_timer:start()
+      end
     end,
   }
   PT.live.timer:start()

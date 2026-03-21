@@ -22,7 +22,7 @@
 
 ## What is Live Paint?
 
-Live Paint turns Aseprite into a collaborative canvas between you and the AI. As you draw — shapes, colors, rough strokes — the server continuously reinterprets your canvas through Stable Diffusion and shows the result as a semi-transparent overlay. Every brush stroke triggers a new AI pass within 200-500ms.
+Live Paint turns Aseprite into a collaborative canvas between you and the AI. As you draw — shapes, colors, rough strokes — the server continuously reinterprets your canvas through Stable Diffusion and shows the result as a semi-transparent overlay. Every brush stroke triggers a new AI pass with a GPU latency of ~200-500ms depending on resolution and step count.
 
 You keep full artistic control. The AI is your assistant, not your replacement.
 
@@ -50,16 +50,17 @@ sequenceDiagram
     Aseprite->>Server: realtime_start (prompt, settings)
     Server-->>Aseprite: realtime_ready
 
-    loop Every 300ms (if canvas changed)
+    loop Every 150ms (if canvas changed)
         You->>Aseprite: Paint strokes
-        Aseprite->>Server: realtime_frame (canvas PNG)
-        Server->>Server: img2img (fast, 4 steps)
+        Aseprite->>Server: realtime_frame (full canvas PNG + ROI coords)
+        Server->>Server: img2img on ROI (fast, 4 steps)
         Server-->>Aseprite: realtime_result (AI image)
         Aseprite->>Aseprite: Update preview layer
     end
 
     You->>Aseprite: STOP LIVE
     Aseprite->>Server: realtime_stop
+    Server-->>Aseprite: realtime_stopped
 ```
 
 ---
@@ -187,7 +188,7 @@ pixel art, stardew valley style, cute farmer, warm colors
 Same drawing, completely different interpretations. This is one of the fastest ways to explore art direction.
 
 > [!TIP]
-> Prompt changes are auto-detected. Just edit the prompt field in the Generate tab — Live Paint picks it up within 300ms.
+> Prompt changes are auto-detected. Just edit the prompt field in the Generate tab — Live Paint picks it up within one poll cycle (~150ms). Steps and CFG sliders are also hot-updatable mid-session.
 
 ---
 
@@ -315,8 +316,9 @@ Approximate latency per frame at 512x512, 4 steps, after torch.compile warmup:
 ### ROI Detection
 
 PixyToon automatically detects which region of the canvas changed
-(dirty-region detection). Only the modified area is sent to the server,
-reducing bandwidth and processing time.
+(dirty-region detection). The full canvas is sent to the server with ROI
+coordinates, but only the modified region is processed through img2img,
+significantly reducing GPU processing time.
 
 Configure ROI behavior with environment variables:
 - `PIXYTOON_REALTIME_ROI_PADDING=32` — Padding around detected changes (pixels)
@@ -369,7 +371,7 @@ Another generation (or animation) is still running. Wait for it to finish or can
 
 ### Canvas changes not detected
 
-- The system uses a hash-based change detection (sampling every 32nd pixel)
+- The system uses a hash-based change detection (sampling every min(w,h)/16 pixels — e.g. every 32nd pixel on a 512x512 canvas)
 - Very small changes (single pixel edits) might not trigger a new frame
 - Draw a few more strokes — the hash will pick up the change
 
@@ -382,7 +384,7 @@ If you close the sprite while Live Paint is active, the session ends automatical
 Check the server terminal for error messages. Common causes:
 - **OOM**: Reduce resolution or close other GPU apps
 - **Timeout**: No painting for 5 minutes triggers auto-stop
-- **Server crash**: Restart via `start.bat`
+- **Server crash**: Restart via `start.ps1`
 
 ---
 

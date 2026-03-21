@@ -700,7 +700,9 @@ def _reset_realtime_timeout() -> None:
         _realtime_timeout_task.cancel()
 
     async def _auto_stop():
+        global _realtime_timeout_task
         await asyncio.sleep(settings.realtime_timeout)
+        _realtime_timeout_task = None
         global _realtime_owner, _realtime_ws
         async with _realtime_lock:
             if _realtime_owner is None:

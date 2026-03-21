@@ -22,7 +22,7 @@ function PT.start_heartbeat()
     interval = PT.cfg.HEARTBEAT_INTERVAL,
     ontick = function()
       if PT.state.connected and PT.ws_handle
-          and not PT.state.generating and not PT.state.animating and not PT.live.mode then
+          and not PT.state.generating and not PT.state.animating then
         pcall(function() PT.ws_handle:sendText('{"action":"ping"}') end)
       end
     end,
@@ -50,7 +50,7 @@ function PT.start_gen_timeout()
         PT.state.gen_step_start = nil
         if PT.dlg then
           PT.update_status("Timed out — no response from server")
-          PT.dlg:modify{ id = "generate_btn", enabled = not PT.live.mode }
+          PT.dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = not PT.live.mode }
           PT.dlg:modify{ id = "animate_btn", enabled = not PT.live.mode }
           PT.dlg:modify{ id = "cancel_btn", enabled = false }
         end
@@ -74,7 +74,7 @@ function PT.set_connected(is_connected)
     PT.dlg:modify{ id = "live_btn", enabled = true }
   else
     PT.dlg:modify{ id = "connect_btn", text = "Connect" }
-    PT.dlg:modify{ id = "generate_btn", enabled = false }
+    PT.dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = false }
     PT.dlg:modify{ id = "cancel_btn", enabled = false }
     PT.dlg:modify{ id = "animate_btn", enabled = false }
     PT.dlg:modify{ id = "live_btn", enabled = false }
@@ -172,6 +172,17 @@ function PT.disconnect()
   PT.live.mode = false
   PT.live.request_inflight = false
   PT.live.canvas_hash = nil
+  -- Clean up preview layer from sprite
+  if PT.live.preview_layer then
+    local spr = app.sprite
+    if spr then
+      pcall(function()
+        local cel = PT.live.preview_layer:cel(app.frame)
+        if cel then spr:deleteCel(cel) end
+        spr:deleteLayer(PT.live.preview_layer)
+      end)
+    end
+  end
   PT.live.preview_layer = nil
   PT.live.preview_sprite = nil
   PT.update_status("Disconnected")

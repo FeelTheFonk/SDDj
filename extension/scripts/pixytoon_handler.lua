@@ -9,7 +9,7 @@ local handlers = {}
 -- ─── Progress ───────────────────────────────────────────────
 
 handlers.progress = function(resp)
-  if not resp.total or resp.total <= 0 then return end
+  if not resp.total or resp.total <= 0 or not resp.step then return end
   if not PT.dlg then return end
 
   local pct = math.floor((resp.step / resp.total) * 100)
@@ -44,9 +44,12 @@ handlers.result = function(resp)
   PT.state.cancel_pending = false
 
   if not resp.image then
+    PT.loop.mode = false
+    PT.loop.random_mode = false
     PT.update_status("Error: missing image in result response")
     if PT.dlg then
-      PT.dlg:modify{ id = "generate_btn", enabled = true }
+      PT.dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = true }
+      PT.dlg:modify{ id = "animate_btn", enabled = true }
       PT.dlg:modify{ id = "cancel_btn", enabled = false }
     end
     return
@@ -65,11 +68,11 @@ handlers.result = function(resp)
       PT.dlg:modify{ id = "seed", text = "-1" }
     end
     -- Small delay then trigger next generation (or random prompt first)
-    local loop_timer
-    loop_timer = Timer{
+    PT.timers.loop = PT.stop_timer(PT.timers.loop)
+    PT.timers.loop = Timer{
       interval = PT.cfg.LOOP_DELAY,
       ontick = function()
-        if loop_timer then loop_timer:stop() end
+        PT.timers.loop = PT.stop_timer(PT.timers.loop)
         if not PT.loop.mode or not PT.dlg or not PT.state.connected or PT.state.generating then return end
 
         PT.loop.counter = PT.loop.counter + 1
@@ -83,7 +86,17 @@ handlers.result = function(resp)
 
         -- Standard loop: generate directly
         local req = PT.build_generate_request()
-        if not PT.attach_source_image(req) then PT.loop.mode = false; return end
+        if not PT.attach_source_image(req) then
+          PT.loop.mode = false
+          PT.loop.random_mode = false
+          if PT.dlg then
+            PT.dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = true }
+            PT.dlg:modify{ id = "animate_btn", enabled = true }
+            PT.dlg:modify{ id = "cancel_btn", enabled = false }
+          end
+          PT.update_status("Loop stopped (no source image)")
+          return
+        end
         PT.state.generating = true
         PT.state.gen_step_start = os.clock()
         PT.start_gen_timeout()
@@ -93,10 +106,12 @@ handlers.result = function(resp)
         PT.send(req)
       end,
     }
-    loop_timer:start()
+    PT.timers.loop:start()
   elseif PT.dlg then
     PT.update_status("Done (" .. tostring(resp.time_ms or "?") .. "ms, seed=" .. tostring(resp.seed or "?") .. ")")
-    PT.dlg:modify{ id = "generate_btn", enabled = true }
+    PT.dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = true }
+    PT.dlg:modify{ id = "animate_btn", enabled = true }
+    PT.dlg:modify{ id = "live_btn", enabled = true }
     PT.dlg:modify{ id = "cancel_btn", enabled = false }
   end
 end
@@ -130,23 +145,27 @@ handlers.animation_complete = function(resp)
     if resp.tag_name and resp.tag_name ~= "" then tag_str = ", tag=" .. resp.tag_name end
     PT.update_status("Animation done (" .. tostring(resp.total_frames or "?") .. " frames, "
       .. tostring(resp.total_time_ms or "?") .. "ms" .. tag_str .. ")")
+    PT.dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = true }
     PT.dlg:modify{ id = "animate_btn", enabled = true }
+    PT.dlg:modify{ id = "live_btn", enabled = true }
     PT.dlg:modify{ id = "cancel_btn", enabled = false }
   end
 
   local spr = app.sprite
   if spr and PT.anim.frame_count > 0 then
-    local dur = (PT.dlg and PT.dlg.data.anim_duration or 100) / 1000.0
-    for i = 0, PT.anim.frame_count - 1 do
-      local fn = PT.anim.start_frame + i
-      if spr.frames[fn] then spr.frames[fn].duration = dur end
-    end
-    local tag_start = PT.anim.start_frame
-    local tag_end = PT.anim.start_frame + PT.anim.frame_count - 1
-    if resp.tag_name and resp.tag_name ~= "" and spr.frames[tag_start] and spr.frames[tag_end] then
-      local tag = spr:newTag(tag_start, tag_end)
-      tag.name = resp.tag_name
-    end
+    app.transaction("PixyToon Animation Finalize", function()
+      local dur = (PT.dlg and PT.dlg.data.anim_duration or 100) / 1000.0
+      for i = 0, PT.anim.frame_count - 1 do
+        local fn = PT.anim.start_frame + i
+        if spr.frames[fn] then spr.frames[fn].duration = dur end
+      end
+      local tag_start = PT.anim.start_frame
+      local tag_end = PT.anim.start_frame + PT.anim.frame_count - 1
+      if resp.tag_name and resp.tag_name ~= "" and spr.frames[tag_start] and spr.frames[tag_end] then
+        local tag = spr:newTag(tag_start, tag_end)
+        tag.name = resp.tag_name
+      end
+    end)
     app.refresh()
   end
   PT.anim.layer = nil
@@ -187,7 +206,7 @@ handlers.error = function(resp)
   PT.state.cancel_pending = false
   if PT.dlg then
     PT.update_status("Error: " .. tostring(resp.message or "Unknown"))
-    PT.dlg:modify{ id = "generate_btn", enabled = not PT.live.mode }
+    PT.dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = not PT.live.mode }
     PT.dlg:modify{ id = "animate_btn", enabled = not PT.live.mode }
     PT.dlg:modify{ id = "cancel_btn", enabled = false }
   end
@@ -259,12 +278,15 @@ handlers.realtime_result = function(resp)
     PT.update_status("Error: missing image in realtime_result")
     return
   end
-  -- Drop stale frames (latest-wins)
-  if resp.frame_id and resp.frame_id < PT.live.frame_id then
+  -- Drop stale frames (latest-wins); use ~= nil because frame_id=0 is valid
+  if resp.frame_id ~= nil and resp.frame_id < PT.live.frame_id then
     return
   end
   if PT.live.mode then
     PT.live_update_preview(resp)
+    -- Reset state so changes made during inflight get re-detected immediately
+    PT.live.canvas_hash = nil
+    PT.live.stroke_cooldown = nil
     if PT.dlg then
       PT.update_status("Live (" .. tostring(resp.latency_ms or "?") .. "ms)")
     end
@@ -321,7 +343,8 @@ handlers.prompt_result = function(resp)
       PT.loop.mode = false
       PT.loop.random_mode = false
       if PT.dlg then
-        PT.dlg:modify{ id = "generate_btn", enabled = true }
+        PT.dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = true }
+        PT.dlg:modify{ id = "animate_btn", enabled = true }
         PT.dlg:modify{ id = "cancel_btn", enabled = false }
       end
       PT.update_status("Random loop stopped (no source image)")
@@ -347,9 +370,17 @@ handlers.preset = function(resp)
     PT.dlg:modify{ id = "output_size", option = d.width .. "x" .. d.height }
   end
   if d.steps then PT.dlg:modify{ id = "steps", value = d.steps } end
-  if d.cfg_scale then PT.dlg:modify{ id = "cfg_scale", value = math.floor(d.cfg_scale * 10) } end
+  if d.cfg_scale then
+    local v = math.floor(d.cfg_scale * 10)
+    PT.dlg:modify{ id = "cfg_scale", value = v }
+    PT.dlg:modify{ id = "cfg_scale", label = string.format("CFG (%.1f)", v / 10.0) }
+  end
   if d.clip_skip then PT.dlg:modify{ id = "clip_skip", value = d.clip_skip } end
-  if d.denoise_strength then PT.dlg:modify{ id = "denoise", value = math.floor(d.denoise_strength * 100) } end
+  if d.denoise_strength then
+    local v = math.floor(d.denoise_strength * 100)
+    PT.dlg:modify{ id = "denoise", value = v }
+    PT.dlg:modify{ id = "denoise", label = string.format("Strength (%.2f)", v / 100.0) }
+  end
   if d.post_process then
     local pp = d.post_process
     if pp.pixelate ~= nil then

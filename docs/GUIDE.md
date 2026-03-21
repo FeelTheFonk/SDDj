@@ -31,16 +31,16 @@ Before using PixyToon, make sure you have:
 
 - **Aseprite** (v1.3+) — compiled or purchased
 - **NVIDIA GPU** with at least 8 GB VRAM (10 GB for AnimateDiff + ControlNet)
-- **`setup.bat` already run** — this installs all dependencies and downloads models (~10 GB)
+- **`setup.ps1` already run** — this installs all dependencies and downloads models (~10 GB)
 
 > [!NOTE]
-> If you haven't run `setup.bat` yet, do it first. It handles everything: Python environment, model downloads, extension install.
+> If you haven't run `setup.ps1` yet, do it first. It handles everything: Python environment, model downloads, extension install.
 
 ---
 
 ## First Launch
 
-1. **Double-click `start.bat`** at the project root
+1. **Run `start.ps1`** at the project root
 2. A terminal opens — the server loads the AI model (~30s first time)
 3. Aseprite launches automatically once the server is ready
 4. In Aseprite: **File > Scripts > PixyToon** (compiled) or it appears in Extensions (purchased)
@@ -54,15 +54,15 @@ The status bar shows "Connected" and the available resources (LoRAs, palettes, e
 ```mermaid
 sequenceDiagram
     participant User
-    participant start.bat
+    participant start.ps1
     participant Server
     participant Aseprite
 
-    User->>start.bat: Double-click
-    start.bat->>Server: Launch (uv run python run.py)
-    start.bat->>start.bat: Poll /health every 3s
-    Server-->>start.bat: {"ready": true}
-    start.bat->>Aseprite: Launch aseprite.exe
+    User->>start.ps1: Run
+    start.ps1->>Server: Launch (uv run python run.py)
+    start.ps1->>start.ps1: Poll /health every 3s
+    Server-->>start.ps1: {"status": "ok", "loaded": true}
+    start.ps1->>Aseprite: Launch aseprite.exe
     User->>Aseprite: File > Scripts > PixyToon
     Aseprite->>Server: WebSocket connect
     Server-->>Aseprite: pong + resources
@@ -93,7 +93,7 @@ Everything runs **locally on your machine**. No cloud, no API key, no internet n
 
 ## Modes
 
-PixyToon has 4 tabs in its dialog, each for a different workflow.
+The PixyToon dialog has **4 tabs**: Generate, Post-Process, Animation, and Live. The **Generate tab** includes a **Mode** dropdown with 4 generation modes (txt2img, img2img, inpaint, controlnet).
 
 ### Generate (txt2img)
 
@@ -161,12 +161,12 @@ Real-time AI-assisted painting. See [the dedicated Live Paint guide](LIVE-PAINT.
 ### Loop Mode
 
 Enable **Loop Mode** to continuously generate images with the same settings.
-Each iteration uses a random seed, allowing rapid exploration of variations.
 
 1. Check the "Loop Mode" checkbox
-2. Click **Generate**
-3. Images generate one after another automatically
-4. Click **Cancel** to stop the loop
+2. Choose a **Loop Seed** mode: `random` (new seed each time) or `increment` (seed +1 each iteration)
+3. Click **Generate**
+4. Images generate one after another automatically
+5. Click **Cancel** to stop the loop
 
 ### Random Loop
 
@@ -240,7 +240,7 @@ With Hyper-SD enabled (default), 8 steps produces results comparable to 25+ step
 
 | CFG | Effect |
 |-----|--------|
-| 1-2 | Very creative / loose interpretation (good for Live Paint) |
+| 1-3 | Very creative / loose interpretation (Live Paint default: 2.5) |
 | 3-5 | Balanced — follows prompt while remaining natural |
 | **5.0** | **Default** |
 | 7-10 | Strict prompt following, can look over-saturated |
@@ -254,9 +254,9 @@ Only relevant for img2img, inpaint, and animation. Controls how much the AI chan
 |----------|--------|
 | 0.1-0.2 | Barely changes anything — subtle color/light adjustments |
 | 0.3 | Light transformation — keeps composition, changes details |
-| **0.5** | **Balanced** — recognizable source with significant AI changes |
+| 0.5 | Balanced — recognizable source with significant AI changes |
 | 0.7-0.8 | Heavy transformation — AI dominates, source is a vague guide |
-| 1.0 | Completely ignores input (effectively txt2img) |
+| **1.0** | **Default** — full generation (effectively txt2img) |
 
 ### Clip Skip
 
@@ -287,10 +287,12 @@ The generation resolution. Higher = more detail but slower and more VRAM.
 
 | Size | Use case |
 |------|----------|
-| 64x64 | Tiny sprites (minimum generation size) |
+| 32x32 — 96x96 | Tiny sprites (below server minimum 64x64 — may be rejected) |
 | 128x128 | Small sprites |
 | 256x256 | Medium sprites |
+| 384x384 | Medium-large sprites |
 | **512x512** | **Default** — best quality/speed ratio for SD 1.5 |
+| 512x768 / 768x512 | Rectangular formats (portraits / landscapes) |
 | 768x768 | Large scenes (needs more VRAM) |
 
 > [!NOTE]
@@ -536,13 +538,13 @@ To reproduce: enter that seed number in the Seed field, keep all other parameter
 | **LoRA switch is slow** | Expected: triggers model recompilation (~30-60s once per LoRA change) |
 | **AnimateDiff OOM** | Needs ~10 GB VRAM — reduce frame count or resolution |
 | **Live Paint not starting** | GPU must be idle. Cancel any running generation first |
-| **Server crashed** | Restart via `start.bat`. Check terminal for the error |
+| **Server crashed** | Restart via `start.ps1`. Check terminal for the error |
 | **torch.compile fails** | Install Visual Studio 2022 with C++ Desktop Development workload |
 
 <details>
 <summary>Server logs location</summary>
 
-The server logs are printed directly in the terminal window opened by `start.bat`. Look for `[WARNING]` and `[ERROR]` lines. Common patterns:
+The server logs are printed directly in the terminal window opened by `start.ps1`. Look for `[WARNING]` and `[ERROR]` lines. Common patterns:
 
 - `CUDA error`: GPU issue — restart the server, check VRAM
 - `KeyError` / `ValueError`: Protocol mismatch — make sure extension and server versions match

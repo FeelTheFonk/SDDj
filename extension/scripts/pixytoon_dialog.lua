@@ -262,12 +262,16 @@ local function build_tab_postprocess()
     id = "pixelate",
     label = "Pixelate",
     selected = false,
+    onchange = function()
+      dlg:modify{ id = "pixel_size", visible = dlg.data.pixelate }
+    end,
   }
 
   dlg:slider{
     id = "pixel_size",
     label = "Target (128px)",
     min = 8, max = 512, value = 128,
+    visible = false,
     onchange = function()
       dlg:modify{ id = "pixel_size", label = "Target (" .. dlg.data.pixel_size .. "px)" }
     end,
@@ -408,7 +412,7 @@ local function build_tab_live()
     PT.live.slider_debounce = Timer{
       interval = PT.cfg.LIVE_DEBOUNCE_INTERVAL,
       ontick = function()
-        PT.live.slider_debounce:stop()
+        PT.live.slider_debounce = PT.stop_timer(PT.live.slider_debounce)
         if not PT.live.mode or not PT.dlg then return end
         PT.send({
           action = "realtime_update",
@@ -519,7 +523,9 @@ local function build_actions_panel()
 
       -- Random loop: first generate a random prompt, then generate image
       if PT.loop.random_mode then
-        dlg:modify{ id = "generate_btn", enabled = false }
+        dlg:modify{ id = "generate_btn", text = "LOOPING...", enabled = false }
+        dlg:modify{ id = "animate_btn", enabled = false }
+        dlg:modify{ id = "live_btn", enabled = false }
         dlg:modify{ id = "cancel_btn", enabled = true }
         PT.loop.counter = PT.loop.counter + 1
         PT.update_status("Random Loop #" .. PT.loop.counter .. " — Generating prompt...")
@@ -528,12 +534,14 @@ local function build_actions_panel()
       end
 
       local req = PT.build_generate_request()
-      if not PT.attach_source_image(req) then PT.loop.mode = false; return end
+      if not PT.attach_source_image(req) then PT.loop.mode = false; PT.loop.random_mode = false; return end
 
       PT.state.generating = true
       PT.state.gen_step_start = os.clock()
       PT.start_gen_timeout()
-      dlg:modify{ id = "generate_btn", enabled = false }
+      dlg:modify{ id = "generate_btn", text = PT.loop.mode and "LOOPING..." or "GENERATE", enabled = false }
+      dlg:modify{ id = "animate_btn", enabled = false }
+      dlg:modify{ id = "live_btn", enabled = false }
       dlg:modify{ id = "cancel_btn", enabled = true }
       if PT.loop.mode then
         PT.loop.counter = PT.loop.counter + 1
@@ -560,7 +568,9 @@ local function build_actions_panel()
         PT.update_status("Cancelling...")
       else
         -- Cancel random loop even if no generation is in flight yet
-        dlg:modify{ id = "generate_btn", enabled = true }
+        dlg:modify{ id = "generate_btn", text = "GENERATE", enabled = true }
+        dlg:modify{ id = "animate_btn", enabled = true }
+        dlg:modify{ id = "live_btn", enabled = true }
         dlg:modify{ id = "cancel_btn", enabled = false }
         PT.update_status("Cancelled")
       end
@@ -606,6 +616,8 @@ local function build_actions_panel()
       PT.state.gen_step_start = os.clock()
       PT.start_gen_timeout()
       dlg:modify{ id = "animate_btn", enabled = false }
+      dlg:modify{ id = "generate_btn", enabled = false }
+      dlg:modify{ id = "live_btn", enabled = false }
       dlg:modify{ id = "cancel_btn", enabled = true }
       PT.update_status("Animating...")
       PT.send(req)
@@ -661,10 +673,12 @@ local function build_actions_panel()
       if spr == nil or PT.live.preview_layer == nil then return end
       local ok_cel, cel = pcall(function() return PT.live.preview_layer:cel(app.frame) end)
       if not ok_cel or cel == nil or cel.image == nil then return end
-      local new_layer = spr:newLayer()
-      new_layer.name = "PixyToon Live"
-      spr:newCel(new_layer, app.frame, cel.image:clone(), cel.position)
-      pcall(function() spr:deleteCel(cel) end)
+      app.transaction("PixyToon Accept Live", function()
+        local new_layer = spr:newLayer()
+        new_layer.name = "PixyToon Live"
+        spr:newCel(new_layer, app.frame, cel.image:clone(), cel.position)
+        pcall(function() spr:deleteCel(cel) end)
+      end)
       PT.live.canvas_hash = nil
       PT.live.prev_canvas = nil
       PT.live.cached_capture = nil
@@ -679,8 +693,11 @@ end
 function PT.build_dialog()
   PT.dlg = Dialog{
     title = "PixyToon - AI Pixel Art",
-    resizeable = true,
-    onclose = function() PT.save_settings(); PT.disconnect() end,
+    onclose = function()
+      PT.save_settings()
+      PT.disconnect()
+      PT.dlg = nil
+    end,
   }
 
   build_connection_section()

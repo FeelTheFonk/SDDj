@@ -327,7 +327,7 @@ class DiffusionEngine:
             self._controlnet_mode = None
             cleaned.append("ControlNet")
 
-        if self._animatediff._pipe is not None:
+        if self._animatediff.pipe is not None:
             self._animatediff.unload()
             cleaned.append("AnimateDiff")
 
@@ -365,7 +365,7 @@ class DiffusionEngine:
             return
 
         # Smart transition: free AnimateDiff if loaded (reclaim VRAM)
-        if self._animatediff._pipe is not None:
+        if self._animatediff.pipe is not None:
             log.info("Smart transition: unloading AnimateDiff before ControlNet load")
             self._animatediff.unload()
 
@@ -1139,7 +1139,17 @@ class DiffusionEngine:
             with torch.inference_mode():
                 # Decode input canvas
                 source = decode_b64_image(image_b64).convert("RGB")
+                orig_w, orig_h = source.size
                 source = resize_to_target(source, _width, _height)
+
+                # Scale ROI coordinates from original canvas space to target space
+                if has_roi and (orig_w != _width or orig_h != _height):
+                    sx = _width / orig_w
+                    sy = _height / orig_h
+                    roi_x = int(roi_x * sx)
+                    roi_y = int(roi_y * sy)
+                    roi_w = max(1, int(roi_w * sx))
+                    roi_h = max(1, int(roi_h * sy))
 
                 if has_roi:
                     result_image = self._process_realtime_roi(

@@ -20,7 +20,7 @@ end
 
 function PT.image_to_base64(img)
   local tmp = PT.make_tmp_path("b64")
-  img:saveAs(tmp)
+  if not img:saveAs(tmp) then return nil end
   local f = io.open(tmp, "rb")
   if not f then return nil end
   local data = f:read("*a")
@@ -32,7 +32,7 @@ end
 -- Raw PNG bytes for binary WebSocket send (skips base64 overhead).
 function PT.image_to_png_bytes(img)
   local tmp = PT.make_tmp_path("bin")
-  img:saveAs(tmp)
+  if not img:saveAs(tmp) then return nil end
   local f = io.open(tmp, "rb")
   if not f then return nil end
   local data = f:read("*a")

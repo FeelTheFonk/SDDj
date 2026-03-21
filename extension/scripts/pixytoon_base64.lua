@@ -23,7 +23,7 @@ function PT.base64_decode(data)
   data = data:gsub("[^" .. b64chars .. "=]", "")
   return (data:gsub(".", function(x)
     if x == "=" then return "" end
-    local r, f = "", (b64chars:find(x) - 1)
+    local r, f = "", (b64chars:find(x, 1, true) - 1)
     for i = 6, 1, -1 do r = r .. (f % 2^i - f % 2^(i-1) > 0 and "1" or "0") end
     return r
   end):gsub("%d%d%d?%d?%d?%d?%d?%d?", function(x)

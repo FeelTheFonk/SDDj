@@ -7,7 +7,7 @@ return function(PT)
 function PT.parse_size()
   local s = PT.dlg.data.output_size
   local w, h = s:match("(%d+)x(%d+)")
-  return tonumber(w), tonumber(h)
+  return tonumber(w) or 512, tonumber(h) or 512
 end
 
 function PT.parse_seed()
@@ -35,16 +35,17 @@ function PT.attach_neg_ti(req)
 end
 
 function PT.attach_source_image(req)
-  if req.mode == "img2img" or req.mode:find("controlnet_") then
+  local mode = req.mode or "txt2img"
+  if mode == "img2img" or mode:find("controlnet_") then
     local b64 = PT.capture_active_layer()
     if not b64 then
       app.alert("No active layer to use as source.")
       return false
     end
-    if req.mode == "img2img" then req.source_image = b64
+    if mode == "img2img" then req.source_image = b64
     else req.control_image = b64 end
   end
-  if req.mode == "inpaint" then
+  if mode == "inpaint" then
     local src = PT.capture_flattened()
     if not src then
       app.alert("Inpaint requires an open sprite.")

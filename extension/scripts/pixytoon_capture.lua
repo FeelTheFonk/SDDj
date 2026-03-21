@@ -17,7 +17,7 @@ end
 
 function PT.capture_flattened()
   local spr = app.sprite
-  if spr == nil then return nil end
+  if spr == nil or app.frame == nil then return nil end
   local flat_img = Image(spr.spec)
   flat_img:drawSprite(spr, app.frame)
   return PT.image_to_base64(flat_img)
@@ -29,7 +29,7 @@ end
 --   3) Active layer alpha channel       → white where alpha > 0
 function PT.capture_mask()
   local spr = app.sprite
-  if spr == nil then return nil end
+  if spr == nil or app.frame == nil then return nil end
 
   -- Strategy A: active selection
   local sel = spr.selection
@@ -89,14 +89,15 @@ function PT.capture_mask()
         end
       end
     else
-      -- Non-RGB modes: render through sprite compositing
-      local tmp_img = Image(spr.spec)
+      -- Non-RGB modes: render through sprite compositing to RGB, then check alpha
+      local tmp_img = Image(spr.width, spr.height, ColorMode.RGB)
       tmp_img:clear()
       tmp_img:drawImage(cel.image, cel.position)
       for y = 0, spr.height - 1 do
         for x = 0, spr.width - 1 do
           local px = tmp_img:getPixel(x, y)
-          if px ~= 0 then
+          local a = app.pixelColor.rgbaA(px)
+          if a > 0 then
             mask_img:drawPixel(x, y, Color{ gray = 255 })
           end
         end

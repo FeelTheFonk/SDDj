@@ -12,10 +12,9 @@ PT.cfg = {
   CONNECT_TIMEOUT         = 5.0,
   HEARTBEAT_INTERVAL      = 30.0,
   GEN_TIMEOUT             = 300,
-  LIVE_TIMER_INTERVAL     = 0.25,
-  LIVE_COOLDOWN_INTERVAL  = 0.2,
-  LIVE_COOLDOWN_THRESHOLD = 0.18,
-  LIVE_INFLIGHT_TIMEOUT   = 30.0,
+  LIVE_TIMER_INTERVAL     = 0.15,
+  LIVE_COOLDOWN_INTERVAL  = 0.15,
+  LIVE_INFLIGHT_TIMEOUT   = 10.0,
   LIVE_DEBOUNCE_INTERVAL  = 0.1,
   LOOP_DELAY              = 0.1,
   HASH_STEP_DIVISOR       = 16,
@@ -23,6 +22,8 @@ PT.cfg = {
 }
 
 -- ─── Mutable State ──────────────────────────────────────────
+
+math.randomseed(os.time())
 
 PT.ws_handle = nil
 PT.dlg       = nil

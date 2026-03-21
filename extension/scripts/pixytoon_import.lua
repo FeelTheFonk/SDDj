@@ -19,17 +19,22 @@ function PT.import_result(resp)
       spr = Sprite(resp.width or 512, resp.height or 512, ColorMode.RGB)
     end
 
-    local layer = spr:newLayer()
-    layer.name = "PixyToon #" .. tostring(resp.seed or "?")
-
     local img = Image{ fromFile = tmp }
-    if img then spr:newCel(layer, app.frame, img, Point(0, 0)) end
-
     os.remove(tmp)
+    tmp = nil  -- prevent double-remove in error handler
+
+    if img then
+      app.transaction("PixyToon Generate", function()
+        local layer = spr:newLayer()
+        layer.name = "PixyToon #" .. tostring(resp.seed or "?")
+        spr:newCel(layer, app.frame, img, Point(0, 0))
+      end)
+    end
+
     app.refresh()
   end)
   if not ok then
-    pcall(os.remove, tmp)
+    if tmp then pcall(os.remove, tmp) end
     PT.update_status("Import error: " .. tostring(err))
   end
 end
@@ -54,44 +59,48 @@ function PT.import_animation_frame(resp)
       created_sprite = true
     end
 
-    -- First frame: create layer and anchor position
-    if resp.frame_index == 0 then
-      PT.anim.layer = spr:newLayer()
-      PT.anim.layer.name = "PixyToon Anim #" .. tostring(resp.seed or "?")
-      PT.anim.base_seed = resp.seed or 0
-      PT.anim.frame_count = 0
-      if created_sprite then
-        PT.anim.start_frame = 1
-      else
-        PT.anim.start_frame = #spr.frames + 1
-      end
-    end
-
-    -- Determine frame position
-    local frame_num
-    if resp.frame_index == 0 and created_sprite then
-      frame_num = 1
-    else
-      local target_pos = PT.anim.start_frame + resp.frame_index
-      target_pos = math.min(target_pos, #spr.frames + 1)
-      local new_frame = spr:newEmptyFrame(target_pos)
-      frame_num = new_frame.frameNumber
-    end
-
     local img = Image{ fromFile = tmp }
-    -- Validate layer still exists in sprite before creating cel
-    local layer_valid = false
-    if img and PT.anim.layer and spr.frames[frame_num] then
-      for _, layer in ipairs(spr.layers) do
-        if layer == PT.anim.layer then layer_valid = true; break end
+    os.remove(tmp)
+    tmp = nil
+
+    app.transaction("PixyToon Frame " .. (resp.frame_index + 1), function()
+      -- First frame: create layer and anchor position
+      if resp.frame_index == 0 then
+        PT.anim.layer = spr:newLayer()
+        PT.anim.layer.name = "PixyToon Anim #" .. tostring(resp.seed or "?")
+        PT.anim.base_seed = resp.seed or 0
+        PT.anim.frame_count = 0
+        if created_sprite then
+          PT.anim.start_frame = 1
+        else
+          PT.anim.start_frame = #spr.frames + 1
+        end
       end
-    end
-    if layer_valid then
-      spr:newCel(PT.anim.layer, spr.frames[frame_num], img, Point(0, 0))
-    end
+
+      -- Determine frame position
+      local frame_num
+      if resp.frame_index == 0 and created_sprite then
+        frame_num = 1
+      else
+        local target_pos = PT.anim.start_frame + resp.frame_index
+        target_pos = math.min(target_pos, #spr.frames + 1)
+        local new_frame = spr:newEmptyFrame(target_pos)
+        frame_num = new_frame.frameNumber
+      end
+
+      -- Validate layer still exists in sprite before creating cel
+      local layer_valid = false
+      if img and PT.anim.layer and spr.frames[frame_num] then
+        for _, layer in ipairs(spr.layers) do
+          if layer == PT.anim.layer then layer_valid = true; break end
+        end
+      end
+      if layer_valid then
+        spr:newCel(PT.anim.layer, spr.frames[frame_num], img, Point(0, 0))
+      end
+    end)
 
     PT.anim.frame_count = PT.anim.frame_count + 1
-    os.remove(tmp)
     app.refresh()
 
     if PT.dlg then
@@ -100,7 +109,7 @@ function PT.import_animation_frame(resp)
     end
   end)
   if not ok then
-    pcall(os.remove, tmp)
+    if tmp then pcall(os.remove, tmp) end
     PT.update_status("Import error: " .. tostring(err))
   end
 end

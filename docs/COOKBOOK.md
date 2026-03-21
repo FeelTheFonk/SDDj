@@ -13,7 +13,9 @@
 - [Environments](#environments)
 - [Items and Icons](#items-and-icons)
 - [Portraits](#portraits)
+- [Inpaint](#inpaint)
 - [Animation](#animation)
+- [Loop and Random Loop](#loop-and-random-loop)
 - [Live Paint Recipes](#live-paint-recipes)
 - [ControlNet Recipes](#controlnet-recipes)
 - [Palette Craft](#palette-craft)
@@ -316,6 +318,55 @@ pointed ears, green eyes, pixel art style, sharp pixels
 
 ---
 
+## Inpaint
+
+### Fix a Face
+
+Generated sprite has a bad face? Inpaint just that region.
+
+1. Select the face area with the selection tool
+2. Mode: **inpaint**
+
+**Prompt:**
+```
+pixel art, detailed face, expressive eyes, game character face,
+sharp pixels, clean
+```
+
+**Settings:**
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| Strength | 0.6-0.8 | Enough to regenerate the face, keep surroundings |
+| CFG | 5.0-6.0 | Follow the prompt closely |
+
+> [!TIP]
+> Use a feathered selection for smoother blending at the inpaint boundary.
+
+---
+
+### Add Missing Detail
+
+Sprite is missing a weapon, accessory, or background element.
+
+1. Select the empty area where you want the new element
+2. Mode: **inpaint**
+
+**Prompt:**
+```
+pixel art, (element to add), game sprite, matching style,
+sharp pixels, flat colors
+```
+
+**Settings:**
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| Strength | 0.9-1.0 | Full generation in the selected area |
+| CFG | 5.0 | Balanced interpretation |
+
+---
+
 ## Animation
 
 ### Walk Cycle (Chain)
@@ -383,6 +434,46 @@ orange yellow, game effect, pixel art style
 | Frames | 8-12 | Loopable |
 | Strength | 0.35-0.50 | More variation for effects |
 | Remove BG | Yes | Overlay on game scenes |
+
+---
+
+## Loop and Random Loop
+
+### Rapid Variation Exploration (Loop Mode)
+
+Generate 20+ variations of the same prompt to find the perfect one.
+
+1. Set your prompt and all generation settings
+2. Check **Loop Mode**
+3. Set **Loop Seed** to `random` (different each time) or `increment` (+1 each iteration)
+4. Click **Generate** and watch variations flow
+
+> [!TIP]
+> Use `increment` seed mode to get subtle variations — each seed nearby produces similar but slightly different results.
+
+---
+
+### Automated Creative Discovery (Random Loop)
+
+Let the AI surprise you with fully randomized prompts and images.
+
+1. Check **Loop Mode** and **Random Loop**
+2. Optionally check **Lock Subject** and enter a fixed subject (e.g., "warrior character")
+3. Click **Generate**
+4. Each iteration: new random prompt is generated, then the image is generated, repeat
+
+**Example locked subject workflow:**
+
+| Setting | Value |
+|---------|-------|
+| Lock Subject | On |
+| Fixed Subject | "dragon" |
+| Loop Seed | random |
+
+Result: endless dragon variations — pixel art dragon, chibi dragon, dragon boss sprite, dragon idle animation... all automatically generated with diverse styles, moods, and compositions.
+
+> [!TIP]
+> Random Loop is perfect for mood boards and inspiration gathering. Let it run for 5 minutes, then review the results and pick your favorites.
 
 ---
 
@@ -456,8 +547,8 @@ flat colors, (matching your subject description)
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
-| Strength | 0.8-1.0 | Let the AI fully color and interpret |
 | CFG | 5.0-6.0 | Follow the lines closely |
+| Steps | 8 | Standard quality |
 
 ---
 
@@ -478,8 +569,8 @@ sharp pixels, flat shading
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
-| Strength | 0.9-1.0 | Maximum reinterpretation |
 | CFG | 5.0 | Balanced interpretation |
+| Steps | 8 | Standard quality |
 
 > [!TIP]
 > Scribble mode is great for prototyping. Draw 10 stick figures, generate 10 character concepts in minutes.
@@ -498,6 +589,20 @@ Draw a stick figure skeleton, get a posed character.
 pixel art, (character description), (action/pose),
 game sprite, sharp pixels
 ```
+
+**Settings:**
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| CFG | 5.0-6.0 | Follow the pose closely |
+| Steps | 8 | Standard quality |
+
+**Post-Process:**
+
+| Setting | Value |
+|---------|-------|
+| Pixelate | 64-128px |
+| Colors | 16-24 |
 
 ---
 
@@ -518,8 +623,8 @@ pixel art, colored version, vibrant colors, flat shading,
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
-| Strength | 0.7-0.9 | Preserve lines, add color |
 | CFG | 6.0 | Respect the line art structure |
+| Steps | 8 | Standard quality |
 
 ---
 

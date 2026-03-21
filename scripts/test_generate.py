@@ -37,7 +37,7 @@ async def run():
         )
     except Exception as e:
         print(f"[FAIL] Could not connect: {e}")
-        print("       Make sure the server is running (start.bat or uv run python run.py)")
+        print("       Make sure the server is running (start.ps1 or uv run python run.py)")
         return False
 
     print("[OK]   Connected")
