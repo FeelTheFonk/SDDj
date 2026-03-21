@@ -289,6 +289,47 @@ class DiffusionEngine:
             torch.cuda.empty_cache()
         log.info("Pipeline unloaded")
 
+    def cleanup_resources(self) -> dict:
+        """Free optional GPU resources (ControlNet, AnimateDiff, rembg).
+
+        Keeps the base pipeline loaded. Returns freed VRAM info.
+        """
+        freed_before = 0.0
+        freed_after = 0.0
+        try:
+            if torch.cuda.is_available():
+                freed_before = torch.cuda.mem_get_info()[0] / (1024 * 1024)
+        except Exception:
+            pass
+
+        cleaned = []
+
+        if self._controlnet_pipe is not None:
+            self._controlnet_pipe = None
+            self._controlnet_mode = None
+            cleaned.append("ControlNet")
+
+        if self._animatediff._pipe is not None:
+            self._animatediff.unload()
+            cleaned.append("AnimateDiff")
+
+        rembg_wrapper.unload()
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        try:
+            if torch.cuda.is_available():
+                freed_after = torch.cuda.mem_get_info()[0] / (1024 * 1024)
+        except Exception:
+            pass
+
+        freed_mb = max(0.0, freed_after - freed_before)
+        msg = f"Cleaned: {', '.join(cleaned) if cleaned else 'cache only'}"
+        log.info("Resource cleanup: freed %.1f MB (%s)", freed_mb, msg)
+        return {"freed_mb": round(freed_mb, 1), "message": msg}
+
     # ─── LORA MANAGEMENT ────────────────────────────────────
 
     def set_pixel_lora(self, name: Optional[str], weight: float = 1.0) -> None:
@@ -303,6 +344,12 @@ class DiffusionEngine:
         """Lazy-load ControlNet model for the requested mode."""
         if self._controlnet_mode == mode and self._controlnet_pipe is not None:
             return
+
+        # Smart transition: free AnimateDiff if loaded (reclaim VRAM)
+        if self._animatediff._pipe is not None:
+            log.info("Smart transition: unloading AnimateDiff before ControlNet load")
+            self._animatediff.unload()
+            gc.collect()
 
         # Unload previous
         self._controlnet_pipe = None
@@ -816,6 +863,16 @@ class DiffusionEngine:
         on_progress: Optional[Callable[[ProgressResponse], None]],
     ) -> list[AnimationFrameResponse]:
         """AnimateDiff motion module generation for temporal consistency."""
+        # Smart transition: free ControlNet if not needed for this request
+        is_controlnet = req.mode.value.startswith("controlnet_")
+        if not is_controlnet and self._controlnet_pipe is not None:
+            log.info("Smart transition: unloading ControlNet before AnimateDiff")
+            self._controlnet_pipe = None
+            self._controlnet_mode = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         with deepcache_manager.suspended(self._deepcache_helper):
             return self._generate_animatediff_inner(req, on_frame, on_progress)
 
@@ -1011,8 +1068,17 @@ class DiffusionEngine:
         image_b64: str,
         frame_id: int,
         prompt_override: Optional[str] = None,
+        mask_b64: Optional[str] = None,
+        roi_x: Optional[int] = None,
+        roi_y: Optional[int] = None,
+        roi_w: Optional[int] = None,
+        roi_h: Optional[int] = None,
     ) -> RealtimeResultResponse:
-        """Process a single frame in real-time mode: img2img -> post-process -> encode."""
+        """Process a single frame in real-time mode: img2img -> post-process -> encode.
+
+        If ROI parameters are provided, only the dirty region is regenerated
+        and composited back for faster, more intuitive live painting.
+        """
         rt = self._realtime
         if not rt.active:
             raise RuntimeError("Real-time mode not active")
@@ -1036,32 +1102,28 @@ class DiffusionEngine:
             _height = rt.height
             _pp = rt.post_process
 
+        has_roi = (roi_x is not None and roi_y is not None
+                   and roi_w is not None and roi_h is not None
+                   and roi_w > 0 and roi_h > 0)
+
         try:
             with torch.inference_mode():
                 # Decode input canvas
                 source = decode_b64_image(image_b64).convert("RGB")
                 source = resize_to_target(source, _width, _height)
 
-                # Generator with fixed seed for coherence
-                generator = torch.Generator("cuda").manual_seed(_seed)
-
-                # Reset scheduler state for clean inference
-                self._img2img_pipe.scheduler = pipeline_factory.fresh_scheduler(self._pipe)
-
-                # Run img2img with cached prompt embeddings
-                kwargs = dict(
-                    prompt_embeds=_prompt_embeds,
-                    image=source,
-                    num_inference_steps=_steps,
-                    guidance_scale=_cfg,
-                    strength=_denoise,
-                    generator=generator,
-                    output_type="pil",
-                )
-                if _neg_embeds is not None:
-                    kwargs["negative_prompt_embeds"] = _neg_embeds
-
-                result_image = self._img2img_pipe(**kwargs).images[0]
+                if has_roi:
+                    result_image = self._process_realtime_roi(
+                        source, mask_b64,
+                        roi_x, roi_y, roi_w, roi_h,
+                        _prompt_embeds, _neg_embeds,
+                        _steps, _cfg, _denoise, _seed,
+                    )
+                else:
+                    result_image = self._process_realtime_full(
+                        source, _prompt_embeds, _neg_embeds,
+                        _steps, _cfg, _denoise, _seed,
+                    )
 
             # Post-process (palette, pixelate, quantize)
             result_image = postprocess_apply(result_image, _pp)
@@ -1079,6 +1141,8 @@ class DiffusionEngine:
                 frame_id=frame_id,
                 width=w,
                 height=h,
+                roi_x=roi_x if has_roi else None,
+                roi_y=roi_y if has_roi else None,
             )
 
         except torch.cuda.OutOfMemoryError:
@@ -1086,6 +1150,107 @@ class DiffusionEngine:
             gc.collect()
             torch.cuda.empty_cache()
             raise
+
+    def _process_realtime_full(
+        self,
+        source: Image.Image,
+        prompt_embeds, neg_embeds,
+        steps: int, cfg: float, denoise: float, seed: int,
+    ) -> Image.Image:
+        """Full-canvas img2img (original behavior)."""
+        generator = torch.Generator("cuda").manual_seed(seed)
+        self._img2img_pipe.scheduler = pipeline_factory.fresh_scheduler(self._pipe)
+
+        kwargs = dict(
+            prompt_embeds=prompt_embeds,
+            image=source,
+            num_inference_steps=steps,
+            guidance_scale=cfg,
+            strength=denoise,
+            generator=generator,
+            output_type="pil",
+        )
+        if neg_embeds is not None:
+            kwargs["negative_prompt_embeds"] = neg_embeds
+
+        return self._img2img_pipe(**kwargs).images[0]
+
+    def _process_realtime_roi(
+        self,
+        source: Image.Image,
+        mask_b64: Optional[str],
+        roi_x: int, roi_y: int, roi_w: int, roi_h: int,
+        prompt_embeds, neg_embeds,
+        steps: int, cfg: float, denoise: float, seed: int,
+    ) -> Image.Image:
+        """ROI-based realtime: crop dirty region, img2img, composite back."""
+        pad = settings.realtime_roi_padding
+        min_gen = settings.realtime_roi_min_size
+        sw, sh = source.size
+
+        # Scale ROI to generation resolution
+        scale_x = sw / source.size[0] if source.size[0] > 0 else 1.0
+        scale_y = sh / source.size[1] if source.size[1] > 0 else 1.0
+
+        # Compute padded ROI clamped to image bounds
+        px1 = max(0, roi_x - pad)
+        py1 = max(0, roi_y - pad)
+        px2 = min(sw, roi_x + roi_w + pad)
+        py2 = min(sh, roi_y + roi_h + pad)
+        crop_w = px2 - px1
+        crop_h = py2 - py1
+
+        if crop_w < 8 or crop_h < 8:
+            # ROI too small, fall back to full canvas
+            return self._process_realtime_full(
+                source, prompt_embeds, neg_embeds, steps, cfg, denoise, seed,
+            )
+
+        # Crop source to padded ROI
+        crop = source.crop((px1, py1, px2, py2))
+
+        # Determine generation size (at least min_gen, rounded to 8)
+        gen_w = round8(max(min_gen, crop_w))
+        gen_h = round8(max(min_gen, crop_h))
+        crop_resized = crop.resize((gen_w, gen_h), Image.LANCZOS)
+
+        # Run img2img on the crop
+        generator = torch.Generator("cuda").manual_seed(seed)
+        self._img2img_pipe.scheduler = pipeline_factory.fresh_scheduler(self._pipe)
+
+        kwargs = dict(
+            prompt_embeds=prompt_embeds,
+            image=crop_resized,
+            num_inference_steps=steps,
+            guidance_scale=cfg,
+            strength=denoise,
+            generator=generator,
+            output_type="pil",
+        )
+        if neg_embeds is not None:
+            kwargs["negative_prompt_embeds"] = neg_embeds
+
+        result_crop = self._img2img_pipe(**kwargs).images[0]
+
+        # Resize result back to original crop dimensions
+        result_crop = result_crop.resize((crop_w, crop_h), Image.LANCZOS)
+
+        # Composite with mask if provided
+        if mask_b64:
+            try:
+                mask = decode_b64_mask(mask_b64)
+                mask = resize_to_target(mask, sw, sh)
+                mask_crop = mask.crop((px1, py1, px2, py2))
+                # Blend: result where mask is white, original where black
+                result_crop = Image.composite(result_crop, crop, mask_crop)
+            except Exception as e:
+                log.warning("ROI mask composite failed, using unmasked result: %s", e)
+
+        # Paste result back into full canvas
+        full_result = source.copy()
+        full_result.paste(result_crop, (px1, py1))
+
+        return full_result
 
     def update_realtime_params(self, req: RealtimeUpdateRequest) -> None:
         """Hot-update real-time parameters without stopping the session."""

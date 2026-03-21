@@ -1,0 +1,21 @@
+{
+  "description": "Photorealistic renders",
+  "prompt_prefix": "photorealistic, highly detailed, sharp focus, ",
+  "prompt_suffix": "",
+  "negative_prompt": "blurry, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, bad proportions, extra limbs, missing limbs, extra fingers, poorly drawn hands, poorly drawn face, ugly, cartoon, anime, painting, illustration",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 12,
+  "cfg_scale": 7.0,
+  "denoise_strength": 1.0,
+  "clip_skip": 1,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_method": "kmeans",
+    "quantize_colors": 256,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}

@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     loras_dir: Path = _SERVER_ROOT / "models" / "loras"
     embeddings_dir: Path = _SERVER_ROOT / "models" / "embeddings"
     palettes_dir: Path = _SERVER_ROOT / "palettes"
+    presets_dir: Path = _SERVER_ROOT / "presets"
+    prompts_data_dir: Path = _SERVER_ROOT / "data" / "prompts"
 
     # ── Default checkpoint ───────────────────────────────────
     default_checkpoint: str = "Lykon/dreamshaper-8"
@@ -88,6 +90,8 @@ class Settings(BaseSettings):
     realtime_default_steps: int = Field(4, ge=2, le=8)
     realtime_default_cfg: float = Field(2.5, ge=1.0, le=10.0)
     realtime_default_denoise: float = Field(0.5, ge=0.05, le=0.95)
+    realtime_roi_padding: int = Field(32, ge=8, le=128)  # padding around ROI crop
+    realtime_roi_min_size: int = Field(64, ge=32, le=256)  # minimum ROI dimension
 
     model_config = {"env_prefix": "PIXYTOON_"}
 
@@ -95,7 +99,7 @@ class Settings(BaseSettings):
     def _warn_missing_dirs(self):
         import logging
         _log = logging.getLogger("pixytoon.config")
-        for name in ("models_dir", "checkpoints_dir", "loras_dir", "embeddings_dir", "palettes_dir"):
+        for name in ("models_dir", "checkpoints_dir", "loras_dir", "embeddings_dir", "palettes_dir", "presets_dir", "prompts_data_dir"):
             d = getattr(self, name)
             if not d.is_dir():
                 _log.warning("Directory does not exist: %s=%s", name, d)

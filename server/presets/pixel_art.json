@@ -1,0 +1,21 @@
+{
+  "description": "Optimized for pixel art sprites",
+  "prompt_prefix": "pixel art, PixArFK, game sprite, sharp pixels, ",
+  "prompt_suffix": "",
+  "negative_prompt": "blurry, antialiased, smooth gradient, photorealistic, 3d render, soft edges, anti-aliasing, bokeh, depth of field, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, bad proportions, extra limbs, missing limbs, extra fingers, fused fingers, poorly drawn hands, poorly drawn face, ugly, realistic, photo, high resolution, complex shading",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 8,
+  "cfg_scale": 5.0,
+  "denoise_strength": 1.0,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": true, "target_size": 128},
+    "quantize_method": "kmeans",
+    "quantize_colors": 32,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}

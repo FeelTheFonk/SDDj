@@ -1,0 +1,9 @@
+{
+  "templates": {
+    "default": "{quality}, {subject}, {style}, {lighting}, {mood}",
+    "simple": "{subject}, {style}, {quality}",
+    "atmospheric": "{subject}, {style}, {lighting}, {mood}, {camera}",
+    "detailed": "{quality}, {subject}, {style}, {camera}, {lighting}, {mood}",
+    "minimal": "{subject}, {style}"
+  }
+}

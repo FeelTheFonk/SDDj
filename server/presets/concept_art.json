@@ -1,0 +1,21 @@
+{
+  "description": "Concept art and environment design",
+  "prompt_prefix": "concept art, matte painting, epic composition, ",
+  "prompt_suffix": ", cinematic",
+  "negative_prompt": "blurry, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, photo, photorealistic, amateur",
+  "mode": "txt2img",
+  "width": 768,
+  "height": 512,
+  "steps": 10,
+  "cfg_scale": 7.0,
+  "denoise_strength": 1.0,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_method": "kmeans",
+    "quantize_colors": 128,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}

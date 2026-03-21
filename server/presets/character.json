@@ -1,0 +1,21 @@
+{
+  "description": "Character design and portraits",
+  "prompt_prefix": "character design, full body, detailed, ",
+  "prompt_suffix": ", white background",
+  "negative_prompt": "blurry, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, bad proportions, extra limbs, missing limbs, extra fingers, fused fingers, poorly drawn hands, poorly drawn face, ugly, cropped",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 8,
+  "cfg_scale": 5.0,
+  "denoise_strength": 1.0,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_method": "kmeans",
+    "quantize_colors": 64,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": true
+  }
+}

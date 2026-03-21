@@ -1,0 +1,21 @@
+{
+  "description": "Digital illustration and concept art",
+  "prompt_prefix": "digital illustration, artstation, detailed, ",
+  "prompt_suffix": "",
+  "negative_prompt": "blurry, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, photo, photorealistic",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 10,
+  "cfg_scale": 6.0,
+  "denoise_strength": 1.0,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_method": "kmeans",
+    "quantize_colors": 64,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}

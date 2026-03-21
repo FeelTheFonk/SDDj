@@ -92,10 +92,23 @@ local live_request_inflight = false
 local live_preview_layer = nil
 local live_last_prompt = nil
 local live_preview_sprite = nil
+local live_prev_canvas = nil
+local live_stroke_cooldown = nil
+
+-- Loop mode state
+local loop_mode = false
+local loop_counter = 0
+local loop_seed_mode = "random"
+
+-- Presets state
+local available_presets = {}
 
 -- Generation timeout
 local gen_timeout_timer = nil
 local GEN_TIMEOUT_SECONDS = 300  -- 5 minutes
+
+-- Settings persistence
+local SETTINGS_FILE = app.fs.joinPath(app.fs.userConfigPath, "pixytoon_settings.json")
 
 -- Forward declarations
 local handle_response
@@ -109,6 +122,8 @@ local start_live_timer
 local live_update_preview
 local stop_gen_timeout
 local start_gen_timeout
+local save_settings
+local load_settings
 
 -- ─── HELPERS ─────────────────────────────────────────────────
 
@@ -156,6 +171,138 @@ local function build_post_process()
     if #colors > 0 then pp.palette.colors = colors end
   end
   return pp
+end
+
+-- ─── SETTINGS PERSISTENCE ────────────────────────────────────
+
+save_settings = function()
+  if not dlg then return end
+  local s = {
+    server_url = dlg.data.server_url,
+    prompt = dlg.data.prompt,
+    negative_prompt = dlg.data.negative_prompt,
+    mode = dlg.data.mode,
+    output_size = dlg.data.output_size,
+    seed = dlg.data.seed,
+    steps = dlg.data.steps,
+    cfg_scale = dlg.data.cfg_scale,
+    clip_skip = dlg.data.clip_skip,
+    denoise = dlg.data.denoise,
+    lora_name = dlg.data.lora_name,
+    lora_weight = dlg.data.lora_weight,
+    use_neg_ti = dlg.data.use_neg_ti,
+    neg_ti_weight = dlg.data.neg_ti_weight,
+    pixelate = dlg.data.pixelate,
+    pixel_size = dlg.data.pixel_size,
+    colors = dlg.data.colors,
+    quantize_method = dlg.data.quantize_method,
+    dither = dlg.data.dither,
+    palette_mode = dlg.data.palette_mode,
+    remove_bg = dlg.data.remove_bg,
+    anim_method = dlg.data.anim_method,
+    anim_frames = dlg.data.anim_frames,
+    anim_duration = dlg.data.anim_duration,
+    anim_denoise = dlg.data.anim_denoise,
+    anim_seed_strategy = dlg.data.anim_seed_strategy,
+    live_strength = dlg.data.live_strength,
+    live_steps = dlg.data.live_steps,
+    live_cfg = dlg.data.live_cfg,
+    live_opacity = dlg.data.live_opacity,
+    preset_name = dlg.data.preset_name,
+  }
+  local ok, encoded = pcall(json.encode, s)
+  if not ok then return end
+  local f = io.open(SETTINGS_FILE, "w")
+  if f then
+    f:write(encoded)
+    f:close()
+  end
+end
+
+load_settings = function()
+  local f = io.open(SETTINGS_FILE, "r")
+  if not f then return nil end
+  local data = f:read("*a")
+  f:close()
+  local ok, s = pcall(json.decode, data)
+  if not ok or type(s) ~= "table" then return nil end
+  return s
+end
+
+local function apply_settings(s)
+  if not s or not dlg then return end
+  if s.server_url then dlg:modify{ id = "server_url", text = s.server_url } end
+  if s.prompt then dlg:modify{ id = "prompt", text = s.prompt } end
+  if s.negative_prompt then dlg:modify{ id = "negative_prompt", text = s.negative_prompt } end
+  if s.mode then dlg:modify{ id = "mode", option = s.mode } end
+  if s.output_size then dlg:modify{ id = "output_size", option = s.output_size } end
+  if s.seed then dlg:modify{ id = "seed", text = s.seed } end
+  if s.steps then dlg:modify{ id = "steps", value = s.steps } end
+  if s.cfg_scale then dlg:modify{ id = "cfg_scale", value = s.cfg_scale } end
+  if s.clip_skip then dlg:modify{ id = "clip_skip", value = s.clip_skip } end
+  if s.denoise then dlg:modify{ id = "denoise", value = s.denoise } end
+  if s.lora_weight then dlg:modify{ id = "lora_weight", value = s.lora_weight } end
+  if s.use_neg_ti ~= nil then dlg:modify{ id = "use_neg_ti", selected = s.use_neg_ti } end
+  if s.neg_ti_weight then dlg:modify{ id = "neg_ti_weight", value = s.neg_ti_weight } end
+  if s.pixelate ~= nil then dlg:modify{ id = "pixelate", selected = s.pixelate } end
+  if s.pixel_size then dlg:modify{ id = "pixel_size", value = s.pixel_size } end
+  if s.colors then dlg:modify{ id = "colors", value = s.colors } end
+  if s.quantize_method then dlg:modify{ id = "quantize_method", option = s.quantize_method } end
+  if s.dither then dlg:modify{ id = "dither", option = s.dither } end
+  if s.palette_mode then dlg:modify{ id = "palette_mode", option = s.palette_mode } end
+  if s.remove_bg ~= nil then dlg:modify{ id = "remove_bg", selected = s.remove_bg } end
+  if s.anim_method then dlg:modify{ id = "anim_method", option = s.anim_method } end
+  if s.anim_frames then dlg:modify{ id = "anim_frames", value = s.anim_frames } end
+  if s.anim_duration then dlg:modify{ id = "anim_duration", value = s.anim_duration } end
+  if s.anim_denoise then dlg:modify{ id = "anim_denoise", value = s.anim_denoise } end
+  if s.anim_seed_strategy then dlg:modify{ id = "anim_seed_strategy", option = s.anim_seed_strategy } end
+  if s.live_strength then dlg:modify{ id = "live_strength", value = s.live_strength } end
+  if s.live_steps then dlg:modify{ id = "live_steps", value = s.live_steps } end
+  if s.live_cfg then dlg:modify{ id = "live_cfg", value = s.live_cfg } end
+  if s.live_opacity then dlg:modify{ id = "live_opacity", value = s.live_opacity } end
+  if s.preset_name then dlg:modify{ id = "preset_name", option = s.preset_name } end
+end
+
+-- ─── LIVE PAINT ROI HELPERS ─────────────────────────────────
+
+local function detect_dirty_region(prev, curr)
+  local w, h = curr.width, curr.height
+  local min_x, min_y = w, h
+  local max_x, max_y = 0, 0
+  local step = math.max(1, math.floor(math.min(w, h) / 64))
+  local found = false
+  for y = 0, h - 1, step do
+    for x = 0, w - 1, step do
+      if prev:getPixel(x, y) ~= curr:getPixel(x, y) then
+        found = true
+        if x < min_x then min_x = x end
+        if y < min_y then min_y = y end
+        if x > max_x then max_x = x end
+        if y > max_y then max_y = y end
+      end
+    end
+  end
+  if not found then return nil end
+  min_x = math.max(0, min_x - step)
+  min_y = math.max(0, min_y - step)
+  max_x = math.min(w - 1, max_x + step)
+  max_y = math.min(h - 1, max_y + step)
+  return { x = min_x, y = min_y, w = max_x - min_x + 1, h = max_y - min_y + 1 }
+end
+
+local function generate_dirty_mask(prev, curr, roi)
+  local mask = Image(curr.width, curr.height, ColorMode.GRAY)
+  mask:clear(Color{ gray = 0 })
+  for y = roi.y, roi.y + roi.h - 1 do
+    for x = roi.x, roi.x + roi.w - 1 do
+      if x < curr.width and y < curr.height then
+        if prev:getPixel(x, y) ~= curr:getPixel(x, y) then
+          mask:drawPixel(x, y, Color{ gray = 255 })
+        end
+      end
+    end
+  end
+  return mask
 end
 
 -- ─── WEBSOCKET ───────────────────────────────────────────────
@@ -336,6 +483,7 @@ request_resources = function()
   send({ action = "list_palettes" })
   send({ action = "list_loras" })
   send({ action = "list_embeddings" })
+  send({ action = "list_presets" })
 end
 
 -- ─── RESPONSE HANDLER ────────────────────────────────────────
@@ -369,12 +517,58 @@ handle_response = function(resp)
     generating = false
     gen_step_start = nil
     stop_gen_timeout()
-    if dlg then
+    if resp.image then import_result(resp) end
+    -- Loop mode: schedule next generation
+    if loop_mode and dlg then
+      local seed_info = tostring(resp.seed or "?")
+      update_status("Loop #" .. loop_counter .. " done (seed=" .. seed_info .. ") — next...")
+      -- Adjust seed for next iteration
+      if loop_seed_mode == "increment" and resp.seed then
+        dlg:modify{ id = "seed", text = tostring(resp.seed + 1) }
+      else
+        dlg:modify{ id = "seed", text = "-1" }
+      end
+      -- Small delay then trigger next generation
+      local loop_timer = Timer{
+        interval = 0.1,
+        ontick = function(t)
+          t:stop()
+          if loop_mode and dlg and connected and not generating then
+            -- Re-trigger the generate button click
+            local gw, gh = parse_size()
+            local req = {
+              action = "generate",
+              prompt = dlg.data.prompt,
+              negative_prompt = dlg.data.negative_prompt,
+              mode = dlg.data.mode,
+              width = gw, height = gh,
+              seed = parse_seed(),
+              steps = dlg.data.steps,
+              cfg_scale = dlg.data.cfg_scale / 10.0,
+              clip_skip = dlg.data.clip_skip,
+              denoise_strength = dlg.data.denoise / 100.0,
+              post_process = build_post_process(),
+            }
+            attach_lora(req)
+            attach_neg_ti(req)
+            if not attach_source_image(req) then loop_mode = false; return end
+            generating = true
+            gen_step_start = os.clock()
+            start_gen_timeout()
+            loop_counter = loop_counter + 1
+            dlg:modify{ id = "generate_btn", enabled = false }
+            dlg:modify{ id = "cancel_btn", enabled = true }
+            update_status("Loop #" .. loop_counter .. " — Generating...")
+            send(req)
+          end
+        end,
+      }
+      loop_timer:start()
+    elseif dlg then
       update_status("Done (" .. tostring(resp.time_ms or "?") .. "ms, seed=" .. tostring(resp.seed or "?") .. ")")
       dlg:modify{ id = "generate_btn", enabled = true }
       dlg:modify{ id = "cancel_btn", enabled = false }
     end
-    if resp.image then import_result(resp) end
 
   elseif resp.type == "animation_frame" then
     if resp.image and resp.frame_index ~= nil then
@@ -418,6 +612,7 @@ handle_response = function(resp)
     local was_animating = animating
     generating = false
     animating = false
+    loop_mode = false
     gen_step_start = nil
     stop_gen_timeout()
 
@@ -466,6 +661,13 @@ handle_response = function(resp)
       end
     elseif lt == "embeddings" then
       available_embeddings = items
+    elseif lt == "presets" then
+      available_presets = items
+      if dlg then
+        local opts = { "(none)" }
+        for _, n in ipairs(items) do opts[#opts + 1] = n end
+        dlg:modify{ id = "preset_name", options = opts }
+      end
     end
     local total = #available_palettes + #available_loras + #available_embeddings
     if total > 0 then
@@ -528,6 +730,61 @@ handle_response = function(resp)
     if not connected then set_connected(true) end
     if not resources_requested then request_resources() end
     update_status("Connected")
+
+  elseif resp.type == "prompt_result" then
+    if dlg and resp.prompt then
+      dlg:modify{ id = "prompt", text = resp.prompt }
+      update_status("Prompt generated")
+    end
+
+  elseif resp.type == "preset" then
+    if dlg and resp.data then
+      local d = resp.data
+      if d.prompt_prefix then dlg:modify{ id = "prompt", text = d.prompt_prefix } end
+      if d.negative_prompt then dlg:modify{ id = "negative_prompt", text = d.negative_prompt } end
+      if d.mode then dlg:modify{ id = "mode", option = d.mode } end
+      if d.width and d.height then
+        dlg:modify{ id = "output_size", option = d.width .. "x" .. d.height }
+      end
+      if d.steps then dlg:modify{ id = "steps", value = d.steps } end
+      if d.cfg_scale then dlg:modify{ id = "cfg_scale", value = math.floor(d.cfg_scale * 10) } end
+      if d.clip_skip then dlg:modify{ id = "clip_skip", value = d.clip_skip } end
+      if d.denoise_strength then dlg:modify{ id = "denoise", value = math.floor(d.denoise_strength * 100) } end
+      if d.post_process then
+        local pp = d.post_process
+        if pp.pixelate ~= nil then
+          local px = pp.pixelate
+          if type(px) == "table" then
+            if px.enabled ~= nil then dlg:modify{ id = "pixelate", selected = px.enabled } end
+            if px.target_size then dlg:modify{ id = "pixel_size", value = px.target_size } end
+          else
+            dlg:modify{ id = "pixelate", selected = px }
+          end
+        end
+        if pp.quantize_colors then dlg:modify{ id = "colors", value = pp.quantize_colors } end
+        if pp.quantize_method then dlg:modify{ id = "quantize_method", option = pp.quantize_method } end
+        if pp.dither then dlg:modify{ id = "dither", option = pp.dither } end
+      end
+      update_status("Preset '" .. tostring(resp.name or "?") .. "' loaded")
+    end
+
+  elseif resp.type == "preset_saved" then
+    if dlg then
+      update_status("Preset '" .. tostring(resp.name or "?") .. "' saved")
+      send({ action = "list_presets" })
+    end
+
+  elseif resp.type == "preset_deleted" then
+    if dlg then
+      update_status("Preset '" .. tostring(resp.name or "?") .. "' deleted")
+      dlg:modify{ id = "preset_name", option = "(none)" }
+      send({ action = "list_presets" })
+    end
+
+  elseif resp.type == "cleanup_done" then
+    if dlg then
+      update_status(tostring(resp.message or "Cleanup done") .. " (freed " .. string.format("%.1f", resp.freed_mb or 0) .. " MB)")
+    end
   end
 end
 
@@ -756,13 +1013,14 @@ end
 
 start_live_timer = function()
   stop_live_timer()
+  live_prev_canvas = nil
+  live_stroke_cooldown = nil
   live_timer = Timer{
-    interval = 0.3,
+    interval = 0.15,
     ontick = function()
       if not live_mode or not connected or live_request_inflight then return end
       local spr = app.sprite
       if spr == nil then
-        -- Sprite was closed — stop live mode
         send({ action = "realtime_stop" })
         stop_live_timer()
         live_mode = false
@@ -796,27 +1054,72 @@ start_live_timer = function()
       if hash == live_canvas_hash then return end
       live_canvas_hash = hash
 
-      -- Auto-detect prompt changes
-      if dlg then
-        local current_prompt = dlg.data.prompt
-        if current_prompt ~= live_last_prompt then
-          live_last_prompt = current_prompt
-          send({ action = "realtime_update", prompt = current_prompt })
-        end
-      end
+      -- Debounce: wait 200ms after last change before sending
+      live_stroke_cooldown = os.clock()
+      local cooldown_check = Timer{
+        interval = 0.2,
+        ontick = function(t)
+          t:stop()
+          if not live_mode or live_request_inflight then return end
+          if live_stroke_cooldown and (os.clock() - live_stroke_cooldown) < 0.18 then return end
 
-      -- Send frame
-      local b64 = image_to_base64(flat_img)
-      if not b64 then return end
-      live_frame_id = live_frame_id + 1
-      local sent = send({
-        action = "realtime_frame",
-        image = b64,
-        frame_id = live_frame_id,
-      })
-      if sent then
-        live_request_inflight = true
-      end
+          -- Auto-detect prompt changes
+          if dlg then
+            local current_prompt = dlg.data.prompt
+            if current_prompt ~= live_last_prompt then
+              live_last_prompt = current_prompt
+              send({ action = "realtime_update", prompt = current_prompt })
+            end
+          end
+
+          -- Recapture after debounce
+          if not spr or not app.sprite then return end
+          local vis2 = true
+          if live_preview_layer then
+            vis2 = live_preview_layer.isVisible
+            live_preview_layer.isVisible = false
+          end
+          local curr_img = Image(spr.spec)
+          curr_img:drawSprite(spr, app.frame)
+          if live_preview_layer then
+            live_preview_layer.isVisible = vis2
+          end
+
+          -- ROI detection
+          local roi = nil
+          local mask_b64 = nil
+          if live_prev_canvas and live_prev_canvas.width == curr_img.width and live_prev_canvas.height == curr_img.height then
+            roi = detect_dirty_region(live_prev_canvas, curr_img)
+            if roi then
+              local mask_img = generate_dirty_mask(live_prev_canvas, curr_img, roi)
+              mask_b64 = image_to_base64(mask_img)
+            end
+          end
+          live_prev_canvas = curr_img:clone()
+
+          -- Send frame with ROI data
+          local b64 = image_to_base64(curr_img)
+          if not b64 then return end
+          live_frame_id = live_frame_id + 1
+          local payload = {
+            action = "realtime_frame",
+            image = b64,
+            frame_id = live_frame_id,
+          }
+          if roi then
+            payload.roi_x = roi.x
+            payload.roi_y = roi.y
+            payload.roi_w = roi.w
+            payload.roi_h = roi.h
+            if mask_b64 then payload.mask = mask_b64 end
+          end
+          local sent = send(payload)
+          if sent then
+            live_request_inflight = true
+          end
+        end,
+      }
+      cooldown_check:start()
     end,
   }
   live_timer:start()
@@ -853,10 +1156,14 @@ live_update_preview = function(resp)
   os.remove(tmp)
   if not img then return end
 
-  -- Replace existing cel
+  -- Update existing cel in-place (avoids layer churn)
   local cel = live_preview_layer:cel(app.frame)
-  if cel then spr:deleteCel(cel) end
-  spr:newCel(live_preview_layer, app.frame, img, Point(0, 0))
+  if cel then
+    cel.image = img
+    cel.position = Point(0, 0)
+  else
+    spr:newCel(live_preview_layer, app.frame, img, Point(0, 0))
+  end
 
   -- Apply opacity
   if dlg then
@@ -931,7 +1238,7 @@ local function build_dialog()
   dlg = Dialog{
     title = "PixyToon - AI Pixel Art",
     resizeable = true,
-    onclose = function() disconnect() end
+    onclose = function() save_settings(); disconnect() end
   }
 
   -- ══════════════════════════════════════════════════════════
@@ -972,11 +1279,73 @@ local function build_dialog()
       end
     end
   }
+  dlg:button{
+    id = "cleanup_btn",
+    text = "Cleanup GPU",
+    onclick = function()
+      if connected and not generating and not animating and not live_mode then
+        send({ action = "cleanup" })
+        update_status("Cleaning up GPU...")
+      else
+        update_status("Cannot cleanup during generation/live")
+      end
+    end
+  }
 
   -- ══════════════════════════════════════════════════════════
   -- TAB: Generate
   -- ══════════════════════════════════════════════════════════
   dlg:tab{ id = "tab_gen", text = "Generate" }
+
+  -- Preset selector
+  dlg:combobox{
+    id = "preset_name",
+    label = "Preset",
+    options = { "(none)" },
+    option = "(none)",
+    onchange = function()
+      local sel = dlg.data.preset_name
+      if sel and sel ~= "(none)" then
+        send({ action = "get_preset", preset_name = sel })
+      end
+    end,
+  }
+  dlg:button{
+    id = "preset_save_btn",
+    text = "Save",
+    onclick = function()
+      local name_dlg = Dialog{ title = "Save Preset" }
+      name_dlg:entry{ id = "pname", label = "Name", text = "", hexpand = true }
+      name_dlg:button{ id = "ok", text = "Save" }
+      name_dlg:button{ id = "cancel", text = "Cancel" }
+      name_dlg:show()
+      local pname = name_dlg.data.pname or ""
+      if pname == "" then return end
+      local gw, gh = parse_size()
+      local preset_data = {
+        prompt_prefix = dlg.data.prompt,
+        negative_prompt = dlg.data.negative_prompt,
+        mode = dlg.data.mode,
+        width = gw, height = gh,
+        steps = dlg.data.steps,
+        cfg_scale = dlg.data.cfg_scale / 10.0,
+        clip_skip = dlg.data.clip_skip,
+        denoise_strength = dlg.data.denoise / 100.0,
+        post_process = build_post_process(),
+      }
+      send({ action = "save_preset", preset_name = pname, preset_data = preset_data })
+    end,
+  }
+  dlg:button{
+    id = "preset_delete_btn",
+    text = "Del",
+    onclick = function()
+      local sel = dlg.data.preset_name
+      if sel and sel ~= "(none)" then
+        send({ action = "delete_preset", preset_name = sel })
+      end
+    end,
+  }
 
   dlg:combobox{
     id = "mode",
@@ -1013,6 +1382,14 @@ local function build_dialog()
     label = "Prompt",
     text = "pixel art, PixArFK, game sprite, sharp pixels",
     hexpand = true,
+  }
+  dlg:button{
+    id = "randomize_btn",
+    text = "Randomize",
+    onclick = function()
+      send({ action = "generate_prompt" })
+      update_status("Generating prompt...")
+    end,
   }
 
   dlg:entry{
@@ -1110,7 +1487,7 @@ local function build_dialog()
   dlg:check{
     id = "pixelate",
     label = "Pixelate",
-    selected = true,
+    selected = false,
   }
 
   dlg:slider{
@@ -1330,6 +1707,22 @@ local function build_dialog()
   -- ══════════════════════════════════════════════════════════
   dlg:separator{ text = "Actions" }
 
+  dlg:check{
+    id = "loop_check",
+    label = "Loop Mode",
+    selected = false,
+    onchange = function()
+      dlg:modify{ id = "loop_seed_combo", visible = dlg.data.loop_check }
+    end,
+  }
+  dlg:combobox{
+    id = "loop_seed_combo",
+    label = "Loop Seed",
+    options = { "random", "increment" },
+    option = "random",
+    visible = false,
+  }
+
   dlg:button{
     id = "generate_btn",
     text = "GENERATE",
@@ -1337,6 +1730,12 @@ local function build_dialog()
     hexpand = true,
     onclick = function()
       if generating or animating then return end
+      -- Initialize loop state
+      if dlg.data.loop_check then
+        loop_mode = true
+        loop_counter = 0
+        loop_seed_mode = dlg.data.loop_seed_combo or "random"
+      end
       local gw, gh = parse_size()
       local req = {
         action = "generate",
@@ -1353,14 +1752,19 @@ local function build_dialog()
       }
       attach_lora(req)
       attach_neg_ti(req)
-      if not attach_source_image(req) then return end
+      if not attach_source_image(req) then loop_mode = false; return end
 
       generating = true
       gen_step_start = os.clock()
       start_gen_timeout()
       dlg:modify{ id = "generate_btn", enabled = false }
       dlg:modify{ id = "cancel_btn", enabled = true }
-      update_status("Generating...")
+      if loop_mode then
+        loop_counter = loop_counter + 1
+        update_status("Loop #" .. loop_counter .. " — Generating...")
+      else
+        update_status("Generating...")
+      end
       send(req)
     end,
   }
@@ -1370,6 +1774,7 @@ local function build_dialog()
     text = "CANCEL",
     enabled = false,
     onclick = function()
+      loop_mode = false
       if generating or animating then
         send({ action = "cancel" })
         update_status("Cancelling...")
@@ -1485,3 +1890,4 @@ end
 -- ─── LAUNCH ──────────────────────────────────────────────────
 
 build_dialog()
+apply_settings(load_settings())

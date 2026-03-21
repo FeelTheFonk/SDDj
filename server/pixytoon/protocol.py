@@ -26,6 +26,14 @@ class Action(str, Enum):
     REALTIME_FRAME = "realtime_frame"
     REALTIME_UPDATE = "realtime_update"
     REALTIME_STOP = "realtime_stop"
+    # Auto-prompt & presets
+    GENERATE_PROMPT = "generate_prompt"
+    LIST_PRESETS = "list_presets"
+    GET_PRESET = "get_preset"
+    SAVE_PRESET = "save_preset"
+    DELETE_PRESET = "delete_preset"
+    # Resource management
+    CLEANUP = "cleanup"
 
 
 class GenerationMode(str, Enum):
@@ -209,6 +217,12 @@ class RealtimeFrameRequest(BaseModel):
     image: str              # base64 PNG — current canvas
     frame_id: int = 0       # monotonic frame counter (for latest-wins)
     prompt: Optional[str] = None  # override prompt mid-session
+    # ROI (Region of Interest) for partial regeneration
+    mask: Optional[str] = None    # base64 mask of dirty region
+    roi_x: Optional[int] = None
+    roi_y: Optional[int] = None
+    roi_w: Optional[int] = None
+    roi_h: Optional[int] = None
 
 
 class RealtimeUpdateRequest(BaseModel):
@@ -252,6 +266,17 @@ class Request(BaseModel):
     # Realtime fields
     image: Optional[str] = None
     frame_id: Optional[int] = None
+    mask: Optional[str] = None      # ROI mask for realtime
+    roi_x: Optional[int] = None
+    roi_y: Optional[int] = None
+    roi_w: Optional[int] = None
+    roi_h: Optional[int] = None
+    # Auto-prompt fields
+    locked_fields: Optional[dict[str, str]] = None
+    prompt_template: Optional[str] = None
+    # Preset fields
+    preset_name: Optional[str] = None
+    preset_data: Optional[dict] = None
 
     def to_generate_request(self) -> GenerateRequest:
         _anim_fields = {
@@ -283,6 +308,10 @@ class Request(BaseModel):
             data["frame_id"] = self.frame_id
         if self.prompt is not None:
             data["prompt"] = self.prompt
+        for k in ("mask", "roi_x", "roi_y", "roi_w", "roi_h"):
+            v = getattr(self, k, None)
+            if v is not None:
+                data[k] = v
         return RealtimeFrameRequest(**data)
 
     def to_realtime_update(self) -> RealtimeUpdateRequest:
@@ -342,7 +371,7 @@ class ErrorResponse(BaseModel):
 
 class ListResponse(BaseModel):
     type: Literal["list"] = "list"
-    list_type: str  # "loras" | "palettes" | "controlnets" | "embeddings"
+    list_type: str  # "loras" | "palettes" | "controlnets" | "embeddings" | "presets"
     items: list[str]
 
 
@@ -362,6 +391,8 @@ class RealtimeResultResponse(BaseModel):
     frame_id: int
     width: int
     height: int
+    roi_x: Optional[int] = None
+    roi_y: Optional[int] = None
 
 
 class RealtimeStoppedResponse(BaseModel):
@@ -371,3 +402,35 @@ class RealtimeStoppedResponse(BaseModel):
 
 class PongResponse(BaseModel):
     type: Literal["pong"] = "pong"
+
+
+# ─────────────────────────────────────────────────────────────
+# AUTO-PROMPT & PRESETS RESPONSE MODELS
+# ─────────────────────────────────────────────────────────────
+
+class PromptResultResponse(BaseModel):
+    type: Literal["prompt_result"] = "prompt_result"
+    prompt: str
+    components: dict[str, str]
+
+
+class PresetResponse(BaseModel):
+    type: Literal["preset"] = "preset"
+    name: str
+    data: dict
+
+
+class PresetSavedResponse(BaseModel):
+    type: Literal["preset_saved"] = "preset_saved"
+    name: str
+
+
+class PresetDeletedResponse(BaseModel):
+    type: Literal["preset_deleted"] = "preset_deleted"
+    name: str
+
+
+class CleanupResponse(BaseModel):
+    type: Literal["cleanup_done"] = "cleanup_done"
+    message: str
+    freed_mb: float

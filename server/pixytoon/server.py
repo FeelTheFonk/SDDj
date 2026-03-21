@@ -19,10 +19,15 @@ from .protocol import (
     Action,
     AnimationCompleteResponse,
     AnimationFrameResponse,
+    CleanupResponse,
     ErrorResponse,
     ListResponse,
     PongResponse,
+    PresetDeletedResponse,
+    PresetResponse,
+    PresetSavedResponse,
     ProgressResponse,
+    PromptResultResponse,
     RealtimeReadyResponse,
     RealtimeResultResponse,
     RealtimeStoppedResponse,
@@ -200,6 +205,26 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             items = ti_manager.list_embeddings()
             await _send(websocket, ListResponse(list_type="embeddings", items=items))
 
+        elif req.action == Action.GENERATE_PROMPT:
+            await _handle_generate_prompt(websocket, req)
+
+        elif req.action == Action.LIST_PRESETS:
+            from .presets_manager import presets_manager
+            items = presets_manager.list_presets()
+            await _send(websocket, ListResponse(list_type="presets", items=items))
+
+        elif req.action == Action.GET_PRESET:
+            await _handle_get_preset(websocket, req)
+
+        elif req.action == Action.SAVE_PRESET:
+            await _handle_save_preset(websocket, req)
+
+        elif req.action == Action.DELETE_PRESET:
+            await _handle_delete_preset(websocket, req)
+
+        elif req.action == Action.CLEANUP:
+            await _handle_cleanup(websocket)
+
         elif req.action == Action.REALTIME_START:
             await _handle_realtime_start(websocket, req, ws_id)
 
@@ -338,6 +363,79 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
 
 
 # ─────────────────────────────────────────────────────────────
+# AUTO-PROMPT, PRESETS & CLEANUP HANDLERS
+# ─────────────────────────────────────────────────────────────
+
+async def _handle_generate_prompt(websocket: WebSocket, req: Request) -> None:
+    from .prompt_generator import prompt_generator
+    locked = req.locked_fields or {}
+    template = req.prompt_template
+    prompt, components = prompt_generator.generate(locked, template)
+    await _send(websocket, PromptResultResponse(prompt=prompt, components=components))
+
+
+async def _handle_get_preset(websocket: WebSocket, req: Request) -> None:
+    from .presets_manager import presets_manager
+    name = req.preset_name
+    if not name:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message="preset_name required"))
+        return
+    try:
+        data = presets_manager.get_preset(name)
+        await _send(websocket, PresetResponse(name=name, data=data))
+    except FileNotFoundError as e:
+        await _send(websocket, ErrorResponse(code="INVALID_REQUEST", message=str(e)))
+    except ValueError as e:
+        await _send(websocket, ErrorResponse(code="INVALID_REQUEST", message=str(e)))
+
+
+async def _handle_save_preset(websocket: WebSocket, req: Request) -> None:
+    from .presets_manager import presets_manager
+    if not req.preset_name or not req.preset_data:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message="preset_name and preset_data required"))
+        return
+    try:
+        presets_manager.save_preset(req.preset_name, req.preset_data)
+        await _send(websocket, PresetSavedResponse(name=req.preset_name))
+    except ValueError as e:
+        await _send(websocket, ErrorResponse(code="INVALID_REQUEST", message=str(e)))
+
+
+async def _handle_delete_preset(websocket: WebSocket, req: Request) -> None:
+    from .presets_manager import presets_manager
+    if not req.preset_name:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message="preset_name required"))
+        return
+    try:
+        presets_manager.delete_preset(req.preset_name)
+        await _send(websocket, PresetDeletedResponse(name=req.preset_name))
+    except (FileNotFoundError, ValueError) as e:
+        await _send(websocket, ErrorResponse(code="INVALID_REQUEST", message=str(e)))
+
+
+async def _handle_cleanup(websocket: WebSocket) -> None:
+    if _realtime_owner is not None:
+        await _send(websocket, ErrorResponse(
+            code="REALTIME_BUSY",
+            message="Cannot cleanup while real-time mode is active"))
+        return
+    if _generate_lock is not None and _generate_lock.locked():
+        await _send(websocket, ErrorResponse(
+            code="GPU_BUSY",
+            message="Cannot cleanup while a generation is in progress"))
+        return
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, engine.cleanup_resources)
+    await _send(websocket, CleanupResponse(
+        message=result["message"],
+        freed_mb=result["freed_mb"],
+    ))
+
+
+# ─────────────────────────────────────────────────────────────
 # REAL-TIME PAINT HANDLERS
 # ─────────────────────────────────────────────────────────────
 
@@ -417,6 +515,11 @@ async def _handle_realtime_frame(websocket: WebSocket, req: Request, ws_id: int)
                 frame_req.image,
                 frame_req.frame_id,
                 prompt_override=frame_req.prompt,
+                mask_b64=frame_req.mask,
+                roi_x=frame_req.roi_x,
+                roi_y=frame_req.roi_y,
+                roi_w=frame_req.roi_w,
+                roi_h=frame_req.roi_h,
             ),
         )
         await _send(websocket, result)
