@@ -32,6 +32,22 @@ def create_helper(pipe):
         return None
 
 
+def disable(helper) -> None:
+    """Disable DeepCache on the given helper."""
+    if helper is None:
+        return
+    helper.disable()
+    log.info("DeepCache disabled")
+
+
+def enable(helper) -> None:
+    """Re-enable DeepCache on the given helper."""
+    if helper is None:
+        return
+    helper.enable()
+    log.info("DeepCache enabled")
+
+
 @contextmanager
 def suspended(helper):
     """Context manager: disable DeepCache on enter, re-enable on exit.

@@ -83,6 +83,15 @@ local anim_base_seed = 0
 local available_loras = {}
 local available_embeddings = {}
 
+-- Live paint state
+local live_mode = false
+local live_timer = nil
+local live_canvas_hash = nil
+local live_frame_id = 0
+local live_request_inflight = false
+local live_preview_layer = nil
+local live_last_prompt = nil
+
 -- Forward declarations
 local handle_response
 local import_result
@@ -90,6 +99,9 @@ local import_animation_frame
 local request_resources
 local start_heartbeat
 local stop_heartbeat
+local stop_live_timer
+local start_live_timer
+local live_update_preview
 
 -- ─── HELPERS ─────────────────────────────────────────────────
 
@@ -153,13 +165,20 @@ local function set_connected(state)
     dlg:modify{ id = "connect_btn", text = "Disconnect" }
     dlg:modify{ id = "generate_btn", enabled = true }
     dlg:modify{ id = "animate_btn", enabled = true }
+    dlg:modify{ id = "live_btn", enabled = true }
   else
     dlg:modify{ id = "connect_btn", text = "Connect" }
     dlg:modify{ id = "generate_btn", enabled = false }
     dlg:modify{ id = "cancel_btn", enabled = false }
     dlg:modify{ id = "animate_btn", enabled = false }
+    dlg:modify{ id = "live_btn", enabled = false }
+    dlg:modify{ id = "live_btn", text = "START LIVE" }
+    dlg:modify{ id = "live_accept_btn", visible = false }
     if generating then generating = false end
     if animating then animating = false end
+    stop_live_timer()
+    live_mode = false
+    live_request_inflight = false
   end
 end
 
@@ -182,7 +201,7 @@ start_heartbeat = function()
   heartbeat_timer = Timer{
     interval = 30.0,
     ontick = function()
-      if connected and ws and not generating and not animating then
+      if connected and ws and not generating and not animating and not live_mode then
         pcall(function() ws:sendText('{"action":"ping"}') end)
       end
     end,
@@ -252,6 +271,11 @@ local function disconnect()
   anim_base_seed = 0
   generating = false
   animating = false
+  stop_live_timer()
+  live_mode = false
+  live_request_inflight = false
+  live_canvas_hash = nil
+  live_preview_layer = nil
   update_status("Disconnected")
 end
 
@@ -372,9 +396,10 @@ handle_response = function(resp)
 
     if dlg then
       update_status("Error: " .. tostring(resp.message or "Unknown"))
-      dlg:modify{ id = "generate_btn", enabled = true }
-      dlg:modify{ id = "animate_btn", enabled = true }
+      dlg:modify{ id = "generate_btn", enabled = not live_mode }
+      dlg:modify{ id = "animate_btn", enabled = not live_mode }
       dlg:modify{ id = "cancel_btn", enabled = false }
+      live_request_inflight = false
     end
     if resp.code ~= "CANCELLED" then
       app.alert("PixyToon: " .. tostring(resp.message or "Unknown error"))
@@ -406,6 +431,41 @@ handle_response = function(resp)
         .. #available_palettes .. " palettes, " .. #available_embeddings .. " embeddings)")
     else
       update_status("Connected (no resources found)")
+    end
+
+  elseif resp.type == "realtime_ready" then
+    live_mode = true
+    live_request_inflight = false
+    live_last_prompt = dlg and dlg.data.prompt or nil
+    if dlg then
+      update_status("Live mode active")
+      dlg:modify{ id = "live_btn", text = "STOP LIVE" }
+      dlg:modify{ id = "live_accept_btn", visible = true }
+      dlg:modify{ id = "generate_btn", enabled = false }
+      dlg:modify{ id = "animate_btn", enabled = false }
+    end
+    start_live_timer()
+
+  elseif resp.type == "realtime_result" then
+    live_request_inflight = false
+    if live_mode and resp.image then
+      live_update_preview(resp)
+      if dlg then
+        update_status("Live (" .. tostring(resp.latency_ms or "?") .. "ms)")
+      end
+    end
+
+  elseif resp.type == "realtime_stopped" then
+    stop_live_timer()
+    live_mode = false
+    live_request_inflight = false
+    live_canvas_hash = nil
+    if dlg then
+      update_status("Live mode stopped")
+      dlg:modify{ id = "live_btn", text = "START LIVE" }
+      dlg:modify{ id = "live_accept_btn", visible = false }
+      dlg:modify{ id = "generate_btn", enabled = true }
+      dlg:modify{ id = "animate_btn", enabled = true }
     end
 
   elseif resp.type == "pong" then
@@ -600,6 +660,120 @@ local function capture_mask()
   end
 
   return nil
+end
+
+-- ─── LIVE PAINT HELPERS ─────────────────────────────────────
+
+local function canvas_hash(img)
+  local w, h = img.width, img.height
+  local hash = 0
+  local step = math.max(1, math.floor(math.min(w, h) / 32))
+  for y = 0, h - 1, step do
+    for x = 0, w - 1, step do
+      hash = (hash * 31 + img:getPixel(x, y)) % 2147483647
+    end
+  end
+  return hash
+end
+
+stop_live_timer = function()
+  if live_timer then
+    if live_timer.isRunning then live_timer:stop() end
+    live_timer = nil
+  end
+end
+
+start_live_timer = function()
+  stop_live_timer()
+  live_timer = Timer{
+    interval = 0.3,
+    ontick = function()
+      if not live_mode or not connected or live_request_inflight then return end
+      local spr = app.sprite
+      if spr == nil then return end
+
+      -- Hide preview layer for capture
+      local was_visible = true
+      if live_preview_layer then
+        was_visible = live_preview_layer.isVisible
+        live_preview_layer.isVisible = false
+      end
+      local flat_img = Image(spr.spec)
+      flat_img:drawSprite(spr, app.frame)
+      if live_preview_layer then
+        live_preview_layer.isVisible = was_visible
+      end
+
+      -- Check if canvas changed
+      local hash = canvas_hash(flat_img)
+      if hash == live_canvas_hash then return end
+      live_canvas_hash = hash
+
+      -- Auto-detect prompt changes
+      if dlg then
+        local current_prompt = dlg.data.prompt
+        if current_prompt ~= live_last_prompt then
+          live_last_prompt = current_prompt
+          send({ action = "realtime_update", prompt = current_prompt })
+        end
+      end
+
+      -- Send frame
+      local b64 = image_to_base64(flat_img)
+      if not b64 then return end
+      live_frame_id = live_frame_id + 1
+      live_request_inflight = true
+      send({
+        action = "realtime_frame",
+        image = b64,
+        frame_id = live_frame_id,
+      })
+    end,
+  }
+  live_timer:start()
+end
+
+live_update_preview = function(resp)
+  local spr = app.sprite
+  if spr == nil then return end
+
+  -- Find or create preview layer
+  if live_preview_layer == nil or not pcall(function() return live_preview_layer.name end) then
+    live_preview_layer = nil
+    for _, layer in ipairs(spr.layers) do
+      if layer.name == "_pixytoon_live" then
+        live_preview_layer = layer
+        break
+      end
+    end
+    if live_preview_layer == nil then
+      live_preview_layer = spr:newLayer()
+      live_preview_layer.name = "_pixytoon_live"
+    end
+  end
+
+  local img_data = base64_decode(resp.image)
+  local tmp = make_tmp_path("live")
+  local f = io.open(tmp, "wb")
+  if not f then return end
+  f:write(img_data)
+  f:close()
+
+  local img = Image{ fromFile = tmp }
+  os.remove(tmp)
+  if not img then return end
+
+  -- Replace existing cel
+  local cel = live_preview_layer:cel(app.frame)
+  if cel then spr:deleteCel(cel) end
+  spr:newCel(live_preview_layer, app.frame, img, Point(0, 0))
+
+  -- Apply opacity
+  if dlg then
+    live_preview_layer.opacity = math.floor(dlg.data.live_opacity * 255 / 100)
+  end
+
+  app.refresh()
 end
 
 -- ─── SHARED REQUEST BUILDERS ─────────────────────────────────
@@ -983,6 +1157,70 @@ local function build_dialog()
     visible = false,
   }
 
+  -- ══════════════════════════════════════════════════════════
+  -- TAB: Live
+  -- ══════════════════════════════════════════════════════════
+  dlg:tab{ id = "tab_live", text = "Live" }
+
+  dlg:slider{
+    id = "live_strength",
+    label = "Strength (0.50)",
+    min = 5,
+    max = 95,
+    value = 50,
+    onchange = function()
+      dlg:modify{ id = "live_strength",
+        label = string.format("Strength (%.2f)", dlg.data.live_strength / 100.0) }
+      if live_mode then
+        send({ action = "realtime_update", denoise_strength = dlg.data.live_strength / 100.0 })
+      end
+    end,
+  }
+
+  dlg:slider{
+    id = "live_steps",
+    label = "Steps",
+    min = 2,
+    max = 8,
+    value = 4,
+    onchange = function()
+      if live_mode then
+        send({ action = "realtime_update", steps = dlg.data.live_steps })
+      end
+    end,
+  }
+
+  dlg:slider{
+    id = "live_cfg",
+    label = "CFG (2.5)",
+    min = 10,
+    max = 100,
+    value = 25,
+    onchange = function()
+      dlg:modify{ id = "live_cfg",
+        label = string.format("CFG (%.1f)", dlg.data.live_cfg / 10.0) }
+      if live_mode then
+        send({ action = "realtime_update", cfg_scale = dlg.data.live_cfg / 10.0 })
+      end
+    end,
+  }
+
+  dlg:slider{
+    id = "live_opacity",
+    label = "Preview (70%)",
+    min = 10,
+    max = 100,
+    value = 70,
+    onchange = function()
+      dlg:modify{ id = "live_opacity",
+        label = string.format("Preview (%d%%)", dlg.data.live_opacity) }
+      if live_preview_layer then
+        live_preview_layer.opacity = math.floor(dlg.data.live_opacity * 255 / 100)
+        app.refresh()
+      end
+    end,
+  }
+
   -- ── End tabs ──
   dlg:endtabs{ id = "main_tabs", selected = "tab_gen" }
 
@@ -1078,6 +1316,63 @@ local function build_dialog()
       dlg:modify{ id = "cancel_btn", enabled = true }
       update_status("Animating...")
       send(req)
+    end,
+  }
+
+  dlg:button{
+    id = "live_btn",
+    text = "START LIVE",
+    enabled = false,
+    hexpand = true,
+    onclick = function()
+      if live_mode then
+        send({ action = "realtime_stop" })
+        stop_live_timer()
+        update_status("Stopping live...")
+      else
+        if generating or animating then return end
+        local spr = app.sprite
+        if spr == nil then
+          app.alert("Open a sprite first to use Live mode.")
+          return
+        end
+        local gw, gh = parse_size()
+        local req = {
+          action = "realtime_start",
+          prompt = dlg.data.prompt,
+          negative_prompt = dlg.data.negative_prompt,
+          width = gw, height = gh,
+          seed = parse_seed(),
+          steps = dlg.data.live_steps,
+          cfg_scale = dlg.data.live_cfg / 10.0,
+          denoise_strength = dlg.data.live_strength / 100.0,
+          clip_skip = dlg.data.clip_skip,
+          post_process = build_post_process(),
+        }
+        attach_lora(req)
+        attach_neg_ti(req)
+        live_canvas_hash = nil
+        live_frame_id = 0
+        update_status("Starting live...")
+        send(req)
+      end
+    end,
+  }
+
+  dlg:button{
+    id = "live_accept_btn",
+    text = "ACCEPT",
+    visible = false,
+    onclick = function()
+      local spr = app.sprite
+      if spr == nil or live_preview_layer == nil then return end
+      local cel = live_preview_layer:cel(app.frame)
+      if cel == nil or cel.image == nil then return end
+      local new_layer = spr:newLayer()
+      new_layer.name = "PixyToon Live"
+      spr:newCel(new_layer, app.frame, cel.image:clone(), cel.position)
+      app.refresh()
+      update_status("Live result accepted")
     end,
   }
 

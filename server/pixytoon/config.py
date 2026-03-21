@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     enable_freeinit: bool = False
     freeinit_iterations: int = 2
 
+    # ── Real-Time Paint Mode ──────────────────────────────────
+    realtime_timeout: float = Field(60.0, gt=0.0)  # auto-stop if no frame for N seconds
+    realtime_default_steps: int = Field(4, ge=2, le=8)
+    realtime_default_cfg: float = Field(2.5, ge=1.0, le=10.0)
+    realtime_default_denoise: float = Field(0.5, ge=0.05, le=0.95)
+
     model_config = {"env_prefix": "PIXYTOON_"}
 
     @model_validator(mode='after')

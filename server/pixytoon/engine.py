@@ -47,7 +47,13 @@ from .protocol import (
     AnimationRequest,
     GenerateRequest,
     GenerationMode,
+    PostProcessSpec,
     ProgressResponse,
+    RealtimeReadyResponse,
+    RealtimeResultResponse,
+    RealtimeStartRequest,
+    RealtimeStoppedResponse,
+    RealtimeUpdateRequest,
     ResultResponse,
     SeedStrategy,
 )
@@ -79,6 +85,36 @@ class GenerationCancelled(Exception):
     """Raised when a client cancels an in-progress generation."""
 
 
+class RealtimeState:
+    """Mutable state for a real-time paint session."""
+
+    def __init__(self) -> None:
+        self.active: bool = False
+        self.prompt: str = ""
+        self.negative_prompt: str = ""
+        self.prompt_embeds: Optional[torch.Tensor] = None
+        self.negative_prompt_embeds: Optional[torch.Tensor] = None
+        self._prompt_hash: Optional[int] = None
+        self.denoise_strength: float = 0.5
+        self.steps: int = 4
+        self.cfg_scale: float = 2.5
+        self.seed: int = -1
+        self.clip_skip: int = 2
+        self.width: int = 512
+        self.height: int = 512
+        self.post_process: PostProcessSpec = PostProcessSpec()
+        self.frame_counter: int = 0
+        self._resolved_seed: int = 0  # actual seed used (resolved from -1)
+        self._deepcache_was_active: bool = False
+
+    def reset(self) -> None:
+        self.active = False
+        self.prompt_embeds = None
+        self.negative_prompt_embeds = None
+        self._prompt_hash = None
+        self.frame_counter = 0
+
+
 class DiffusionEngine:
     """Manages the full SD1.5 pipeline with SOTA optimizations."""
 
@@ -93,6 +129,7 @@ class DiffusionEngine:
         self._loaded_ti_tokens: set[str] = set()
         self._loaded = False
         self._cancel_event = threading.Event()
+        self._realtime = RealtimeState()
 
     @property
     def is_loaded(self) -> bool:
@@ -880,3 +917,211 @@ class DiffusionEngine:
                 on_frame(frame_resp)
 
         return frames
+
+    # ─── REAL-TIME PAINT MODE ─────────────────────────────────
+
+    def start_realtime(self, req: RealtimeStartRequest) -> RealtimeReadyResponse:
+        """Activate real-time paint mode: prepare pipeline for fast img2img loop."""
+        if not self._loaded:
+            self.load()
+
+        rt = self._realtime
+        if rt.active:
+            self.stop_realtime()
+
+        # Handle LoRA if specified
+        if req.lora is not None:
+            if (req.lora.name != self._lora_fuser.current_name
+                    or req.lora.weight != self._lora_fuser.current_weight):
+                self.set_pixel_lora(req.lora.name, req.lora.weight)
+
+        # Configure state from request
+        rt.prompt = req.prompt
+        rt.negative_prompt = self._build_effective_negative(req.negative_prompt, req.negative_ti)
+        rt.denoise_strength = req.denoise_strength
+        rt.steps = req.steps
+        rt.cfg_scale = req.cfg_scale
+        rt.clip_skip = req.clip_skip
+        rt.width = round8(req.width)
+        rt.height = round8(req.height)
+        rt.post_process = req.post_process
+        rt.frame_counter = 0
+
+        # Resolve seed once (fixed for session coherence)
+        if req.seed >= 0:
+            rt.seed = req.seed
+        else:
+            rt.seed = random.randint(0, 2**32 - 1)
+        rt._resolved_seed = rt.seed % (2**32)
+
+        # Suspend DeepCache (not effective at 2-4 steps)
+        if self._deepcache_helper is not None:
+            try:
+                deepcache_manager.disable(self._deepcache_helper)
+                rt._deepcache_was_active = True
+                log.info("DeepCache suspended for realtime mode")
+            except Exception as e:
+                log.warning("Failed to suspend DeepCache: %s", e)
+                rt._deepcache_was_active = False
+        else:
+            rt._deepcache_was_active = False
+
+        # Pre-compute prompt embeddings (reused every frame)
+        self._cache_prompt_embeds(rt)
+
+        rt.active = True
+        log.info("Real-time mode started (steps=%d, cfg=%.1f, denoise=%.2f, seed=%d, %dx%d)",
+                 rt.steps, rt.cfg_scale, rt.denoise_strength, rt._resolved_seed,
+                 rt.width, rt.height)
+
+        return RealtimeReadyResponse(
+            message=f"Real-time mode activated ({rt.steps}-step, seed={rt._resolved_seed})",
+        )
+
+    def _cache_prompt_embeds(self, rt: RealtimeState) -> None:
+        """Compute and cache prompt embeddings if prompt changed."""
+        prompt_hash = hash((rt.prompt, rt.negative_prompt))
+        if prompt_hash == rt._prompt_hash and rt.prompt_embeds is not None:
+            return  # Already cached
+
+        with torch.inference_mode():
+            prompt_embeds, negative_prompt_embeds = self._img2img_pipe.encode_prompt(
+                prompt=rt.prompt,
+                device="cuda",
+                num_images_per_prompt=1,
+                do_classifier_free_guidance=rt.cfg_scale > 1.0,
+                negative_prompt=rt.negative_prompt,
+                clip_skip=rt.clip_skip,
+            )
+
+        rt.prompt_embeds = prompt_embeds
+        rt.negative_prompt_embeds = negative_prompt_embeds
+        rt._prompt_hash = prompt_hash
+        log.debug("Prompt embeddings cached (hash=%d)", prompt_hash)
+
+    def process_realtime_frame(
+        self,
+        image_b64: str,
+        frame_id: int,
+        prompt_override: Optional[str] = None,
+    ) -> RealtimeResultResponse:
+        """Process a single frame in real-time mode: img2img -> post-process -> encode."""
+        rt = self._realtime
+        if not rt.active:
+            raise RuntimeError("Real-time mode not active")
+
+        t0 = time.perf_counter()
+
+        # Handle prompt override
+        if prompt_override is not None and prompt_override != rt.prompt:
+            rt.prompt = prompt_override
+            self._cache_prompt_embeds(rt)
+
+        try:
+            with torch.inference_mode():
+                # Decode input canvas
+                source = decode_b64_image(image_b64).convert("RGB")
+                source = resize_to_target(source, rt.width, rt.height)
+
+                # Generator with fixed seed for coherence
+                generator = torch.Generator("cuda").manual_seed(rt._resolved_seed)
+
+                # Reset scheduler state for clean inference
+                self._img2img_pipe.scheduler = pipeline_factory.fresh_scheduler(self._pipe)
+
+                # Run img2img with cached prompt embeddings
+                kwargs = dict(
+                    prompt_embeds=rt.prompt_embeds,
+                    image=source,
+                    num_inference_steps=rt.steps,
+                    guidance_scale=rt.cfg_scale,
+                    strength=rt.denoise_strength,
+                    generator=generator,
+                    output_type="pil",
+                )
+                if rt.negative_prompt_embeds is not None:
+                    kwargs["negative_prompt_embeds"] = rt.negative_prompt_embeds
+
+                result_image = self._img2img_pipe(**kwargs).images[0]
+
+            # Post-process (palette, pixelate, quantize)
+            result_image = postprocess_apply(result_image, rt.post_process)
+
+            # Encode
+            b64_result = encode_image_b64(result_image)
+            w, h = result_image.size
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+
+            rt.frame_counter += 1
+
+            return RealtimeResultResponse(
+                image=b64_result,
+                latency_ms=latency_ms,
+                frame_id=frame_id,
+                width=w,
+                height=h,
+            )
+
+        except torch.cuda.OutOfMemoryError:
+            log.error("CUDA OOM during realtime frame — clearing cache")
+            gc.collect()
+            torch.cuda.empty_cache()
+            raise
+
+    def update_realtime_params(self, req: RealtimeUpdateRequest) -> None:
+        """Hot-update real-time parameters without stopping the session."""
+        rt = self._realtime
+        if not rt.active:
+            return
+
+        prompt_changed = False
+        if req.prompt is not None and req.prompt != rt.prompt:
+            rt.prompt = req.prompt
+            prompt_changed = True
+        if req.negative_prompt is not None and req.negative_prompt != rt.negative_prompt:
+            rt.negative_prompt = req.negative_prompt
+            prompt_changed = True
+        if req.denoise_strength is not None:
+            rt.denoise_strength = req.denoise_strength
+        if req.steps is not None:
+            rt.steps = req.steps
+        if req.cfg_scale is not None:
+            rt.cfg_scale = req.cfg_scale
+        if req.seed is not None:
+            if req.seed >= 0:
+                rt.seed = req.seed
+                rt._resolved_seed = req.seed % (2**32)
+            else:
+                rt.seed = -1
+                rt._resolved_seed = random.randint(0, 2**32 - 1)
+
+        # Re-cache prompt embeddings if text changed
+        if prompt_changed:
+            self._cache_prompt_embeds(rt)
+
+        log.debug("Realtime params updated: steps=%d, cfg=%.1f, denoise=%.2f",
+                  rt.steps, rt.cfg_scale, rt.denoise_strength)
+
+    def stop_realtime(self) -> RealtimeStoppedResponse:
+        """Deactivate real-time paint mode and clean up."""
+        rt = self._realtime
+
+        # Re-enable DeepCache if it was active before
+        if rt._deepcache_was_active and self._deepcache_helper is not None:
+            try:
+                deepcache_manager.enable(self._deepcache_helper)
+                log.info("DeepCache re-enabled after realtime mode")
+            except Exception as e:
+                log.warning("Failed to re-enable DeepCache: %s", e)
+
+        frames_processed = rt.frame_counter
+        rt.reset()
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        log.info("Real-time mode stopped (%d frames processed)", frames_processed)
+        return RealtimeStoppedResponse(
+            message=f"Real-time mode stopped ({frames_processed} frames processed)",
+        )

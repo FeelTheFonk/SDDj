@@ -21,6 +21,11 @@ class Action(str, Enum):
     LIST_CONTROLNETS = "list_controlnets"
     LIST_EMBEDDINGS = "list_embeddings"
     PING = "ping"
+    # Real-time paint mode
+    REALTIME_START = "realtime_start"
+    REALTIME_FRAME = "realtime_frame"
+    REALTIME_UPDATE = "realtime_update"
+    REALTIME_STOP = "realtime_stop"
 
 
 class GenerationMode(str, Enum):
@@ -179,6 +184,43 @@ class AnimationRequest(BaseModel):
         return self
 
 
+# ─────────────────────────────────────────────────────────────
+# REAL-TIME PAINT REQUEST MODELS
+# ─────────────────────────────────────────────────────────────
+
+class RealtimeStartRequest(BaseModel):
+    action: Action = Action.REALTIME_START
+    prompt: str = ""
+    negative_prompt: str = _DEFAULT_NEGATIVE
+    width: int = Field(512, ge=64, le=2048)
+    height: int = Field(512, ge=64, le=2048)
+    seed: int = -1
+    steps: int = Field(4, ge=2, le=8)
+    cfg_scale: float = Field(2.5, ge=1.0, le=10.0)
+    denoise_strength: float = Field(0.5, ge=0.05, le=0.95)
+    clip_skip: int = Field(2, ge=1, le=12)
+    lora: Optional[LoRASpec] = None
+    negative_ti: Optional[list[EmbeddingSpec]] = None
+    post_process: PostProcessSpec = Field(default_factory=PostProcessSpec)
+
+
+class RealtimeFrameRequest(BaseModel):
+    action: Action = Action.REALTIME_FRAME
+    image: str              # base64 PNG — current canvas
+    frame_id: int = 0       # monotonic frame counter (for latest-wins)
+    prompt: Optional[str] = None  # override prompt mid-session
+
+
+class RealtimeUpdateRequest(BaseModel):
+    action: Action = Action.REALTIME_UPDATE
+    prompt: Optional[str] = None
+    negative_prompt: Optional[str] = None
+    denoise_strength: Optional[float] = Field(None, ge=0.05, le=0.95)
+    steps: Optional[int] = Field(None, ge=2, le=8)
+    cfg_scale: Optional[float] = Field(None, ge=1.0, le=10.0)
+    seed: Optional[int] = None
+
+
 class Request(BaseModel):
     action: Action
     # Shared generation fields (optional — only required for generate/generate_animation)
@@ -206,6 +248,9 @@ class Request(BaseModel):
     tag_name: Optional[str] = None
     enable_freeinit: Optional[bool] = None
     freeinit_iterations: Optional[int] = None
+    # Realtime fields
+    image: Optional[str] = None
+    frame_id: Optional[int] = None
 
     def to_generate_request(self) -> GenerateRequest:
         _anim_fields = {
@@ -218,6 +263,35 @@ class Request(BaseModel):
     def to_animation_request(self) -> AnimationRequest:
         data = self.model_dump(exclude_none=True, exclude={"action"})
         return AnimationRequest(**data)
+
+    def to_realtime_start(self) -> RealtimeStartRequest:
+        _rt_fields = {
+            "action", "mode", "source_image", "mask_image", "control_image",
+            "method", "frame_count", "frame_duration_ms", "seed_strategy",
+            "tag_name", "enable_freeinit", "freeinit_iterations",
+            "image", "frame_id",
+        }
+        data = self.model_dump(exclude_none=True, exclude=_rt_fields)
+        return RealtimeStartRequest(**data)
+
+    def to_realtime_frame(self) -> RealtimeFrameRequest:
+        data: dict = {"action": "realtime_frame"}
+        if self.image is not None:
+            data["image"] = self.image
+        if self.frame_id is not None:
+            data["frame_id"] = self.frame_id
+        if self.prompt is not None:
+            data["prompt"] = self.prompt
+        return RealtimeFrameRequest(**data)
+
+    def to_realtime_update(self) -> RealtimeUpdateRequest:
+        _update_keys = {
+            "prompt", "negative_prompt", "denoise_strength",
+            "steps", "cfg_scale", "seed",
+        }
+        data = {k: v for k, v in self.model_dump(exclude_none=True).items()
+                if k in _update_keys}
+        return RealtimeUpdateRequest(**data)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -269,6 +343,29 @@ class ListResponse(BaseModel):
     type: Literal["list"] = "list"
     list_type: str  # "loras" | "palettes" | "controlnets" | "embeddings"
     items: list[str]
+
+
+# ─────────────────────────────────────────────────────────────
+# REAL-TIME PAINT RESPONSE MODELS
+# ─────────────────────────────────────────────────────────────
+
+class RealtimeReadyResponse(BaseModel):
+    type: Literal["realtime_ready"] = "realtime_ready"
+    message: str = "Real-time mode activated"
+
+
+class RealtimeResultResponse(BaseModel):
+    type: Literal["realtime_result"] = "realtime_result"
+    image: str          # base64 PNG
+    latency_ms: int
+    frame_id: int
+    width: int
+    height: int
+
+
+class RealtimeStoppedResponse(BaseModel):
+    type: Literal["realtime_stopped"] = "realtime_stopped"
+    message: str = "Real-time mode stopped"
 
 
 class PongResponse(BaseModel):

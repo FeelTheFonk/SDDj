@@ -23,6 +23,9 @@ from .protocol import (
     ListResponse,
     PongResponse,
     ProgressResponse,
+    RealtimeReadyResponse,
+    RealtimeResultResponse,
+    RealtimeStoppedResponse,
     Request,
 )
 from . import __version__
@@ -46,6 +49,8 @@ _generating: dict[int, threading.Event] = {}  # connection id -> cancel event
 _active_connections: set[WebSocket] = set()
 _MAX_CONNECTIONS = 5
 _ws_counter = 0  # monotonic connection ID (avoids id() reuse)
+_realtime_owner: int | None = None  # ws_id that owns realtime mode (None = free)
+_realtime_timeout_task: asyncio.Task | None = None  # auto-stop timer
 
 
 @asynccontextmanager
@@ -132,6 +137,8 @@ async def ws_endpoint(websocket: WebSocket) -> None:
     finally:
         _active_connections.discard(websocket)
         _generating.pop(ws_id, None)
+        # Clean up realtime session if this client owned it
+        await _cleanup_realtime(ws_id)
 
 
 def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop, timeout: float = 1.0):
@@ -192,7 +199,26 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             items = ti_manager.list_embeddings()
             await _send(websocket, ListResponse(list_type="embeddings", items=items))
 
+        elif req.action == Action.REALTIME_START:
+            await _handle_realtime_start(websocket, req, ws_id)
+
+        elif req.action == Action.REALTIME_FRAME:
+            await _handle_realtime_frame(websocket, req, ws_id)
+
+        elif req.action == Action.REALTIME_UPDATE:
+            await _handle_realtime_update(websocket, req, ws_id)
+
+        elif req.action == Action.REALTIME_STOP:
+            await _handle_realtime_stop(websocket, ws_id)
+
         elif req.action == Action.GENERATE:
+            # Block if realtime mode is active
+            if _realtime_owner is not None:
+                await _send(websocket, ErrorResponse(
+                    code="REALTIME_BUSY",
+                    message="Cannot generate while real-time mode is active",
+                ))
+                return
             gen_req = req.to_generate_request()
             loop = asyncio.get_running_loop()
 
@@ -221,6 +247,13 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             await _send(websocket, result)
 
         elif req.action == Action.GENERATE_ANIMATION:
+            # Block if realtime mode is active
+            if _realtime_owner is not None:
+                await _send(websocket, ErrorResponse(
+                    code="REALTIME_BUSY",
+                    message="Cannot animate while real-time mode is active",
+                ))
+                return
             anim_req = req.to_animation_request()
 
             # Server-side frame count validation (protocol allows 120, config may differ)
@@ -301,6 +334,156 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             await _send(websocket, ErrorResponse(code=code, message=str(e)))
         except Exception:
             pass
+
+
+# ─────────────────────────────────────────────────────────────
+# REAL-TIME PAINT HANDLERS
+# ─────────────────────────────────────────────────────────────
+
+async def _handle_realtime_start(websocket: WebSocket, req: Request, ws_id: int) -> None:
+    global _realtime_owner, _realtime_timeout_task
+
+    if _realtime_owner is not None and _realtime_owner != ws_id:
+        await _send(websocket, ErrorResponse(
+            code="REALTIME_BUSY",
+            message="Another client is using real-time mode",
+        ))
+        return
+
+    if _generate_lock is None:
+        raise RuntimeError("Server not fully initialized")
+
+    # Check if generate_lock is currently held (generation in progress)
+    if _generate_lock.locked():
+        await _send(websocket, ErrorResponse(
+            code="GPU_BUSY",
+            message="Cannot start real-time mode while a generation is in progress",
+        ))
+        return
+
+    rt_req = req.to_realtime_start()
+    loop = asyncio.get_running_loop()
+
+    try:
+        result = await loop.run_in_executor(
+            None, lambda: engine.start_realtime(rt_req),
+        )
+        _realtime_owner = ws_id
+        _reset_realtime_timeout()
+        await _send(websocket, result)
+    except Exception as e:
+        log.exception("Failed to start realtime: %s", e)
+        await _send(websocket, ErrorResponse(code="ENGINE_ERROR", message=str(e)))
+
+
+async def _handle_realtime_frame(websocket: WebSocket, req: Request, ws_id: int) -> None:
+    if _realtime_owner != ws_id:
+        await _send(websocket, ErrorResponse(
+            code="REALTIME_NOT_ACTIVE",
+            message="Real-time mode not active for this connection",
+        ))
+        return
+
+    frame_req = req.to_realtime_frame()
+    if not frame_req.image:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST",
+            message="realtime_frame requires image",
+        ))
+        return
+
+    _reset_realtime_timeout()
+
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: engine.process_realtime_frame(
+                frame_req.image,
+                frame_req.frame_id,
+                prompt_override=frame_req.prompt,
+            ),
+        )
+        await _send(websocket, result)
+    except torch.cuda.OutOfMemoryError as e:
+        log.error("CUDA OOM during realtime frame: %s", e)
+        await _send(websocket, ErrorResponse(code="OOM", message=str(e)))
+    except Exception as e:
+        log.warning("Realtime frame error: %s", e)
+        await _send(websocket, ErrorResponse(code="ENGINE_ERROR", message=str(e)))
+
+
+async def _handle_realtime_update(websocket: WebSocket, req: Request, ws_id: int) -> None:
+    if _realtime_owner != ws_id:
+        return  # Silently ignore updates from non-owner
+
+    update_req = req.to_realtime_update()
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(
+            None, lambda: engine.update_realtime_params(update_req),
+        )
+    except Exception as e:
+        log.warning("Realtime update error: %s", e)
+
+
+async def _handle_realtime_stop(websocket: WebSocket, ws_id: int) -> None:
+    if _realtime_owner != ws_id:
+        await _send(websocket, ErrorResponse(
+            code="REALTIME_NOT_ACTIVE",
+            message="Real-time mode not active for this connection",
+        ))
+        return
+
+    await _cleanup_realtime(ws_id)
+    await _send(websocket, RealtimeStoppedResponse())
+
+
+async def _cleanup_realtime(ws_id: int) -> None:
+    """Stop realtime mode if owned by ws_id. Safe to call multiple times."""
+    global _realtime_owner, _realtime_timeout_task
+
+    if _realtime_owner != ws_id:
+        return
+
+    if _realtime_timeout_task is not None:
+        _realtime_timeout_task.cancel()
+        _realtime_timeout_task = None
+
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(None, engine.stop_realtime)
+    except Exception as e:
+        log.warning("Realtime cleanup error: %s", e)
+
+    _realtime_owner = None
+    log.info("Realtime session cleaned up for ws_id=%d", ws_id)
+
+
+def _reset_realtime_timeout() -> None:
+    """Reset the auto-stop timer for realtime mode."""
+    global _realtime_timeout_task
+
+    if _realtime_timeout_task is not None:
+        _realtime_timeout_task.cancel()
+
+    async def _auto_stop():
+        await asyncio.sleep(settings.realtime_timeout)
+        global _realtime_owner
+        if _realtime_owner is not None:
+            log.info("Realtime auto-stop: no frame for %.0fs", settings.realtime_timeout)
+            loop = asyncio.get_running_loop()
+            try:
+                await loop.run_in_executor(None, engine.stop_realtime)
+            except Exception:
+                pass
+            _realtime_owner = None
+
+    try:
+        loop = asyncio.get_running_loop()
+        _realtime_timeout_task = loop.create_task(_auto_stop())
+    except RuntimeError:
+        pass  # No running loop (shouldn't happen in normal operation)
 
 
 async def _send(websocket: WebSocket, response) -> None:
