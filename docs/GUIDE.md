@@ -168,14 +168,29 @@ Each iteration uses a random seed, allowing rapid exploration of variations.
 3. Images generate one after another automatically
 4. Click **Cancel** to stop the loop
 
+### Random Loop
+
+Enable **Random Loop** alongside Loop Mode for fully automated creative exploration.
+Each iteration generates a new random prompt before generating the image.
+
+1. Check "Loop Mode" **and** "Random Loop"
+2. Optionally enable **Lock Subject** and enter a fixed subject (e.g., "warrior character")
+3. Click **Generate**
+4. Each iteration: random prompt is generated → image is generated → repeat
+5. Click **Cancel** to stop
+
+Lock Subject keeps your chosen subject constant while randomizing style, mood,
+lighting, camera angle, and other creative elements.
+
 ### Auto-Prompt Generator
 
 Click **Randomize** to generate a creative prompt from curated templates.
 The generator combines quality tags, subjects, styles, lighting, moods,
 and camera angles for diverse results.
 
-You can lock specific fields (e.g., keep "pixel art" as style) while
-randomizing the rest.
+**Lock Subject**: Check the "Lock Subject" checkbox and enter a subject
+(e.g., "pixel art cat") to keep it fixed while randomizing all other fields.
+This is useful for exploring variations of the same character or object.
 
 ### Presets
 

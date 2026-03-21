@@ -15,6 +15,7 @@ Delegates construction and lifecycle concerns to:
 from __future__ import annotations
 
 import gc
+import hashlib
 import logging
 import random
 import threading
@@ -107,6 +108,8 @@ class RealtimeState:
         self.frame_counter: int = 0
         self._resolved_seed: int = 0  # actual seed used (resolved from -1)
         self._deepcache_was_active: bool = False
+        self._scheduler_cls = None   # cached scheduler class for fast reset
+        self._scheduler_cfg = None   # cached scheduler config dict
 
     def reset(self) -> None:
         self.active = False
@@ -256,7 +259,11 @@ class DiffusionEngine:
         finally:
             # Re-enable DeepCache after warmup
             if dc_was_active:
-                deepcache_manager.enable(self._deepcache_helper)
+                try:
+                    deepcache_manager.enable(self._deepcache_helper)
+                except Exception as e:
+                    log.error("Failed to re-enable DeepCache after warmup: %s", e)
+                    self._deepcache_helper = None
 
     def _load_embeddings(self) -> None:
         """Load all textual inversion embeddings from embeddings_dir."""
@@ -1047,6 +1054,10 @@ class DiffusionEngine:
         else:
             rt._deepcache_was_active = False
 
+        # Cache scheduler class+config for fast per-frame reset (avoids pipe access)
+        rt._scheduler_cls = type(self._pipe.scheduler)
+        rt._scheduler_cfg = self._pipe.scheduler.config
+
         # Pre-compute prompt embeddings (reused every frame)
         self._cache_prompt_embeds(rt)
 
@@ -1061,7 +1072,8 @@ class DiffusionEngine:
 
     def _cache_prompt_embeds(self, rt: RealtimeState) -> None:
         """Compute and cache prompt embeddings if prompt changed."""
-        prompt_hash = hash((rt.prompt, rt.negative_prompt, rt.clip_skip))
+        data = f"{rt.prompt}|||{rt.negative_prompt}|||{rt.clip_skip}".encode()
+        prompt_hash = int(hashlib.sha256(data).hexdigest()[:16], 16)
         if prompt_hash == rt._prompt_hash and rt.prompt_embeds is not None:
             return  # Already cached
 
@@ -1145,8 +1157,8 @@ class DiffusionEngine:
             # Post-process (palette, pixelate, quantize)
             result_image = postprocess_apply(result_image, _pp)
 
-            # Encode
-            b64_result = encode_image_b64(result_image)
+            # Encode (compress_level=0 for realtime speed)
+            b64_result = encode_image_b64(result_image, compress_level=0)
             w, h = result_image.size
             latency_ms = int((time.perf_counter() - t0) * 1000)
 
@@ -1176,7 +1188,8 @@ class DiffusionEngine:
     ) -> Image.Image:
         """Full-canvas img2img (original behavior)."""
         generator = torch.Generator("cuda").manual_seed(seed)
-        self._img2img_pipe.scheduler = pipeline_factory.fresh_scheduler(self._pipe)
+        rt = self._realtime
+        self._img2img_pipe.scheduler = rt._scheduler_cls.from_config(rt._scheduler_cfg)
 
         kwargs = dict(
             prompt_embeds=prompt_embeds,
@@ -1222,14 +1235,16 @@ class DiffusionEngine:
         # Crop source to padded ROI
         crop = source.crop((px1, py1, px2, py2))
 
-        # Determine generation size (at least min_gen, rounded to 8)
-        gen_w = round8(max(min_gen, crop_w))
-        gen_h = round8(max(min_gen, crop_h))
+        # Determine generation size (at least min_gen, uniform scale to preserve aspect ratio)
+        scale = max(min_gen / crop_w, min_gen / crop_h, 1.0)
+        gen_w = round8(int(crop_w * scale))
+        gen_h = round8(int(crop_h * scale))
         crop_resized = crop.resize((gen_w, gen_h), Image.LANCZOS)
 
         # Run img2img on the crop
         generator = torch.Generator("cuda").manual_seed(seed)
-        self._img2img_pipe.scheduler = pipeline_factory.fresh_scheduler(self._pipe)
+        rt = self._realtime
+        self._img2img_pipe.scheduler = rt._scheduler_cls.from_config(rt._scheduler_cfg)
 
         kwargs = dict(
             prompt_embeds=prompt_embeds,

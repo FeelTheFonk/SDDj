@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import itertools
+import json as json_stdlib
 import logging
+import struct
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -123,17 +126,33 @@ async def ws_endpoint(websocket: WebSocket) -> None:
 
     try:
         while True:
-            raw = await websocket.receive_text()
-            try:
-                req = Request.model_validate_json(raw)
-            except Exception as e:
-                await _send(websocket, ErrorResponse(
-                    code="INVALID_REQUEST",
-                    message=f"Malformed request: {e}",
-                ))
-                continue
+            msg = await websocket.receive()
 
-            await _handle(websocket, req, ws_id)
+            if "text" in msg:
+                raw = msg["text"]
+                try:
+                    req = Request.model_validate_json(raw)
+                except Exception as e:
+                    await _send(websocket, ErrorResponse(
+                        code="INVALID_REQUEST",
+                        message=f"Malformed request: {e}",
+                    ))
+                    continue
+                await _handle(websocket, req, ws_id)
+
+            elif "bytes" in msg:
+                # P0-L4: Binary frame from live painting client
+                try:
+                    await _handle_binary_frame(websocket, msg["bytes"], ws_id)
+                except Exception as e:
+                    log.warning("Binary frame error: %s", e)
+                    await _send(websocket, ErrorResponse(
+                        code="INVALID_REQUEST",
+                        message=f"Binary frame error: {e}",
+                    ))
+
+            elif msg.get("type") == "websocket.disconnect":
+                break
 
     except WebSocketDisconnect:
         log.info("Client disconnected: %s", websocket.client)
@@ -174,6 +193,65 @@ def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop,
         except Exception:
             pass
     return callback
+
+
+def _parse_binary_frame(data: bytes) -> tuple[dict, bytes]:
+    """Parse a binary live frame: 4-byte LE header length + JSON header + PNG data.
+
+    Returns (header_dict, png_bytes).
+    """
+    if len(data) < 4:
+        raise ValueError("Binary frame too short (< 4 bytes)")
+    header_len = struct.unpack("<I", data[:4])[0]
+    if len(data) < 4 + header_len:
+        raise ValueError(f"Binary frame truncated: need {4 + header_len}, got {len(data)}")
+    header_json = data[4:4 + header_len]
+    png_data = data[4 + header_len:]
+    header = json_stdlib.loads(header_json)
+    return header, png_data
+
+
+async def _handle_binary_frame(websocket: WebSocket, data: bytes, ws_id: int) -> None:
+    """Handle a binary WebSocket frame (live painting fast path).
+
+    The client sends PNG data as raw bytes instead of base64-in-JSON to eliminate
+    the expensive pure-Lua base64 encoding step (~200ms on 512x512).
+    Server-side base64 encoding of the PNG is done in C (Python stdlib) — negligible.
+    """
+    header, png_data = _parse_binary_frame(data)
+
+    action = header.get("action")
+    if action != "realtime_frame":
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST",
+            message=f"Binary frames only support realtime_frame, got: {action!r}",
+        ))
+        return
+
+    # Convert PNG bytes to base64 for the existing engine API
+    image_b64 = base64.b64encode(png_data).decode("ascii")
+
+    # Build a Request-compatible dict and dispatch to the existing handler
+    req_data = {
+        "action": "realtime_frame",
+        "image": image_b64,
+        "frame_id": header.get("frame_id", 0),
+    }
+    # Forward ROI fields if present
+    for key in ("roi_x", "roi_y", "roi_w", "roi_h", "mask", "prompt"):
+        if key in header:
+            req_data[key] = header[key]
+
+    try:
+        req = Request.model_validate(req_data)
+    except Exception as e:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST",
+            message=f"Binary frame header invalid: {e}",
+        ))
+        return
+
+    await _handle(websocket, req, ws_id)
 
 
 async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
@@ -516,14 +594,19 @@ async def _handle_realtime_frame(websocket: WebSocket, req: Request, ws_id: int)
         ))
         return
 
-    # Best-effort check: locked() is racy but acceptable here — we only use it
-    # as a courtesy guard to skip frames and never enter the lock afterward.
-    if _generate_lock is not None and _generate_lock.locked():
-        await _send(websocket, ErrorResponse(
-            code="GPU_BUSY",
-            message="Frame skipped — GPU busy",
-        ))
-        return
+    # P2-O3: Acquire GPU lock with a short timeout instead of racy locked() check.
+    # This gives the frame a brief window to wait for GPU availability.
+    gpu_acquired = False
+    if _generate_lock is not None:
+        try:
+            await asyncio.wait_for(_generate_lock.acquire(), timeout=0.5)
+            gpu_acquired = True
+        except asyncio.TimeoutError:
+            await _send(websocket, ErrorResponse(
+                code="GPU_BUSY",
+                message="Frame skipped — GPU busy",
+            ))
+            return
 
     _reset_realtime_timeout()
 
@@ -549,6 +632,10 @@ async def _handle_realtime_frame(websocket: WebSocket, req: Request, ws_id: int)
     except Exception as e:
         log.warning("Realtime frame error: %s", e)
         await _send(websocket, ErrorResponse(code="ENGINE_ERROR", message=str(e)))
+    finally:
+        # P2-O3: Release GPU lock if we acquired it
+        if gpu_acquired and _generate_lock is not None:
+            _generate_lock.release()
 
 
 async def _handle_realtime_update(websocket: WebSocket, req: Request, ws_id: int) -> None:

@@ -41,7 +41,18 @@ pixytoon/
 │   ├── package.json             # Extension manifest
 │   └── scripts/
 │       ├── json.lua             # Pure Lua JSON parser
-│       └── pixytoon.lua         # Dialog UI + WebSocket client
+│       ├── pixytoon.lua         # Plugin entry point (init/exit + module loader)
+│       ├── pixytoon_base64.lua  # Base64 encode/decode (pure Lua)
+│       ├── pixytoon_state.lua   # Constants + shared mutable state
+│       ├── pixytoon_utils.lua   # Temp files, image I/O, timer helper
+│       ├── pixytoon_settings.lua # Save/load/apply settings (JSON)
+│       ├── pixytoon_ws.lua      # WebSocket transport + connection mgmt
+│       ├── pixytoon_capture.lua # Image capture (active layer, flattened, mask)
+│       ├── pixytoon_request.lua # Request builders (parse, attach, build)
+│       ├── pixytoon_import.lua  # Import result, animation frame, live preview
+│       ├── pixytoon_live.lua    # Live paint system (hash, dirty region, timers)
+│       ├── pixytoon_handler.lua # Response dispatch table
+│       └── pixytoon_dialog.lua  # Dialog construction (tabs + actions)
 ├── scripts/
 │   ├── build_extension.py       # Package -> .aseprite-extension
 │   ├── download_models.py       # Download all models from HuggingFace
@@ -53,7 +64,7 @@ pixytoon/
 │   ├── run.py                   # Entry point
 │   ├── palettes/                # 7 preset palettes (JSON)
 │   └── pixytoon/                # Python package
-│       ├── __init__.py          # Package version (0.4.0)
+│       ├── __init__.py          # Package version (0.5.0)
 │       ├── config.py            # Pydantic Settings (env vars)
 │       ├── protocol.py          # WebSocket schemas (Pydantic v2)
 │       ├── engine.py            # SD1.5 SOTA pipeline orchestrator
@@ -79,7 +90,9 @@ pixytoon/
 - **txt2img / img2img / inpaint / ControlNet** — OpenPose, Canny, Scribble, Lineart (v1.1)
 - **Live Paint** (v0.3.0) — Real-time AI-assisted painting: paint in Aseprite, see AI-enhanced results live (~200-500ms latency), ROI dirty-region detection (v0.4.0)
 - **Loop Mode** (v0.4.0) — Continuous generation with random seeds for rapid variation exploration
+- **Random Loop** (v0.5.0) — Continuous generation with auto-randomized prompts; lock subject/elements while randomizing the rest
 - **Auto-Prompt Generator** (v0.4.0) — Randomize creative prompts from curated templates with lockable fields
+- **Lock Subject** (v0.5.0) — Keep a fixed subject (character, object) while randomizing style, mood, lighting, etc.
 - **Presets** (v0.4.0) — Save/load generation settings; built-in presets for pixel art, anime, character, landscape, and more
 - **Animation** — Dual-method: Frame Chain (img2img chaining) + AnimateDiff (motion module temporal consistency)
 - **AnimateDiff** — Motion adapter v1-5-3, FreeInit support, auto DeepCache disable/re-enable, ControlNet compatible
@@ -391,7 +404,7 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 | `ANIMATEDIFF_MODEL`        | `guoyww/animatediff-motion-adapter-v1-5-3` | AnimateDiff motion adapter |
 | `ENABLE_FREEINIT`          | `False`                               | FreeInit for AnimateDiff        |
 | `FREEINIT_ITERATIONS`      | `2`                                   | FreeInit iteration count        |
-| `REALTIME_TIMEOUT`         | `60.0`                                | Auto-stop if no frame for N seconds |
+| `REALTIME_TIMEOUT`         | `300.0`                               | Auto-stop if no frame for N seconds |
 | `REALTIME_DEFAULT_STEPS`   | `4`                                   | Default realtime inference steps |
 | `REALTIME_DEFAULT_CFG`     | `2.5`                                 | Default realtime CFG scale      |
 | `REALTIME_DEFAULT_DENOISE` | `0.5`                                 | Default realtime denoise strength |
@@ -424,7 +437,7 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 | Chain animation hangs          | Fixed in v0.1.5: dynamo.reset + scheduler reset + RGBA→RGB fix     |
 | Live Paint not starting        | Ensure no generation is in progress (GPU_BUSY); check server logs  |
 | Live Paint high latency        | Reduce steps (2-3), reduce resolution, ensure no other GPU load    |
-| Live Paint auto-stopped        | Session times out after 60s of inactivity (configurable via `PIXYTOON_REALTIME_TIMEOUT`) |
+| Live Paint auto-stopped        | Session times out after 5min of inactivity (configurable via `PIXYTOON_REALTIME_TIMEOUT`) |
 
 ## Documentation
 

@@ -40,10 +40,14 @@ def decode_b64_image(data: str) -> Image.Image:
         raise ValueError(f"Invalid base64 image data: {e}") from e
 
 
-def encode_image_b64(image: Image.Image) -> str:
-    """Encode a PIL Image to base64 PNG string."""
+def encode_image_b64(image: Image.Image, compress_level: int = 1) -> str:
+    """Encode a PIL Image to base64 PNG string.
+
+    Args:
+        compress_level: 0 = fastest (no compression), 1 = fast, 9 = smallest.
+    """
     buf = BytesIO()
-    image.save(buf, format="PNG", compress_level=1)
+    image.save(buf, format="PNG", compress_level=compress_level)
     return b64encode(buf.getvalue()).decode("ascii")
 
 

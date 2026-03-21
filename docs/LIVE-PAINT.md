@@ -324,7 +324,7 @@ Configure ROI behavior with environment variables:
 
 ### Timeout and Auto-Stop
 
-If no canvas change is detected for **60 seconds** (configurable via `PIXYTOON_REALTIME_TIMEOUT`), the session automatically stops. This prevents the GPU from being locked indefinitely.
+If no canvas change is detected for **5 minutes** (configurable via `PIXYTOON_REALTIME_TIMEOUT`, default 300 seconds), the session automatically stops. This prevents the GPU from being locked indefinitely.
 
 When auto-stop triggers:
 - The server sends a `realtime_stopped` notification
@@ -381,7 +381,7 @@ If you close the sprite while Live Paint is active, the session ends automatical
 
 Check the server terminal for error messages. Common causes:
 - **OOM**: Reduce resolution or close other GPU apps
-- **Timeout**: No painting for 60 seconds triggers auto-stop
+- **Timeout**: No painting for 5 minutes triggers auto-stop
 - **Server crash**: Restart via `start.bat`
 
 ---
