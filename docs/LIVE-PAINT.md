@@ -1,6 +1,6 @@
 # PixyToon Live Paint
 
-> Paint in Aseprite. The AI interprets your strokes in real-time. Iterate at the speed of thought.
+> Paint in Aseprite. The model interprets your strokes in real-time. Iterate at the speed of thought.
 
 **[README](../README.md)** · **[Guide](GUIDE.md)** · **[Cookbook](COOKBOOK.md)** · **Live Paint**
 
@@ -22,15 +22,15 @@
 
 ## What is Live Paint?
 
-Live Paint turns Aseprite into a collaborative canvas between you and the AI. As you draw — shapes, colors, rough strokes — the server reinterprets your canvas through Stable Diffusion and shows the result as a semi-transparent overlay.
+Live Paint turns Aseprite into a collaborative canvas between you and the model. As you draw — shapes, colors, rough strokes — the server reinterprets your canvas through Stable Diffusion and shows the result as a semi-transparent overlay.
 
 **Two trigger modes** (v0.6.0):
-- **Auto (stroke)** — Each completed brush stroke triggers an AI pass automatically (event-driven via `sprite.events:on('change')`, debounced 300ms). Zero CPU when idle, zero interference while drawing.
-- **Manual (F5)** — You control when to send: press **F5** (or click SEND) to trigger an AI pass on demand.
+- **Auto (stroke)** — Each completed brush stroke triggers an SD pass automatically (event-driven via `sprite.events:on('change')`, debounced 300ms). Zero CPU when idle, zero interference while drawing.
+- **Manual (F5)** — You control when to send: press **F5** (or click SEND) to trigger an SD pass on demand.
 
 GPU latency per frame: ~200-500ms depending on resolution and step count.
 
-You keep full artistic control. The AI is your assistant, not your replacement.
+You keep full artistic control. The model is your assistant, not your replacement.
 
 ---
 
@@ -38,13 +38,13 @@ You keep full artistic control. The AI is your assistant, not your replacement.
 
 1. **Connect** to the server (the Connect button in the PixyToon dialog)
 2. **Open or create a sprite** in Aseprite (any size, but 512x512 works best)
-3. **Type a prompt** in the Generate tab — this tells the AI what to make of your strokes
+3. **Type a prompt** in the Generate tab — this tells the model what to make of your strokes
 4. **Switch to the Live tab**, choose **Auto (stroke)** or **Manual (F5)** trigger mode
 5. Click **START LIVE**
-6. **Start painting** — in Auto mode, each completed stroke triggers AI processing. In Manual mode, press **F5** when ready.
-7. The AI preview appears on a `_pixytoon_live` layer
+6. **Start painting** — in Auto mode, each completed stroke triggers SD processing. In Manual mode, press **F5** when ready.
+7. The SD preview appears on a `_pixytoon_live` layer
 
-To finish: click **STOP LIVE**. Use **Accept** anytime to copy the current AI preview to a permanent layer (the session keeps running). Use **SEND (F5)** anytime to manually trigger a new AI pass.
+To finish: click **STOP LIVE**. Use **Accept** anytime to copy the current SD preview to a permanent layer (the session keeps running). Use **SEND (F5)** anytime to manually trigger a new SD pass.
 
 ```mermaid
 sequenceDiagram
@@ -62,14 +62,14 @@ sequenceDiagram
         Note over Aseprite: Debounce 300ms
         Aseprite->>Server: realtime_frame (full canvas PNG + ROI coords)
         Server->>Server: img2img on ROI (fast, 4 steps)
-        Server-->>Aseprite: realtime_result (AI image)
+        Server-->>Aseprite: realtime_result (generated image)
         Aseprite->>Aseprite: Update preview layer
     else Manual mode (F5 hotkey)
         You->>Aseprite: Paint strokes
         You->>Aseprite: Press F5 (or click SEND)
         Aseprite->>Server: realtime_frame (full canvas PNG + ROI coords)
         Server->>Server: img2img on ROI (fast, 4 steps)
-        Server-->>Aseprite: realtime_result (AI image)
+        Server-->>Aseprite: realtime_result (generated image)
         Aseprite->>Aseprite: Update preview layer
     end
 
@@ -87,18 +87,18 @@ The **Live** tab in the PixyToon dialog has these controls:
 | Control | Default | What it does |
 |---------|---------|-------------|
 | **Trigger** | Auto (stroke) | Auto = sends after each brush stroke; Manual (F5) = sends on F5 only |
-| **Strength** | 0.50 | How much the AI changes your canvas (the most important slider) |
+| **Strength** | 0.50 | How much SD changes your canvas (the most important slider) |
 | **Steps** | 4 | Inference steps per frame (more = better quality, slower) |
-| **CFG** | 2.5 | How strictly the AI follows the prompt |
-| **Preview Opacity** | 70% | Visibility of the AI overlay layer |
+| **CFG** | 2.5 | How strictly the model follows the prompt |
+| **Preview Opacity** | 70% | Visibility of the SD overlay layer |
 
 Action buttons (at the bottom of the dialog):
 
 | Button | What it does |
 |--------|-------------|
 | **START LIVE** / **STOP LIVE** | Toggle the live session |
-| **SEND (F5)** | Manually send the current canvas for AI processing (always available during live) |
-| **Accept** | Copies the current AI preview to a permanent layer (session continues) |
+| **SEND (F5)** | Manually send the current canvas for SD processing (always available during live) |
+| **Accept** | Copies the current SD preview to a permanent layer (session continues) |
 
 > [!NOTE]
 > While Live Paint is active, **Generate** and **Animate** are disabled. The GPU is dedicated to real-time rendering. Stop the session to use other modes.
@@ -109,14 +109,14 @@ Action buttons (at the bottom of the dialog):
 
 ### Strength (denoise_strength) — The Most Important Slider
 
-This is the single parameter that defines your Live Paint experience. It controls how much the AI transforms your canvas at each frame.
+This is the single parameter that defines your Live Paint experience. It controls how much the model transforms your canvas at each frame.
 
 | Range | What you see | When to use |
 |-------|-------------|-------------|
-| **0.05 - 0.20** | Barely changes anything — AI makes micro-adjustments to colors and edges | Final polish, fixing small inconsistencies |
-| **0.20 - 0.35** | Your drawing is clearly preserved — AI adds subtle detail and refinement | Refining an established drawing |
-| **0.35 - 0.50** | Balanced — your composition guides the AI, but it fills in significant detail | **Starting point for most workflows** |
-| **0.50 - 0.70** | AI dominates — your strokes are strong suggestions, not final | Rapid concept exploration |
+| **0.05 - 0.20** | Barely changes anything — the model makes micro-adjustments to colors and edges | Final polish, fixing small inconsistencies |
+| **0.20 - 0.35** | Your drawing is clearly preserved — the model adds subtle detail and refinement | Refining an established drawing |
+| **0.35 - 0.50** | Balanced — your composition guides the model, but it fills in significant detail | **Starting point for most workflows** |
+| **0.50 - 0.70** | The model dominates — your strokes are strong suggestions, not final | Rapid concept exploration |
 | **0.70 - 0.95** | Near-total reinterpretation — only broad shapes and colors survive | Wild exploration, "surprise me" |
 
 **Typical workflow:** Start at 0.50 for exploration, then lower to 0.30 for refinement, then 0.15 for final touch.
@@ -144,22 +144,22 @@ In real-time mode, CFG behaves differently than in standard generation:
 
 | CFG | Behavior |
 |-----|----------|
-| **1.0 - 2.0** | Very loose — AI interprets freely, more creative surprises |
+| **1.0 - 2.0** | Very loose — the model interprets freely, more creative surprises |
 | **2.0 - 3.0** | **Sweet spot for live painting** — follows prompt direction without over-constraining |
-| **3.0 - 5.0** | Stricter — useful if AI keeps drifting away from your intent |
+| **3.0 - 5.0** | Stricter — useful if the model keeps drifting away from your intent |
 | **5.0+** | Generally too strict for live use — can cause flickering between frames |
 
-Why lower than standard generation? In live mode, the AI sees your actual canvas as input (img2img). The canvas itself provides strong guidance, so the prompt needs to be softer.
+Why lower than standard generation? In live mode, the model sees your actual canvas as input (img2img). The canvas itself provides strong guidance, so the prompt needs to be softer.
 
 ### Preview Opacity
 
-The AI output appears on a separate `_pixytoon_live` layer. Opacity controls blending:
+The SD output appears on a separate `_pixytoon_live` layer. Opacity controls blending:
 
 | Opacity | Use case |
 |---------|----------|
-| 30-50% | See mostly your drawing, AI is a subtle ghost |
-| **70%** | **Default — see AI clearly while your drawing shows through** |
-| 90-100% | Full AI output, your drawing is hidden underneath |
+| 30-50% | See mostly your drawing, SD output is a subtle ghost |
+| **70%** | **Default — see SD output clearly while your drawing shows through** |
+| 90-100% | Full SD output, your drawing is hidden underneath |
 
 You can change this mid-session. It's purely visual — doesn't affect generation.
 
@@ -173,24 +173,24 @@ Start rough, get detailed.
 
 1. **Phase 1 — Blocking** (strength 0.50-0.60)
    - Draw large flat shapes with bold colors
-   - The AI interprets them into your prompted subject
+   - The model interprets them into your prompted subject
    - Don't worry about details — just composition
 
 2. **Phase 2 — Shaping** (strength 0.35-0.45)
    - Refine proportions by adding/erasing
    - Add key color areas (skin, armor, hair)
-   - The AI adds detail while respecting your structure
+   - The model adds detail while respecting your structure
 
 3. **Phase 3 — Detailing** (strength 0.15-0.25)
    - Add fine details, clean edges
-   - The AI polishes without overwriting your work
-   - Make small corrections, the AI integrates them
+   - The model polishes without overwriting your work
+   - Make small corrections, the model integrates them
 
 ---
 
 ### Style Switching
 
-Change the prompt mid-session without restarting. The AI picks up the new style on the next frame.
+Change the prompt mid-session without restarting. The model picks up the new style on the next frame.
 
 Paint a character, then try:
 
@@ -211,13 +211,13 @@ Same drawing, completely different interpretations. This is one of the fastest w
 
 ### Underpaint Technique
 
-Let the AI do the heavy lifting, then paint over it.
+Let the model do the heavy lifting, then paint over it.
 
 1. Start Live at strength 0.60+ with a detailed prompt
 2. Draw very rough shapes (circles for heads, rectangles for bodies)
-3. The AI renders a detailed interpretation
-4. Click **Accept** — the AI result becomes a permanent layer
-5. Paint **on top of** the AI layer to add your personal touch
+3. The model renders a detailed interpretation
+4. Click **Accept** — the SD result becomes a permanent layer
+5. Paint **on top of** the SD layer to add your personal touch
 6. Optionally, start another Live session at low strength to blend
 
 ---
@@ -240,8 +240,8 @@ Paint only specific areas by working on isolated layers.
 1. Have your base art on one layer
 2. Create a new empty layer on top — make it active
 3. Start Live Paint (it captures the flattened canvas including all visible layers)
-4. Paint only on your active layer — the AI sees everything but you only modify one area
-5. Erase or undo on your layer to "remove" AI influence on that area
+4. Paint only on your active layer — the model sees everything but you only modify one area
+5. Erase or undo on your layer to "remove" SD influence on that area
 
 ---
 
@@ -295,7 +295,7 @@ When to use which:
 | You have a reference sketch | **Generate** (img2img or ControlNet) — more control, full pipeline |
 | You want to iterate on colors/composition | **Live Paint** — fastest feedback loop |
 | You need final production-quality output | **Generate** — full post-processing pipeline |
-| You want to "paint with AI" as a creative partner | **Live Paint** — this is exactly what it's for |
+| You want to "paint with SD" as a creative partner | **Live Paint** — this is exactly what it's for |
 
 Live Paint and Generate are complementary. A typical production workflow:
 
@@ -369,14 +369,14 @@ Another generation (or animation) is still running. Wait for it to finish or can
 
 ### Flickering between frames
 
-- **Lower CFG** to 2.0-2.5 — high CFG causes the AI to oscillate between interpretations
+- **Lower CFG** to 2.0-2.5 — high CFG causes the model to oscillate between interpretations
 - **Lower strength** — less change per frame = less flicker
 - **Increase steps** to 6 if latency permits — more steps = more stable output
 
-### AI ignores my drawing
+### The model ignores my drawing
 
-- **Increase strength** — the AI is too conservative
-- **Check your prompt** — if it describes something completely different from what you're drawing, the AI is torn between the two
+- **Increase strength** — the model is too conservative
+- **Check your prompt** — if it describes something completely different from what you're drawing, the model is torn between the two
 - Make sure you're drawing on a **visible layer** — hidden layers aren't captured
 
 ### Latency is too high

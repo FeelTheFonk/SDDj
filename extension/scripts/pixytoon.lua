@@ -1,5 +1,5 @@
 --
--- PixyToon — Aseprite Extension for AI Pixel Art Generation
+-- PixyToon — Aseprite Extension for SD Pixel Art Generation
 --
 -- Connects to the local PixyToon Python server via WebSocket
 -- and provides a full GUI for generating pixel art sprites.

@@ -1,6 +1,6 @@
 # PixyToon User Guide
 
-> From first launch to advanced generation — everything you need to create pixel art with AI in Aseprite.
+> From first launch to advanced generation — everything you need to create pixel art with Stable Diffusion in Aseprite.
 
 **[README](../README.md)** · **Guide** · **[Cookbook](COOKBOOK.md)** · **[Live Paint](LIVE-PAINT.md)**
 
@@ -41,7 +41,7 @@ Before using PixyToon, make sure you have:
 ## First Launch
 
 1. **Run `start.ps1`** at the project root
-2. A terminal opens — the server loads the AI model (~30s first time)
+2. A terminal opens — the server loads the SD model (~30s first time)
 3. Aseprite launches automatically once the server is ready
 4. In Aseprite: **File > Scripts > PixyToon** (compiled) or it appears in Extensions (purchased)
 5. Click **Connect** in the PixyToon dialog
@@ -72,7 +72,7 @@ sequenceDiagram
 
 ## How It Works
 
-PixyToon is a bridge between Aseprite and a local AI server running on your GPU.
+PixyToon is a bridge between Aseprite and a local Stable Diffusion server running on your GPU.
 
 ```mermaid
 flowchart LR
@@ -115,7 +115,7 @@ Transforms an existing image based on your prompt. Uses your **active layer** as
 - Adjust **Strength** (denoise):
   - `0.3` — subtle changes, keeps most of your drawing
   - `0.5` — balanced transformation
-  - `0.8` — heavy reinterpretation, mostly AI-generated
+  - `0.8` — heavy reinterpretation, mostly SD-generated
   - `1.0` — completely ignores your input (same as txt2img)
 - Click **GENERATE**
 
@@ -156,7 +156,7 @@ Parameters in the Animation tab:
 
 ### Live Paint
 
-Real-time AI-assisted painting. See [the dedicated Live Paint guide](LIVE-PAINT.md).
+Real-time SD-assisted painting. See [the dedicated Live Paint guide](LIVE-PAINT.md).
 
 ### Loop Mode
 
@@ -206,7 +206,7 @@ Built-in presets: pixel_art, anime, character, landscape, concept_art, illustrat
 
 ## Generation Parameters
 
-These are the core parameters that control what the AI generates.
+These are the core parameters that control what the model generates.
 
 ### Prompt
 
@@ -223,7 +223,7 @@ The default negative prompt already blocks common pixel art problems (blurry, an
 
 ### Steps
 
-How many iterations the AI performs. More steps = more detail, but slower.
+How many iterations the model performs. More steps = more detail, but slower.
 
 | Steps | Use case |
 |-------|----------|
@@ -236,7 +236,7 @@ With Hyper-SD enabled (default), 8 steps produces results comparable to 25+ step
 
 ### CFG Scale
 
-"Classifier-Free Guidance" — how strictly the AI follows your prompt.
+"Classifier-Free Guidance" — how strictly the model follows your prompt.
 
 | CFG | Effect |
 |-----|--------|
@@ -248,14 +248,14 @@ With Hyper-SD enabled (default), 8 steps produces results comparable to 25+ step
 
 ### Denoise Strength
 
-Only relevant for img2img, inpaint, and animation. Controls how much the AI changes the input.
+Only relevant for img2img, inpaint, and animation. Controls how much the model changes the input.
 
 | Strength | Effect |
 |----------|--------|
 | 0.1-0.2 | Barely changes anything — subtle color/light adjustments |
 | 0.3 | Light transformation — keeps composition, changes details |
-| 0.5 | Balanced — recognizable source with significant AI changes |
-| 0.7-0.8 | Heavy transformation — AI dominates, source is a vague guide |
+| 0.5 | Balanced — recognizable source with significant SD changes |
+| 0.7-0.8 | Heavy transformation — the model dominates, source is a vague guide |
 | **1.0** | **Default** — full generation (effectively txt2img) |
 
 ### Clip Skip
@@ -296,7 +296,7 @@ The generation resolution. Higher = more detail but slower and more VRAM.
 | 768x768 | Large scenes (needs more VRAM) |
 
 > [!NOTE]
-> The generation size is how large the AI canvas is. For small pixel art output (32x32, 48x48), generate at 512x512 and use the post-processing **Pixelate** to downscale to your target size.
+> The generation size is how large the generation canvas is. For small pixel art output (32x32, 48x48), generate at 512x512 and use the post-processing **Pixelate** to downscale to your target size.
 
 > [!WARNING]
 > SD 1.5 was trained on 512x512. Going above 768 often produces duplicated compositions or artifacts. For large scenes, generate at 512x512 and upscale in Aseprite.
@@ -309,7 +309,7 @@ After generation, the image passes through a 6-stage pixel art pipeline. Each st
 
 ```mermaid
 flowchart LR
-    A[AI Output<br>512x512] --> B[Background<br>Removal]
+    A[SD Output<br>512x512] --> B[Background<br>Removal]
     B --> C[Pixelate<br>NEAREST]
     C --> D[Color<br>Quantize]
     D --> E[Palette<br>Enforce]
@@ -404,7 +404,7 @@ Only applies when Remove BG is enabled.
 
 ### What is a LoRA?
 
-A LoRA (Low-Rank Adaptation) is a small file that adjusts the AI model's style without replacing it entirely. Think of it as a "style filter" you can mix in.
+A LoRA (Low-Rank Adaptation) is a small file that adjusts the SD model's style without replacing it entirely. Think of it as a "style filter" you can mix in.
 
 PixyToon uses two types of LoRAs:
 
@@ -444,7 +444,7 @@ Any SD 1.5-compatible checkpoint works. The model downloads from HuggingFace on 
 
 ## ControlNet
 
-ControlNet modes let you guide the AI using a reference image from your active layer.
+ControlNet modes let you guide the model using a reference image from your active layer.
 
 | Mode | Input | Best for |
 |------|-------|----------|

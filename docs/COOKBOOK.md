@@ -455,7 +455,7 @@ Generate 20+ variations of the same prompt to find the perfect one.
 
 ### Automated Creative Discovery (Random Loop)
 
-Let the AI surprise you with fully randomized prompts and images.
+Let the model surprise you with fully randomized prompts and images.
 
 1. Check **Loop Mode** and **Random Loop**
 2. Optionally check **Lock Subject** and enter a fixed subject (e.g., "warrior character")
@@ -483,20 +483,20 @@ For detailed Live Paint technique explanations, see the [Live Paint guide](LIVE-
 
 ### Quick Concept Sketch
 
-Sketch rough shapes, let AI fill in details in real-time.
+Sketch rough shapes and let SD fill in details in real-time.
 
 **Live Tab Settings:**
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
-| Strength | 0.50-0.60 | Strong AI interpretation |
+| Strength | 0.50-0.60 | Strong SD interpretation |
 | Steps | 4 | Real-time speed |
 | CFG | 2.0-3.0 | Creative, loose |
-| Preview Opacity | 70% | See both your sketch and AI output |
+| Preview Opacity | 70% | See both your sketch and SD output |
 
 **Workflow:**
 1. Start Live, draw broad shapes and colors
-2. AI interprets them immediately
+2. The model interprets them immediately
 3. Adjust prompt to steer the direction
 4. Lower strength to 0.30 to refine details
 5. Accept when satisfied

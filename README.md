@@ -99,7 +99,7 @@ pixytoon/
 ## Features
 
 - **txt2img / img2img / inpaint / ControlNet** — OpenPose, Canny, Scribble, Lineart (v1.1)
-- **Live Paint** (v0.3.0, v0.6.0 rewrite) — Event-driven AI-assisted painting: Auto mode (sends after each brush stroke) + Manual mode (F5 hotkey), zero CPU when idle, ROI dirty-region detection, debounced stroke detection via `sprite.events:on('change')`
+- **Live Paint** (v0.3.0, v0.6.0 rewrite) — Event-driven SD-assisted painting: Auto mode (sends after each brush stroke) + Manual mode (F5 hotkey), zero CPU when idle, ROI dirty-region detection, debounced stroke detection via `sprite.events:on('change')`
 - **Loop Mode** (v0.4.0) — Continuous generation with random seeds for rapid variation exploration
 - **Random Loop** (v0.5.0) — Continuous generation with auto-randomized prompts; lock subject/elements while randomizing the rest
 - **Auto-Prompt Generator** (v0.4.0) — Randomize creative prompts from curated templates with lockable fields
@@ -464,7 +464,7 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 |----------|-------------|
 | **[User Guide](docs/GUIDE.md)** | First launch, modes, parameters, post-processing, LoRA, performance, troubleshooting |
 | **[Cookbook](docs/COOKBOOK.md)** | Tested recipes by creative intention — characters, environments, items, animation, palettes |
-| **[Live Paint Guide](docs/LIVE-PAINT.md)** | Dedicated guide for real-time AI-assisted painting — techniques, workflow, parameters |
+| **[Live Paint Guide](docs/LIVE-PAINT.md)** | Dedicated guide for real-time SD-assisted painting — techniques, workflow, parameters |
 
 ## License
 

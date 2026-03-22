@@ -720,7 +720,7 @@ end
 
 function PT.build_dialog()
   PT.dlg = Dialog{
-    title = "PixyToon - AI Pixel Art",
+    title = "PixyToon - SD Pixel Art",
     onclose = function()
       PT.save_settings()
       PT.disconnect()
