@@ -51,6 +51,8 @@ function PT.save_settings()
     loop_check         = d.loop_check,
     random_loop_check  = d.random_loop_check,
     output_mode        = d.output_mode,
+    -- Output
+    save_output        = d.save_output,
     -- Audio tab
     audio_fps          = d.audio_fps,
     audio_stems_enable = d.audio_stems_enable,
@@ -127,7 +129,7 @@ function PT.apply_settings(s)
   end
   -- Boolean (checkbox) fields
   local bools = { "use_neg_ti", "pixelate", "remove_bg", "lock_subject", "anim_freeinit",
-                   "loop_check", "random_loop_check",
+                   "loop_check", "random_loop_check", "save_output",
                    "audio_stems_enable", "audio_advanced", "audio_use_expressions",
                    "mod1_enable", "mod2_enable", "mod3_enable", "mod4_enable" }
   for _, id in ipairs(bools) do
@@ -202,6 +204,10 @@ function PT.apply_settings(s)
     else
       PT.dlg:modify{ id = "mode", label = "Mode" }
     end
+  end
+  -- Sync output state
+  if s.save_output ~= nil then
+    PT.output.enabled = s.save_output
   end
 end
 

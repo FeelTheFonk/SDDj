@@ -81,18 +81,40 @@ Read-Host "  Press Enter to stop the server"
 # --- Shutdown ----------------------------------------------------------------
 Write-Host ""
 Write-Host "  ${D}Stopping server...${R}"
-if ($serverProc -and -not $serverProc.HasExited) {
-    # Kill the pwsh host and all its child processes (uv, python)
-    $id = $serverProc.Id
-    Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $id } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+
+# 1) Graceful: ask the server to shut down via HTTP
+$graceful = $false
+try {
+    Invoke-WebRequest -Uri "http://127.0.0.1:9876/shutdown" -Method POST -TimeoutSec 3 -ErrorAction SilentlyContinue | Out-Null
+    Start-Sleep -Seconds 2
+    # Verify it stopped
+    try {
+        Invoke-WebRequest -Uri "http://127.0.0.1:9876/health" -TimeoutSec 2 -ErrorAction SilentlyContinue | Out-Null
+    } catch {
+        $graceful = $true
+    }
+} catch {}
+
+if ($graceful) {
+    Ok "Server stopped (graceful)"
 } else {
-    # Fallback: find by window title (server was already running or PID lost)
+    # 2) Force: kill entire process tree recursively
+    if ($serverProc -and -not $serverProc.HasExited) {
+        # taskkill /T kills the process and ALL descendants recursively
+        taskkill /T /F /PID $serverProc.Id 2>$null | Out-Null
+    }
+    # 3) Fallback: find any Python process listening on port 9876
+    $pyPids = (Get-NetTCPConnection -LocalPort 9876 -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique
+    foreach ($pid in $pyPids) {
+        if ($pid -and $pid -ne 0) {
+            taskkill /T /F /PID $pid 2>$null | Out-Null
+        }
+    }
+    # 4) Fallback: kill pwsh with PixyToon Server title
     Get-Process -Name "pwsh" -ErrorAction SilentlyContinue |
         Where-Object { $_.MainWindowTitle -eq "PixyToon Server" } |
-        Stop-Process -Force -ErrorAction SilentlyContinue
+        ForEach-Object { taskkill /T /F /PID $_.Id 2>$null | Out-Null }
+    Start-Sleep -Seconds 1
+    Ok "Server stopped (forced)"
 }
-Start-Sleep -Seconds 1
-Ok "Server stopped"
 Write-Host ""

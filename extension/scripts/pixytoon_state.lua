@@ -42,10 +42,12 @@ PT.state = {
 }
 
 PT.anim = {
-  layer       = nil,
-  start_frame = 0,
-  frame_count = 0,
-  base_seed   = 0,
+  layer        = nil,
+  start_frame  = 0,
+  frame_count  = 0,
+  base_seed    = 0,
+  output_dir   = nil,   -- incremental output directory (set on first frame)
+  output_count = 0,     -- frames written to output_dir
 }
 
 PT.seq = {
@@ -118,6 +120,17 @@ PT.audio = {
   mod_presets       = {},
   bpm              = 0,
   recommended_preset = "",
+}
+
+-- ─── Metadata Tracking ────────────────────────────────────────
+
+PT.last_request     = nil   -- last generation request (deep copy, no images)
+PT.last_result_meta = nil   -- metadata built from last_request + response
+
+-- ─── Output Config ────────────────────────────────────────────
+
+PT.output = {
+  enabled = true,   -- save to output dir by default
 }
 
 end

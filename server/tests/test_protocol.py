@@ -54,6 +54,7 @@ class TestAction:
             "cleanup",
             "analyze_audio", "generate_audio_reactive", "check_stems",
             "list_modulation_presets",
+            "shutdown",
         }
         actual = {a.value for a in Action}
         assert expected == actual

@@ -41,6 +41,12 @@ Thumbs.db
 *.tmp
 *.pdb
 
+# Runtime PID file
+pixytoon.pid
+
+# Output directory (user-generated content)
+output/
+
 # Screenshots (user captures)
 /menu*.png
 

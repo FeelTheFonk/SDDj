@@ -68,6 +68,22 @@ local function build_connection_section()
       end
     end,
   }
+  dlg:button{
+    id = "open_output_btn",
+    text = "Open Output",
+    onclick = function()
+      PT.open_output_dir()
+    end,
+  }
+
+  dlg:check{
+    id = "save_output",
+    text = "Save to output",
+    selected = true,
+    onchange = function()
+      PT.output.enabled = dlg.data.save_output
+    end,
+  }
 end
 
 -- ─── Tab: Generate ──────────────────────────────────────────
@@ -122,6 +138,24 @@ local function build_tab_generate()
       if sel and sel ~= "(none)" then
         PT.send({ action = "delete_preset", preset_name = sel })
       end
+    end,
+  }
+  dlg:button{
+    id = "load_meta_btn",
+    text = "Load",
+    onclick = function()
+      local ok, path = pcall(app.fs.fileDialog, {
+        title = "Load Generation Metadata",
+        open = true,
+        filetypes = { "json" },
+      })
+      if not ok or not path or path == "" then return end
+      local meta, err = PT.load_metadata_file(path)
+      if not meta then
+        app.alert("Failed to load metadata: " .. tostring(err))
+        return
+      end
+      PT.apply_metadata(meta)
     end,
   }
 
@@ -971,6 +1005,7 @@ local function build_actions_panel()
       }
       PT.attach_lora(req)
       PT.attach_neg_ti(req)
+      PT.last_request = PT.deep_copy_request(req)
       if not PT.attach_source_image(req) then return end
 
       PT.state.animating = true
@@ -1064,8 +1099,9 @@ function PT.build_dialog()
   PT.dlg = Dialog{
     title = "PixyToon - SD Pixel Art",
     onclose = function()
-      PT.save_settings()
-      PT.disconnect()
+      pcall(PT.save_settings)
+      -- Shutdown + cleanup handled by exit(plugin) which is always called after onclose
+      pcall(PT.disconnect)
       PT.dlg = nil
     end,
   }

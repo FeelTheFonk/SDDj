@@ -126,6 +126,8 @@ function PT.set_connected(is_connected)
     PT.anim.start_frame = 0
     PT.anim.frame_count = 0
     PT.anim.base_seed = 0
+    PT.anim.output_dir = nil
+    PT.anim.output_count = 0
     -- Reset sequence state
     PT.reset_sequence()
     -- Reset audio state

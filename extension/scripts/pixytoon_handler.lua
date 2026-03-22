@@ -60,6 +60,13 @@ handlers.result = function(resp)
     PT.import_result(resp)
   end
 
+  -- Save to output directory + metadata
+  local meta = PT.build_generation_meta(resp)
+  PT.last_result_meta = meta
+  if PT.dlg and PT.dlg.data.save_output then
+    PT.save_to_output(resp, meta)
+  end
+
   -- Loop mode: schedule next generation
   if PT.loop.mode and PT.dlg then
     local seed_info = tostring(resp.seed or "?")
@@ -124,6 +131,8 @@ handlers.animation_frame = function(resp)
   end
   if resp.frame_index ~= nil then
     PT.import_animation_frame(resp)
+    -- Write frame to output directory incrementally (no memory accumulation)
+    PT.save_animation_frame(resp)
   end
 end
 
@@ -166,10 +175,15 @@ handlers.animation_complete = function(resp)
     end)
     app.refresh()
   end
+  -- Write metadata to output directory (frames already written incrementally)
+  PT.save_animation_meta(resp)
+
   PT.anim.layer = nil
   PT.anim.start_frame = 0
   PT.anim.frame_count = 0
   PT.anim.base_seed = 0
+  PT.anim.output_dir = nil
+  PT.anim.output_count = 0
 end
 
 -- ─── Error ──────────────────────────────────────────────────
@@ -207,6 +221,8 @@ handlers.error = function(resp)
     PT.anim.start_frame = 0
     PT.anim.frame_count = 0
     PT.anim.base_seed = 0
+    PT.anim.output_dir = nil
+    PT.anim.output_count = 0
   end
 
   -- Finalize partial sequence on error
@@ -480,6 +496,8 @@ handlers.audio_reactive_frame = function(resp)
   if resp.frame_index ~= nil then
     -- Reuse the animation frame import mechanism
     PT.import_animation_frame(resp)
+    -- Write frame to output directory incrementally
+    PT.save_animation_frame(resp)
   end
 end
 
@@ -519,10 +537,16 @@ handlers.audio_reactive_complete = function(resp)
     end)
     app.refresh()
   end
+
+  -- Write metadata to output directory (frames already written incrementally)
+  PT.save_animation_meta(resp)
+
   PT.anim.layer = nil
   PT.anim.start_frame = 0
   PT.anim.frame_count = 0
   PT.anim.base_seed = 0
+  PT.anim.output_dir = nil
+  PT.anim.output_count = 0
 end
 
 handlers.stems_available = function(resp)
@@ -541,6 +565,13 @@ handlers.modulation_presets = function(resp)
     end
     PT.dlg:modify{ id = "audio_mod_preset", options = opts }
   end
+end
+
+-- ─── Shutdown Ack ────────────────────────────────────────────
+
+handlers.shutdown_ack = function(resp)
+  -- Server confirmed shutdown — disconnect cleanly
+  if PT.dlg then PT.update_status("Server shutting down...") end
 end
 
 -- ─── Dispatch ───────────────────────────────────────────────

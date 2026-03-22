@@ -34,12 +34,13 @@ local _PT = { json = json }
 local modules = {
   "pixytoon_base64",    -- pure codec, no deps
   "pixytoon_state",     -- constants + state tables
-  "pixytoon_utils",     -- temp files, image I/O, timer helper
+  "pixytoon_utils",     -- temp files, image I/O, timer helper, deep copy
   "pixytoon_settings",  -- save/load/apply
   "pixytoon_ws",        -- WebSocket transport + connection
   "pixytoon_capture",   -- image capture (active layer, flattened, mask)
   "pixytoon_request",   -- request builders (parse, attach, build)
   "pixytoon_import",    -- import result, animation frame, live preview
+  "pixytoon_output",    -- output directory, metadata persistence, load/apply
   "pixytoon_live",      -- live paint system (event-driven, dirty region, F5 hotkey)
   "pixytoon_handler",   -- response dispatch table
   "pixytoon_dialog",    -- dialog construction (tabs + actions)
@@ -70,6 +71,11 @@ end
 function init(plugin)
   _PT.plugin = plugin
 
+  -- Clean up any leftover temp files from previous sessions
+  if _PT.cleanup_session_temp_files then
+    pcall(_PT.cleanup_session_temp_files, true)  -- all_sessions = true
+  end
+
   -- Register hotkey command for live send (F5 default via .aseprite-keys)
   plugin:newCommand{
     id = "PixyToonLiveSend",
@@ -90,6 +96,32 @@ end
 function exit(plugin)
   if not _PT then return end
 
+  -- Stop live mode first (sends realtime_stop + unregisters listeners)
+  if _PT.stop_live_timer then pcall(_PT.stop_live_timer) end
+  if _PT.live and _PT.live.mode then
+    pcall(function() _PT.send({ action = "realtime_stop" }) end)
+    _PT.live.mode = false
+  end
+
+  -- Cancel any in-progress generation
+  if _PT.state and (_PT.state.generating or _PT.state.animating) then
+    pcall(function() _PT.send({ action = "cancel" }) end)
+  end
+
+  -- Save settings before exit
+  if _PT.save_settings then pcall(_PT.save_settings) end
+
+  -- Send shutdown to server (auto-stop)
+  if _PT.state and _PT.state.connected and _PT.ws_handle then
+    pcall(function() _PT.ws_handle:sendText('{"action":"shutdown"}') end)
+  end
+
+  -- Disconnect WebSocket
+  if _PT.ws_handle then
+    pcall(function() _PT.ws_handle:close() end)
+    _PT.ws_handle = nil
+  end
+
   -- Stop all named timers
   if _PT.timers then
     for key, timer in pairs(_PT.timers) do
@@ -98,15 +130,8 @@ function exit(plugin)
     end
   end
 
-  -- Stop live mode timers + event listeners
-  if _PT.stop_live_timer then pcall(_PT.stop_live_timer) end
-
-  -- Disconnect WebSocket
-  if _PT.ws_handle then
-    pcall(function() _PT.ws_handle:close() end)
-    _PT.ws_handle = nil
+  -- Clean up session temp files
+  if _PT.cleanup_session_temp_files then
+    pcall(_PT.cleanup_session_temp_files)
   end
-
-  -- Save settings before exit
-  if _PT.save_settings then pcall(_PT.save_settings) end
 end

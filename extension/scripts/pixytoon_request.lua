@@ -212,6 +212,7 @@ function PT.build_audio_reactive_request()
   }
   PT.attach_lora(req)
   PT.attach_neg_ti(req)
+  PT.last_request = PT.deep_copy_request(req)
   return req
 end
 
@@ -234,6 +235,7 @@ function PT.build_generate_request()
   }
   PT.attach_lora(req)
   PT.attach_neg_ti(req)
+  PT.last_request = PT.deep_copy_request(req)
   return req
 end
 

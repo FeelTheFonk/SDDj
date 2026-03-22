@@ -39,6 +39,8 @@ class Action(str, Enum):
     GENERATE_AUDIO_REACTIVE = "generate_audio_reactive"
     CHECK_STEMS = "check_stems"
     LIST_MODULATION_PRESETS = "list_modulation_presets"
+    # Server lifecycle
+    SHUTDOWN = "shutdown"
 
 
 class GenerationMode(str, Enum):
@@ -289,6 +291,7 @@ class Request(BaseModel):
     modulation_slots: Optional[list[dict]] = None
     expressions: Optional[dict[str, str]] = None
     modulation_preset: Optional[str] = None
+    prompt_segments: Optional[list[dict]] = None
 
     def to_generate_request(self) -> GenerateRequest:
         _exclude = {
@@ -297,6 +300,7 @@ class Request(BaseModel):
             # Audio reactivity fields
             "audio_path", "fps", "enable_stems",
             "modulation_slots", "expressions", "modulation_preset",
+            "prompt_segments",
         }
         data = self.model_dump(exclude_none=True, exclude=_exclude)
         return GenerateRequest(**data)
@@ -307,6 +311,7 @@ class Request(BaseModel):
             # Audio reactivity fields
             "audio_path", "fps", "enable_stems",
             "modulation_slots", "expressions", "modulation_preset",
+            "prompt_segments",
         }
         data = self.model_dump(exclude_none=True, exclude=_exclude)
         return AnimationRequest(**data)
@@ -569,3 +574,12 @@ class StemsAvailableResponse(BaseModel):
 class ModulationPresetsResponse(BaseModel):
     type: Literal["modulation_presets"] = "modulation_presets"
     presets: list[str]
+
+
+# ─────────────────────────────────────────────────────────────
+# SERVER LIFECYCLE RESPONSE MODELS
+# ─────────────────────────────────────────────────────────────
+
+class ShutdownResponse(BaseModel):
+    type: Literal["shutdown_ack"] = "shutdown_ack"
+    message: str = "Server shutting down"

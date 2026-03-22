@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import base64
 import itertools
 import json as json_stdlib
 import logging
+import os
+import signal
 import struct
 import threading
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import torch
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -40,6 +44,7 @@ from .protocol import (
     RealtimeResultResponse,
     RealtimeStoppedResponse,
     Request,
+    ShutdownResponse,
     StemsAvailableResponse,
 )
 from . import __version__
@@ -70,12 +75,37 @@ _realtime_ws: WebSocket | None = None  # WebSocket of the realtime owner (for au
 _realtime_timeout_task: asyncio.Task | None = None  # auto-stop timer
 
 
+_PID_FILE = Path(__file__).resolve().parent.parent / "pixytoon.pid"
+
+
+def _write_pid() -> None:
+    """Write current PID to file for orphan detection."""
+    try:
+        _PID_FILE.write_text(str(os.getpid()))
+    except Exception as e:
+        log.warning("Failed to write PID file: %s", e)
+
+
+def _remove_pid() -> None:
+    """Remove PID file on clean shutdown."""
+    try:
+        _PID_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+# Register atexit as a safety net (covers non-fatal exits)
+atexit.register(_remove_pid)
+atexit.register(lambda: torch.cuda.empty_cache() if torch.cuda.is_available() else None)
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     global _generate_lock, _realtime_lock
     _generate_lock = asyncio.Lock()
     _realtime_lock = asyncio.Lock()
 
+    _write_pid()
     log.info("PixyToon server starting — loading diffusion engine...")
     loop = asyncio.get_running_loop()
 
@@ -102,6 +132,7 @@ async def _lifespan(application: FastAPI):
     _active_connections.clear()
 
     engine.unload()
+    _remove_pid()
     log.info("Engine unloaded.")
 
 
@@ -346,6 +377,10 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
         elif req.action == Action.REALTIME_STOP:
             await _handle_realtime_stop(websocket, ws_id)
 
+        elif req.action == Action.SHUTDOWN:
+            await _handle_shutdown(websocket, ws_id)
+            return  # Connection will close after shutdown
+
         elif req.action == Action.GENERATE:
             # Block if realtime mode is active
             async with _realtime_lock:
@@ -552,6 +587,43 @@ async def _handle_cleanup(websocket: WebSocket) -> None:
         message=result["message"],
         freed_mb=result["freed_mb"],
     ))
+
+
+# ─────────────────────────────────────────────────────────────
+# SERVER LIFECYCLE HANDLER
+# ─────────────────────────────────────────────────────────────
+
+async def _handle_shutdown(websocket: WebSocket, ws_id: int) -> None:
+    """Graceful server shutdown triggered by client."""
+    # Refuse if a generation is in progress
+    if _generate_lock is not None and _generate_lock.locked():
+        await _send(websocket, ErrorResponse(
+            code="GPU_BUSY",
+            message="Cannot shutdown while a generation is in progress",
+        ))
+        return
+
+    async with _realtime_lock:
+        rt_busy = _realtime_owner is not None
+    if rt_busy:
+        await _send(websocket, ErrorResponse(
+            code="REALTIME_BUSY",
+            message="Cannot shutdown while real-time mode is active",
+        ))
+        return
+
+    log.info("Shutdown requested by client ws_id=%d", ws_id)
+    await _send(websocket, ShutdownResponse())
+
+    # Close all active connections gracefully
+    for ws in list(_active_connections):
+        try:
+            await ws.close(code=1001, reason="Server shutting down")
+        except Exception:
+            pass
+
+    # Trigger uvicorn graceful shutdown via SIGINT
+    os.kill(os.getpid(), signal.SIGINT)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -938,6 +1010,24 @@ async def health_check() -> JSONResponse:
         "version": __version__,
         "loaded": engine.is_loaded,
     })
+
+
+@app.post("/shutdown")
+async def http_shutdown() -> JSONResponse:
+    """HTTP shutdown endpoint — used by start.ps1 for graceful stop."""
+    if _generate_lock is not None and _generate_lock.locked():
+        return JSONResponse({"error": "GPU_BUSY"}, status_code=503)
+
+    log.info("HTTP shutdown requested")
+    for ws in list(_active_connections):
+        try:
+            await ws.close(code=1001, reason="Server shutting down")
+        except Exception:
+            pass
+
+    # Schedule SIGINT after response is sent
+    asyncio.get_running_loop().call_later(0.5, lambda: os.kill(os.getpid(), signal.SIGINT))
+    return JSONResponse({"status": "shutting_down"})
 
 
 # ─────────────────────────────────────────────────────────────
