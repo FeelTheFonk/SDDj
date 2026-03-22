@@ -1,6 +1,6 @@
 [project]
 name = "pixytoon-server"
-version = "0.7.3"
+version = "0.7.4"
 description = "Local SOTA pixel art generation and animation server for Aseprite via Stable Diffusion"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
@@ -20,7 +20,8 @@ dependencies = [
     "DeepCache>=0.1",
     "triton-windows>=3.2,<3.7; sys_platform == 'win32'",
     "triton>=3.2; sys_platform != 'win32'",
-    # Post-processing
+    # Post-processing + motion warp
+    "opencv-python-headless>=4.8",
     "Pillow>=10.0,<13.0",
     "scikit-learn>=1.5",
     "scikit-image>=0.24",

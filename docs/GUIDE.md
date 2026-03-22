@@ -583,7 +583,7 @@ To reproduce: enter that seed number in the Seed field, keep all other parameter
 
 ## Audio Reactivity
 
-> v0.7.0 — Synth-style modulation matrix. v0.7.1 — BPM detection, 20 presets, auto-calibration, prompt schedule. v0.7.3 — New bands (sub-bass, upper-mid, presence), new targets (palette shift, frame cadence), AnimateDiff + Audio mode, MP4 export, waveform preview.
+> v0.7.0 — Synth-style modulation matrix. v0.7.1 — BPM detection, 20 presets, auto-calibration, prompt schedule. v0.7.3 — New bands (sub-bass, upper-mid, presence), new targets (palette shift, frame cadence), AnimateDiff + Audio mode, MP4 export, waveform preview. v0.7.4 — Audio-reactive motion/camera (smooth Deforum-like pan/zoom/rotate), frame limit control, 4 motion presets, 14 presets enriched with motion.
 
 The **Audio** tab drives generation parameters from audio features. Select a file, click **Analyze** (auto-detects BPM, shows waveform preview, and recommends a preset), then **GENERATE AUDIO**. Supports all modes (txt2img, img2img, inpaint, ControlNet) and both animation methods:
 
@@ -592,7 +592,7 @@ The **Audio** tab drives generation parameters from audio features. Select a fil
 
 After generating, click **Export MP4** to create a video with the audio track embedded (requires ffmpeg).
 
-For the complete guide — modulation matrix, all 22 presets, custom expressions, prompt scheduling, tips: see **[Audio Reactivity Guide](AUDIO-REACTIVITY.md)**.
+For the complete guide — modulation matrix, all 24 presets, custom expressions, motion/camera, prompt scheduling, tips: see **[Audio Reactivity Guide](AUDIO-REACTIVITY.md)**.
 
 ---
 

@@ -204,6 +204,7 @@ Analyze audio first, then generate animation with per-frame parameter modulation
   "audio_path": "C:/path/to/audio.wav",
   "fps": 24.0,
   "enable_stems": false,
+  "max_frames": null,
   "method": "chain",
   "enable_freeinit": false,
   "freeinit_iterations": 2,
@@ -266,6 +267,10 @@ Analyze audio first, then generate animation with per-frame parameter modulation
 | `seed_offset`        | 0 - 1000         | Per-frame seed variation   |
 | `palette_shift`      | 0.0 - 1.0        | Audio-driven hue rotation  |
 | `frame_cadence`      | 1.0 - 8.0        | Frame skip cadence         |
+| `motion_x`           | -5.0 - 5.0       | Horizontal pan (pixels)    |
+| `motion_y`           | -5.0 - 5.0       | Vertical pan (pixels)      |
+| `motion_zoom`        | 0.95 - 1.05      | Zoom factor (1.0 = none)   |
+| `motion_rotation`    | -2.0 - 2.0       | Rotation (degrees)         |
 
 ## Export MP4 Request
 

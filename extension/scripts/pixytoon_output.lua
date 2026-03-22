@@ -5,14 +5,26 @@
 return function(PT)
 
 -- ─── Project Root Detection ───────────────────────────────────
--- Derive <pixytoon_root> from this script's absolute path.
--- Script is at <root>/extension/scripts/pixytoon_output.lua → go up 3 levels.
+-- The extension runs from %appdata%/Aseprite/extensions/pixytoon/ (installed copy).
+-- Derive <pixytoon_root> from Aseprite's executable path instead:
+-- Aseprite is at <root>/bin/aseprite/aseprite.exe → go up 3 levels.
+-- Fallback: script path for dev scenarios where Aseprite is external.
 
-local _raw_source = debug.getinfo(1, "S").source
-local _script_path = _raw_source:sub(1, 1) == "@" and _raw_source:sub(2) or _raw_source
-local _scripts_dir = app.fs.filePath(_script_path)
-local _ext_dir     = app.fs.filePath(_scripts_dir)
-local _project_root = app.fs.filePath(_ext_dir)
+local _project_root
+local _ase_exe = app.fs.appPath                                    -- full path to aseprite.exe
+local _ase_dir = app.fs.filePath(_ase_exe)                         -- .../bin/aseprite/
+local _bin_dir = app.fs.filePath(_ase_dir)                         -- .../bin/
+local _candidate = app.fs.filePath(_bin_dir)                       -- .../  (project root)
+if app.fs.isFile(app.fs.joinPath(_candidate, "start.ps1")) then
+  _project_root = _candidate
+else
+  -- Dev fallback: script at <root>/extension/scripts/pixytoon_output.lua → up 3
+  local _raw_source = debug.getinfo(1, "S").source
+  local _script_path = _raw_source:sub(1, 1) == "@" and _raw_source:sub(2) or _raw_source
+  local _scripts_dir = app.fs.filePath(_script_path)
+  local _ext_dir     = app.fs.filePath(_scripts_dir)
+  _project_root = app.fs.filePath(_ext_dir)
+end
 
 PT.cfg.PROJECT_ROOT = _project_root
 PT.cfg.OUTPUT_DIR   = app.fs.joinPath(_project_root, "output")
@@ -255,7 +267,7 @@ end
 function PT.build_generation_meta(resp)
   local req = PT.last_request
   local meta = {
-    pixytoon_version = "0.7.3",
+    pixytoon_version = "0.7.4",
     type = "generation",
     timestamp = os.date("!%Y-%m-%dT%H:%M:%S"),
     timestamp_local = os.date("%Y-%m-%d %H:%M:%S"),
@@ -283,7 +295,7 @@ end
 function PT.build_animation_meta(resp)
   local req = PT.last_request
   local meta = {
-    pixytoon_version = "0.7.3",
+    pixytoon_version = "0.7.4",
     type = "animation",
     timestamp = os.date("!%Y-%m-%dT%H:%M:%S"),
     timestamp_local = os.date("%Y-%m-%d %H:%M:%S"),

@@ -418,3 +418,41 @@ class TestAudioRequestModels:
         assert isinstance(ar, AudioReactiveRequest)
         assert ar.prompt == "pixel art"
         assert len(ar.modulation_slots) == 1
+
+    def test_audio_reactive_max_frames_default_none(self):
+        """v0.7.4: max_frames defaults to None (no limit)."""
+        req = AudioReactiveRequest(audio_path="/test.wav")
+        assert req.max_frames is None
+
+    def test_audio_reactive_max_frames_valid(self):
+        """v0.7.4: max_frames accepts valid range 1-3600."""
+        req = AudioReactiveRequest(audio_path="/test.wav", max_frames=100)
+        assert req.max_frames == 100
+        req2 = AudioReactiveRequest(audio_path="/test.wav", max_frames=3600)
+        assert req2.max_frames == 3600
+
+    def test_audio_reactive_max_frames_bounds(self):
+        """v0.7.4: max_frames rejects out-of-range values."""
+        with pytest.raises(ValidationError):
+            AudioReactiveRequest(audio_path="/test.wav", max_frames=0)
+        with pytest.raises(ValidationError):
+            AudioReactiveRequest(audio_path="/test.wav", max_frames=5000)
+
+    def test_request_max_frames_forwarded(self):
+        """v0.7.4: max_frames passes from Request to AudioReactiveRequest."""
+        req = Request(
+            action="generate_audio_reactive",
+            audio_path="/test.wav", prompt="test",
+            max_frames=50,
+        )
+        ar = req.to_audio_reactive_request()
+        assert ar.max_frames == 50
+
+    def test_request_max_frames_none_not_forwarded(self):
+        """v0.7.4: max_frames=None is excluded by exclude_none."""
+        req = Request(
+            action="generate_audio_reactive",
+            audio_path="/test.wav", prompt="test",
+        )
+        ar = req.to_audio_reactive_request()
+        assert ar.max_frames is None

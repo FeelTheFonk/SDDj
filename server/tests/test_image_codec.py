@@ -9,6 +9,7 @@ import pytest
 from PIL import Image
 
 from pixytoon.image_codec import (
+    apply_motion_warp,
     composite_with_mask,
     decode_b64_image,
     decode_b64_mask,
@@ -133,3 +134,67 @@ class TestCompositeWithMask:
         mask = Image.new("L", (32, 32), 255)
         result = composite_with_mask(original, inpainted, mask)
         assert result.size == (64, 64)
+
+
+class TestApplyMotionWarp:
+    """v0.7.4: Deforum-like smooth 2D affine warp with denoise correlation."""
+
+    def _make_image(self, mode="RGB", size=(64, 64)):
+        import numpy as np
+        arr = np.random.randint(0, 255, (*size[::-1], 3 if mode == "RGB" else 4), dtype=np.uint8)
+        return Image.fromarray(arr, mode=mode)
+
+    def test_identity_no_motion(self):
+        img = self._make_image()
+        result = apply_motion_warp(img, tx=0, ty=0, zoom=1.0, rotation=0.0)
+        assert result is img  # No warp needed → same object returned
+
+    def test_negligible_motion_returns_original(self):
+        img = self._make_image()
+        result = apply_motion_warp(img, tx=0.001, ty=0.001, zoom=1.0, rotation=0.0)
+        assert result is img  # Below threshold
+
+    def test_translation_changes_image(self):
+        img = self._make_image()
+        import numpy as np
+        original_arr = np.array(img)
+        result = apply_motion_warp(img, tx=5.0, ty=0.0, denoise_strength=0.8)
+        result_arr = np.array(result)
+        assert result.size == img.size
+        assert not np.array_equal(original_arr, result_arr)
+
+    def test_zoom_changes_image(self):
+        img = self._make_image()
+        import numpy as np
+        original_arr = np.array(img)
+        result = apply_motion_warp(img, zoom=1.05, denoise_strength=0.8)
+        assert result.size == img.size
+        assert not np.array_equal(original_arr, np.array(result))
+
+    def test_rotation_changes_image(self):
+        img = self._make_image()
+        import numpy as np
+        result = apply_motion_warp(img, rotation=2.0, denoise_strength=0.8)
+        assert result.size == img.size
+        assert not np.array_equal(np.array(img), np.array(result))
+
+    def test_denoise_correlation_scales_motion(self):
+        """Higher denoise = more effective motion. Low denoise = dampened."""
+        img = self._make_image()
+        import numpy as np
+        # Same tx, different denoise strengths
+        low_denoise = apply_motion_warp(img, tx=5.0, denoise_strength=0.1)
+        high_denoise = apply_motion_warp(img, tx=5.0, denoise_strength=0.8)
+        # Both produce different images, but different from each other
+        assert not np.array_equal(np.array(low_denoise), np.array(high_denoise))
+
+    def test_preserves_rgba_mode(self):
+        img = self._make_image(mode="RGBA")
+        result = apply_motion_warp(img, tx=3.0, denoise_strength=0.5)
+        assert result.mode == "RGBA"
+        assert result.size == img.size
+
+    def test_preserves_rgb_mode(self):
+        img = self._make_image(mode="RGB")
+        result = apply_motion_warp(img, tx=3.0, denoise_strength=0.5)
+        assert result.mode == "RGB"

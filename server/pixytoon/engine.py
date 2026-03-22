@@ -69,6 +69,7 @@ from . import pipeline_factory
 from .animatediff_manager import AnimateDiffManager, get_uncompiled_unet
 from .freeu_applicator import apply_freeu
 from .image_codec import (
+    apply_motion_warp,
     composite_with_mask,
     decode_b64_image,
     decode_b64_mask,
@@ -749,7 +750,12 @@ class DiffusionEngine:
                 analysis, slots, req.expressions,
             )
 
-            # 5. Run animation with per-frame params — dispatch by method
+            # 5. Honour max_frames limit if set
+            if req.max_frames and req.max_frames > 0 and schedule.total_frames > req.max_frames:
+                schedule.total_frames = req.max_frames
+                schedule.frame_params = schedule.frame_params[:req.max_frames]
+
+            # 6. Run animation with per-frame params — dispatch by method
             if req.method == AnimationMethod.ANIMATEDIFF_AUDIO:
                 return self._generate_audio_animatediff(
                     req, analysis, schedule, on_frame, on_progress,
@@ -870,7 +876,7 @@ class DiffusionEngine:
                         )
                         if on_frame:
                             on_frame(frame_resp)
-                        frames.append(image)
+                        frames.append(frame_resp)
                         log.debug("Audio frame %d/%d: cadence skip (reuse)", frame_idx, total_frames)
                         continue
 
@@ -978,6 +984,17 @@ class DiffusionEngine:
                     if chain_source is None:
                         raise RuntimeError("Audio chain failed: no previous frame")
                     source = resize_to_target(chain_source, target_w, target_h)
+
+                    # Motion warp: Deforum-like smooth camera (applied BEFORE img2img)
+                    mx = frame_params.get("motion_x", 0.0)
+                    my = frame_params.get("motion_y", 0.0)
+                    mz = frame_params.get("motion_zoom", 1.0)
+                    mr = frame_params.get("motion_rotation", 0.0)
+                    if abs(mx) > 0.01 or abs(my) > 0.01 or abs(mz - 1.0) > 0.001 or abs(mr) > 0.01:
+                        source = apply_motion_warp(
+                            source, tx=mx, ty=my, zoom=mz, rotation=mr,
+                            denoise_strength=eff_denoise,
+                        )
 
                     # Noise amplitude modulation: inject noise into source
                     noise_amp = frame_params.get("noise_amplitude", 0.0)
@@ -1238,10 +1255,23 @@ class DiffusionEngine:
 
             t0_frame = time.perf_counter()
             pil_img = frame_images[frame_idx]
+
+            # Motion warp for AnimateDiff: cumulative per-frame warp
+            frame_params = schedule.get_params(frame_idx)
+            mx = frame_params.get("motion_x", 0.0)
+            my = frame_params.get("motion_y", 0.0)
+            mz = frame_params.get("motion_zoom", 1.0)
+            mr = frame_params.get("motion_rotation", 0.0)
+            ad_denoise = frame_params.get("denoise_strength", req.denoise_strength)
+            if abs(mx) > 0.01 or abs(my) > 0.01 or abs(mz - 1.0) > 0.001 or abs(mr) > 0.01:
+                pil_img = apply_motion_warp(
+                    pil_img, tx=mx, ty=my, zoom=mz, rotation=mr,
+                    denoise_strength=ad_denoise,
+                )
+
             image = postprocess_apply(pil_img, req.post_process)
 
             # Audio-driven palette shift (hue rotation)
-            frame_params = schedule.get_params(frame_idx)
             hue_shift = frame_params.get("palette_shift", 0.0)
             if hue_shift > 0.01:
                 image = _apply_hue_shift(image, hue_shift)

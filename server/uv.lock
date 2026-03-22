@@ -1149,7 +1149,7 @@ wheels = [
 
 [[package]]
 name = "pixytoon-server"
-version = "0.7.3"
+version = "0.7.4"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
@@ -1161,6 +1161,7 @@ dependencies = [
     { name = "numba" },
     { name = "numpy" },
     { name = "onnxruntime" },
+    { name = "opencv-python-headless" },
     { name = "peft" },
     { name = "pillow" },
     { name = "pydantic-settings" },
@@ -1202,6 +1203,7 @@ requires-dist = [
     { name = "numba", specifier = ">=0.60" },
     { name = "numpy", specifier = ">=1.26,<3.0" },
     { name = "onnxruntime", specifier = ">=1.17" },
+    { name = "opencv-python-headless", specifier = ">=4.8" },
     { name = "peft", specifier = ">=0.13,<1.0" },
     { name = "pillow", specifier = ">=10.0,<13.0" },
     { name = "pydantic-settings", specifier = ">=2.5" },

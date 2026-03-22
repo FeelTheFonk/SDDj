@@ -26,6 +26,11 @@ TARGET_RANGES: dict[str, tuple[float, float]] = {
     "seed_offset": (0.0, 1000.0),
     "palette_shift": (0.0, 1.0),  # hue rotation amount (0 = no shift, 1 = full 360°)
     "frame_cadence": (1.0, 8.0),  # frame skip cadence (1 = every frame, 4 = skip 3)
+    # Motion / camera (smooth Deforum-like, image-space affine)
+    "motion_x": (-5.0, 5.0),          # pixels, horizontal translation
+    "motion_y": (-5.0, 5.0),          # pixels, vertical translation
+    "motion_zoom": (0.95, 1.05),      # scale factor (1.0 = none)
+    "motion_rotation": (-2.0, 2.0),   # degrees, planar rotation
 }
 
 # Built-in modulation presets — organized by category
@@ -38,6 +43,8 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 4.0, "max_val": 10.0, "attack": 1, "release": 6, "enabled": True},
         {"source": "global_high", "target": "noise_amplitude",
          "min_val": 0.0, "max_val": 0.3, "attack": 1, "release": 3, "enabled": True},
+        {"source": "global_beat", "target": "motion_zoom",
+         "min_val": 0.99, "max_val": 1.01, "attack": 2, "release": 12, "enabled": True},
     ],
     "rock_energy": [
         {"source": "global_rms", "target": "denoise_strength",
@@ -46,6 +53,8 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 3.0, "max_val": 8.0, "attack": 1, "release": 8, "enabled": True},
         {"source": "global_low", "target": "seed_offset",
          "min_val": 0.0, "max_val": 200.0, "attack": 2, "release": 10, "enabled": True},
+        {"source": "global_rms", "target": "motion_x",
+         "min_val": -1.5, "max_val": 1.5, "attack": 3, "release": 12, "enabled": True},
     ],
     "hiphop_bounce": [
         {"source": "global_low", "target": "denoise_strength",
@@ -54,12 +63,16 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 4.0, "max_val": 9.0, "attack": 1, "release": 4, "enabled": True},
         {"source": "global_onset", "target": "noise_amplitude",
          "min_val": 0.0, "max_val": 0.2, "attack": 1, "release": 5, "enabled": True},
+        {"source": "global_low", "target": "motion_y",
+         "min_val": -1.0, "max_val": 1.0, "attack": 2, "release": 10, "enabled": True},
     ],
     "classical_flow": [
         {"source": "global_rms", "target": "denoise_strength",
          "min_val": 0.10, "max_val": 0.40, "attack": 5, "release": 20, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 7.0, "attack": 4, "release": 15, "enabled": True},
+        {"source": "global_rms", "target": "motion_x",
+         "min_val": -1.0, "max_val": 1.0, "attack": 6, "release": 25, "enabled": True},
     ],
     "ambient_drift": [
         {"source": "global_rms", "target": "denoise_strength",
@@ -68,6 +81,10 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 2.0, "max_val": 5.0, "attack": 6, "release": 25, "enabled": True},
         {"source": "global_mid", "target": "noise_amplitude",
          "min_val": 0.0, "max_val": 0.15, "attack": 5, "release": 20, "enabled": True},
+        {"source": "global_mid", "target": "motion_x",
+         "min_val": -1.5, "max_val": 1.5, "attack": 8, "release": 30, "enabled": True},
+        {"source": "global_rms", "target": "motion_zoom",
+         "min_val": 0.995, "max_val": 1.005, "attack": 6, "release": 25, "enabled": True},
     ],
     # ─── Style-Specific ──────────────────────────────────────────
     "glitch_chaos": [
@@ -79,18 +96,24 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 0.0, "max_val": 1000.0, "attack": 1, "release": 1, "enabled": True},
         {"source": "global_rms", "target": "noise_amplitude",
          "min_val": 0.0, "max_val": 0.8, "attack": 1, "release": 3, "enabled": True},
+        {"source": "global_onset", "target": "motion_rotation",
+         "min_val": -1.5, "max_val": 1.5, "attack": 1, "release": 3, "enabled": True},
     ],
     "smooth_morph": [
         {"source": "global_rms", "target": "denoise_strength",
          "min_val": 0.10, "max_val": 0.35, "attack": 6, "release": 18, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 4.0, "max_val": 6.0, "attack": 5, "release": 15, "enabled": True},
+        {"source": "global_rms", "target": "motion_zoom",
+         "min_val": 0.995, "max_val": 1.005, "attack": 5, "release": 20, "enabled": True},
     ],
     "rhythmic_pulse": [
         {"source": "global_beat", "target": "denoise_strength",
          "min_val": 0.15, "max_val": 0.60, "attack": 1, "release": 8, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 9.0, "attack": 1, "release": 6, "enabled": True},
+        {"source": "global_beat", "target": "motion_zoom",
+         "min_val": 0.98, "max_val": 1.02, "attack": 1, "release": 10, "enabled": True},
     ],
     "atmospheric": [
         {"source": "global_rms", "target": "denoise_strength",
@@ -99,6 +122,8 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 3.0, "max_val": 6.5, "attack": 3, "release": 20, "enabled": True},
         {"source": "global_high", "target": "noise_amplitude",
          "min_val": 0.0, "max_val": 0.10, "attack": 4, "release": 15, "enabled": True},
+        {"source": "global_mid", "target": "motion_x",
+         "min_val": -0.8, "max_val": 0.8, "attack": 5, "release": 20, "enabled": True},
     ],
     "abstract_noise": [
         {"source": "global_rms", "target": "noise_amplitude",
@@ -109,6 +134,10 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 0.0, "max_val": 500.0, "attack": 2, "release": 6, "enabled": True},
         {"source": "global_high", "target": "cfg_scale",
          "min_val": 2.0, "max_val": 12.0, "attack": 1, "release": 3, "enabled": True},
+        {"source": "global_high", "target": "motion_rotation",
+         "min_val": -1.0, "max_val": 1.0, "attack": 2, "release": 8, "enabled": True},
+        {"source": "global_onset", "target": "motion_x",
+         "min_val": -2.0, "max_val": 2.0, "attack": 1, "release": 5, "enabled": True},
     ],
     # ─── Complexity Levels ───────────────────────────────────────
     "one_click_easy": [
@@ -128,6 +157,8 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 3.0, "max_val": 8.0, "attack": 2, "release": 6, "enabled": True},
         {"source": "global_low", "target": "noise_amplitude",
          "min_val": 0.0, "max_val": 0.2, "attack": 2, "release": 8, "enabled": True},
+        {"source": "global_beat", "target": "motion_zoom",
+         "min_val": 0.99, "max_val": 1.01, "attack": 2, "release": 12, "enabled": True},
     ],
     "advanced_max": [
         {"source": "global_rms", "target": "denoise_strength",
@@ -138,6 +169,10 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 0.0, "max_val": 0.3, "attack": 2, "release": 8, "enabled": True},
         {"source": "global_beat", "target": "seed_offset",
          "min_val": 0.0, "max_val": 300.0, "attack": 1, "release": 10, "enabled": True},
+        {"source": "global_low", "target": "motion_x",
+         "min_val": -2.0, "max_val": 2.0, "attack": 2, "release": 10, "enabled": True},
+        {"source": "global_beat", "target": "motion_zoom",
+         "min_val": 0.98, "max_val": 1.02, "attack": 1, "release": 8, "enabled": True},
     ],
     # ─── Target-Specific ─────────────────────────────────────────
     "controlnet_reactive": [
@@ -159,6 +194,8 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 0.20, "max_val": 0.60, "attack": 1, "release": 5, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 8.0, "attack": 3, "release": 10, "enabled": True},
+        {"source": "global_rms", "target": "motion_zoom",
+         "min_val": 0.99, "max_val": 1.01, "attack": 3, "release": 12, "enabled": True},
     ],
     # ─── Legacy (backward-compatible) ────────────────────────────
     "energetic": [
@@ -166,18 +203,55 @@ PRESETS: dict[str, list[dict]] = {
          "min_val": 0.20, "max_val": 0.70, "attack": 2, "release": 6, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 9.0, "attack": 1, "release": 10, "enabled": True},
+        {"source": "global_rms", "target": "motion_x",
+         "min_val": -1.5, "max_val": 1.5, "attack": 2, "release": 8, "enabled": True},
     ],
     "ambient": [
         {"source": "global_rms", "target": "denoise_strength",
          "min_val": 0.10, "max_val": 0.30, "attack": 5, "release": 20, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 6.0, "attack": 3, "release": 15, "enabled": True},
+        {"source": "global_centroid", "target": "motion_x",
+         "min_val": -0.5, "max_val": 0.5, "attack": 5, "release": 20, "enabled": True},
     ],
     "bass_driven": [
         {"source": "global_low", "target": "denoise_strength",
          "min_val": 0.15, "max_val": 0.60, "attack": 2, "release": 8, "enabled": True},
         {"source": "global_high", "target": "cfg_scale",
          "min_val": 4.0, "max_val": 8.0, "attack": 1, "release": 5, "enabled": True},
+        {"source": "global_low", "target": "motion_y",
+         "min_val": -1.5, "max_val": 1.5, "attack": 2, "release": 10, "enabled": True},
+    ],
+    # ─── Motion / Camera ──────────────────────────────────────
+    "gentle_drift": [
+        {"source": "global_rms", "target": "denoise_strength",
+         "min_val": 0.15, "max_val": 0.45, "attack": 3, "release": 15, "enabled": True},
+        {"source": "global_low", "target": "motion_x",
+         "min_val": -2.0, "max_val": 2.0, "attack": 4, "release": 20, "enabled": True},
+        {"source": "global_mid", "target": "motion_y",
+         "min_val": -1.5, "max_val": 1.5, "attack": 4, "release": 20, "enabled": True},
+    ],
+    "pulse_zoom": [
+        {"source": "global_rms", "target": "denoise_strength",
+         "min_val": 0.15, "max_val": 0.50, "attack": 2, "release": 10, "enabled": True},
+        {"source": "global_beat", "target": "motion_zoom",
+         "min_val": 0.98, "max_val": 1.02, "attack": 2, "release": 15, "enabled": True},
+    ],
+    "slow_rotate": [
+        {"source": "global_rms", "target": "denoise_strength",
+         "min_val": 0.12, "max_val": 0.40, "attack": 4, "release": 18, "enabled": True},
+        {"source": "global_centroid", "target": "motion_rotation",
+         "min_val": -1.0, "max_val": 1.0, "attack": 5, "release": 25, "enabled": True},
+    ],
+    "cinematic_sweep": [
+        {"source": "global_rms", "target": "denoise_strength",
+         "min_val": 0.15, "max_val": 0.45, "attack": 3, "release": 15, "enabled": True},
+        {"source": "global_low", "target": "motion_x",
+         "min_val": -3.0, "max_val": 3.0, "attack": 5, "release": 25, "enabled": True},
+        {"source": "global_beat", "target": "motion_zoom",
+         "min_val": 0.99, "max_val": 1.01, "attack": 3, "release": 20, "enabled": True},
+        {"source": "global_centroid", "target": "motion_rotation",
+         "min_val": -0.5, "max_val": 0.5, "attack": 6, "release": 30, "enabled": True},
     ],
 }
 

@@ -331,6 +331,59 @@ class TestPresets:
         # frame_cadence: 1-8
         assert TARGET_RANGES["frame_cadence"] == (1.0, 8.0)
 
+    def test_motion_targets_in_ranges(self):
+        """v0.7.4: motion_x, motion_y, motion_zoom, motion_rotation in TARGET_RANGES."""
+        assert TARGET_RANGES["motion_x"] == (-5.0, 5.0)
+        assert TARGET_RANGES["motion_y"] == (-5.0, 5.0)
+        assert TARGET_RANGES["motion_zoom"] == (0.95, 1.05)
+        assert TARGET_RANGES["motion_rotation"] == (-2.0, 2.0)
+
+    def test_motion_presets_exist(self):
+        """v0.7.4: 4 dedicated motion presets."""
+        for name in ("gentle_drift", "pulse_zoom", "slow_rotate", "cinematic_sweep"):
+            slots = ModulationEngine.get_preset(name)
+            assert len(slots) > 0, f"Preset {name!r} has no slots"
+            targets = {s.target for s in slots}
+            # Each motion preset must have at least one motion target
+            motion_targets = targets & {"motion_x", "motion_y", "motion_zoom", "motion_rotation"}
+            assert len(motion_targets) > 0, f"Preset {name!r} has no motion targets"
+
+    def test_enriched_presets_have_motion(self):
+        """v0.7.4: existing presets enriched with motion slots."""
+        enriched = [
+            "electronic_pulse", "rock_energy", "hiphop_bounce", "classical_flow",
+            "ambient_drift", "glitch_chaos", "smooth_morph", "rhythmic_pulse",
+            "atmospheric", "abstract_noise", "intermediate_full", "advanced_max",
+            "noise_sculpt", "energetic", "ambient", "bass_driven",
+        ]
+        motion_set = {"motion_x", "motion_y", "motion_zoom", "motion_rotation"}
+        for name in enriched:
+            slots = ModulationEngine.get_preset(name)
+            targets = {s.target for s in slots}
+            assert targets & motion_set, f"Preset {name!r} should have motion target"
+
+    def test_presets_without_motion(self):
+        """v0.7.4: beginner presets deliberately have no motion."""
+        no_motion = ["one_click_easy", "beginner_balanced", "controlnet_reactive", "seed_scatter"]
+        motion_set = {"motion_x", "motion_y", "motion_zoom", "motion_rotation"}
+        for name in no_motion:
+            slots = ModulationEngine.get_preset(name)
+            targets = {s.target for s in slots}
+            assert not (targets & motion_set), f"Preset {name!r} should NOT have motion"
+
+    def test_schedule_truncation_max_frames(self):
+        """v0.7.4: max_frames truncation (simulates engine logic)."""
+        schedule = ParameterSchedule(
+            total_frames=100,
+            frame_params=[{"denoise_strength": 0.5 + i * 0.001} for i in range(100)],
+        )
+        max_frames = 30
+        schedule.total_frames = max_frames
+        schedule.frame_params = schedule.frame_params[:max_frames]
+        assert schedule.total_frames == 30
+        assert len(schedule.frame_params) == 30
+        assert schedule.get_params(29) == {"denoise_strength": pytest.approx(0.529)}
+
 
 # ─── Validate Expressions ──────────────────────────────────
 

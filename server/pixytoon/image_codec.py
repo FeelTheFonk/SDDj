@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from base64 import b64decode, b64encode
 from io import BytesIO
 
+import cv2
+import numpy as np
 from PIL import Image
 
 
@@ -102,3 +105,66 @@ def composite_with_mask(
     mask_binary = mask.point(lambda p: 255 if p >= 128 else 0)
 
     return Image.composite(inpainted, original, mask_binary)
+
+
+def apply_motion_warp(
+    image: Image.Image,
+    tx: float = 0.0,
+    ty: float = 0.0,
+    zoom: float = 1.0,
+    rotation: float = 0.0,
+    denoise_strength: float = 0.5,
+) -> Image.Image:
+    """Apply smooth 2D affine warp with denoise-correlated motion scaling.
+
+    Motion amplitude is scaled by denoise_strength to prevent spaghetti:
+    higher denoise = model can absorb more change, lower = motion dampened.
+
+    Args:
+        image: Source PIL image (RGB).
+        tx: Horizontal translation in pixels (negative=left, positive=right).
+        ty: Vertical translation in pixels (negative=up, positive=down).
+        zoom: Scale factor (1.0=none, >1=zoom in, <1=zoom out).
+        rotation: Planar rotation in degrees (positive=counter-clockwise).
+        denoise_strength: Current denoise value — scales effective motion.
+
+    Returns:
+        Warped PIL image (same size and mode).
+    """
+    # Correlation: scale motion by denoise_strength (clamped 0.1-0.8)
+    scale = max(0.1, min(0.8, denoise_strength))
+    eff_tx = tx * scale
+    eff_ty = ty * scale
+    eff_zoom = 1.0 + (zoom - 1.0) * scale
+    eff_rot = rotation * scale
+
+    # Skip if negligible motion (saves CPU)
+    total_motion = abs(eff_tx) + abs(eff_ty) + abs(eff_zoom - 1.0) * 100.0 + abs(eff_rot)
+    if total_motion < 0.05:
+        return image
+
+    w, h = image.size
+    cx, cy = w / 2.0, h / 2.0
+
+    # Build combined affine matrix: translate to center, rotate+scale, translate back + pan
+    cos_a = math.cos(math.radians(eff_rot)) * eff_zoom
+    sin_a = math.sin(math.radians(eff_rot)) * eff_zoom
+
+    # 2x3 affine matrix
+    M = np.array([
+        [cos_a, -sin_a, (1.0 - cos_a) * cx + sin_a * cy + eff_tx],
+        [sin_a,  cos_a, -sin_a * cx + (1.0 - cos_a) * cy + eff_ty],
+    ], dtype=np.float64)
+
+    # Convert PIL -> numpy (preserve alpha if present)
+    has_alpha = image.mode == "RGBA"
+    arr = np.array(image)
+
+    # Apply warp with border reflection (no black edges)
+    warped = cv2.warpAffine(
+        arr, M, (w, h),
+        flags=cv2.INTER_LANCZOS4,
+        borderMode=cv2.BORDER_REFLECT_101,
+    )
+
+    return Image.fromarray(warped, mode=image.mode)

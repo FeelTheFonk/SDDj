@@ -128,6 +128,15 @@ function PT.build_audio_reactive_request()
       elseif target == "frame_cadence" then
         mn = 1.0 + mn * 7.0   -- 0%→1, 100%→8
         mx = 1.0 + mx * 7.0
+      elseif target == "motion_x" or target == "motion_y" then
+        mn = mn * 10.0 - 5.0  -- 0%→-5, 100%→+5
+        mx = mx * 10.0 - 5.0
+      elseif target == "motion_zoom" then
+        mn = 0.95 + mn * 0.10 -- 0%→0.95, 100%→1.05
+        mx = 0.95 + mx * 0.10
+      elseif target == "motion_rotation" then
+        mn = mn * 4.0 - 2.0   -- 0%→-2, 100%→+2
+        mx = mx * 4.0 - 2.0
       end
       slots[#slots + 1] = {
         source  = d[prefix .. "source"],
@@ -148,10 +157,12 @@ function PT.build_audio_reactive_request()
     local expr_fields = {
       "expr_denoise", "expr_cfg", "expr_noise",
       "expr_controlnet", "expr_seed", "expr_palette", "expr_cadence",
+      "expr_motion_x", "expr_motion_y", "expr_motion_zoom", "expr_motion_rot",
     }
     local expr_targets = {
       "denoise_strength", "cfg_scale", "noise_amplitude",
       "controlnet_scale", "seed_offset", "palette_shift", "frame_cadence",
+      "motion_x", "motion_y", "motion_zoom", "motion_rotation",
     }
     for idx, field in ipairs(expr_fields) do
       local val = d[field] or ""
@@ -202,11 +213,16 @@ function PT.build_audio_reactive_request()
   local enable_freeinit = (method == "animatediff_audio") and (d.audio_freeinit or false)
   local freeinit_iters = enable_freeinit and (d.audio_freeinit_iters or 2) or 2
 
+  -- Max frames limit (0 = no limit)
+  local max_frames = d.audio_max_frames or 0
+  if max_frames <= 0 then max_frames = nil end
+
   local req = {
     action            = "generate_audio_reactive",
     audio_path        = d.audio_file,
     fps               = tonumber(d.audio_fps) or 24,
     enable_stems      = d.audio_stems_enable or false,
+    max_frames        = max_frames,
     modulation_slots  = slots,
     expressions       = expressions,
     modulation_preset = mod_preset,

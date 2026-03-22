@@ -32,12 +32,13 @@ Parameter Schedule (per-frame or per-chunk values)
     |
     +--- Frame Chain (img2img from previous frame)
     |      - Frame 0: txt2img / img2img / inpaint / ControlNet
-    |      - Frame 1+: img2img chain with modulated params
+    |      - Frame 1+: motion warp (pan/zoom/rotate) -> img2img chain with modulated params
     |
-    +--- AnimateDiff + Audio (v0.7.3)
+    +--- AnimateDiff + Audio (v0.7.3+)
     |      - 16-frame temporal batches with 4-frame overlap
     |      - Per-chunk averaged parameters
     |      - Alpha-blended inter-batch transitions
+    |      - Per-frame motion warp (pan/zoom/rotate) applied post-generation
     |      - FreeInit on first chunk (optional)
     |
     v
@@ -53,7 +54,8 @@ MP4 Export (ffmpeg, nearest-neighbor scaling, audio mux)
 2. Open the **Audio** tab
 3. **Select** an audio file (.wav, .mp3, .flac, .ogg)
 4. Click **Analyze** — displays duration, frame count, BPM, available features, and auto-selects the recommended preset
-5. Click **GENERATE AUDIO** — generates an animation frame-by-frame
+5. Optionally set **Max Frames** to limit the number of generated frames (0 = all)
+6. Click **GENERATE AUDIO** — generates an animation frame-by-frame
 
 That's it. The auto-calibration system picks the best preset for your audio.
 
@@ -127,6 +129,12 @@ Inference parameters that can be modulated per-frame:
 | `seed_offset` | 0 - 1000 | Offset added to base seed. Creates visual jumps between frames. |
 | `palette_shift` | 0.0 - 1.0 | Audio-driven hue rotation. Shifts the color palette per frame. |
 | `frame_cadence` | 1 - 8 | Frame skip cadence. Higher = fewer generated frames (GPU savings). |
+| `motion_x` | -5.0 - 5.0 | Horizontal camera pan (pixels). Smooth Deforum-like 2D warp. |
+| `motion_y` | -5.0 - 5.0 | Vertical camera pan (pixels). Smooth Deforum-like 2D warp. |
+| `motion_zoom` | 0.95 - 1.05 | Camera zoom (1.0 = none, >1 = in, <1 = out). Compounds over frames. |
+| `motion_rotation` | -2.0 - 2.0 | Camera rotation (degrees). Smooth planar rotation. |
+
+> **Motion anti-spaghetti**: Motion amplitude is automatically scaled by `denoise_strength` (clamped 0.1-0.8) — lower denoise = less motion. This prevents visual artifacts at low denoising levels. Border reflection and Lanczos4 interpolation ensure clean edges.
 
 ### Attack / Release
 
@@ -143,21 +151,21 @@ Typical values: attack=2, release=8 (responsive but smooth).
 
 | Preset | Slots | Best For |
 |--------|-------|----------|
-| `electronic_pulse` | beat->denoise, onset->cfg, high->noise | EDM, techno, synth music |
-| `rock_energy` | rms->denoise, onset->cfg, low->seed | Rock, metal, live instruments |
-| `hiphop_bounce` | low->denoise, beat->cfg, onset->noise | Hip-hop, trap, bass music |
-| `classical_flow` | rms->denoise, centroid->cfg | Orchestral, piano, acoustic |
-| `ambient_drift` | rms->denoise, centroid->cfg, mid->noise | Ambient, drone, meditation |
+| `electronic_pulse` | beat->denoise, onset->cfg, high->noise, beat->motion_zoom | EDM, techno, synth music |
+| `rock_energy` | rms->denoise, onset->cfg, low->seed, rms->motion_x | Rock, metal, live instruments |
+| `hiphop_bounce` | low->denoise, beat->cfg, onset->noise, low->motion_y | Hip-hop, trap, bass music |
+| `classical_flow` | rms->denoise, centroid->cfg, rms->motion_x | Orchestral, piano, acoustic |
+| `ambient_drift` | rms->denoise, centroid->cfg, mid->noise, mid->motion_x, rms->motion_zoom | Ambient, drone, meditation |
 
 ### Style-Specific
 
 | Preset | Slots | Best For |
 |--------|-------|----------|
-| `glitch_chaos` | onset->denoise, high->cfg, beat->seed, rms->noise | Glitch art, experimental, aggressive |
-| `smooth_morph` | rms->denoise, centroid->cfg | Gentle transitions, slow evolve |
-| `rhythmic_pulse` | beat->denoise, onset->cfg | Beat-synced pulsing |
-| `atmospheric` | rms->denoise, mid->cfg, high->noise | Moody, cinematic, textural |
-| `abstract_noise` | rms->noise, onset->denoise, centroid->seed, high->cfg | Abstract, generative, noisy |
+| `glitch_chaos` | onset->denoise, high->cfg, beat->seed, rms->noise, onset->motion_rot | Glitch art, experimental, aggressive |
+| `smooth_morph` | rms->denoise, centroid->cfg, rms->motion_zoom | Gentle transitions, slow evolve |
+| `rhythmic_pulse` | beat->denoise, onset->cfg, beat->motion_zoom | Beat-synced pulsing |
+| `atmospheric` | rms->denoise, mid->cfg, high->noise, mid->motion_x | Moody, cinematic, textural |
+| `abstract_noise` | rms->noise, onset->denoise, centroid->seed, high->cfg, high->motion_rot, onset->motion_x | Abstract, generative, noisy |
 
 ### Complexity Levels
 
@@ -165,8 +173,8 @@ Typical values: attack=2, release=8 (responsive but smooth).
 |--------|-------|----------|
 | `one_click_easy` | 1 (rms->denoise) | First-time users, simple reactivity |
 | `beginner_balanced` | 2 (rms->denoise, onset->cfg) | Good starting point |
-| `intermediate_full` | 3 (rms->denoise, onset->cfg, low->noise) | Rich modulation |
-| `advanced_max` | 4 (all targets including seed) | Maximum expressiveness |
+| `intermediate_full` | 3+1 (rms->denoise, onset->cfg, low->noise, beat->motion_zoom) | Rich modulation |
+| `advanced_max` | 4+2 (all targets including seed, low->motion_x, beat->motion_zoom) | Maximum expressiveness |
 
 ### Target-Specific
 
@@ -174,15 +182,26 @@ Typical values: attack=2, release=8 (responsive but smooth).
 |--------|-------|----------|
 | `controlnet_reactive` | rms->cn_scale, onset->denoise | ControlNet + audio |
 | `seed_scatter` | onset->seed, rms->denoise | Visual variety per beat |
-| `noise_sculpt` | rms->noise, onset->denoise, centroid->cfg | Noise-driven textures |
+| `noise_sculpt` | rms->noise, onset->denoise, centroid->cfg, rms->motion_zoom | Noise-driven textures |
+
+### Motion / Camera (v0.7.4)
+
+| Preset | Slots | Best For |
+|--------|-------|----------|
+| `gentle_drift` | rms->denoise, low->motion_x, mid->motion_y | Slow horizontal/vertical drift |
+| `pulse_zoom` | rms->denoise, beat->motion_zoom | Beat-synced zoom pulse |
+| `slow_rotate` | rms->denoise, centroid->motion_rotation | Gentle rotation driven by timbre |
+| `cinematic_sweep` | rms->denoise, low->motion_x, beat->zoom, centroid->rotation | Full cinematic camera |
+
+> Many existing presets (electronic_pulse, rock_energy, hiphop_bounce, ambient_drift, etc.) were enriched with subtle motion in v0.7.4. The motion is automatic and smooth — no configuration needed.
 
 ### Legacy
 
 | Preset | Description |
 |--------|-------------|
-| `energetic` | Original v0.7.0 preset (rms->denoise, onset->cfg) |
-| `ambient` | Original v0.7.0 preset (rms->denoise, centroid->cfg) |
-| `bass_driven` | Original v0.7.0 preset (low->denoise, high->cfg) |
+| `energetic` | Original v0.7.0 preset (rms->denoise, onset->cfg, rms->motion_x) |
+| `ambient` | Original v0.7.0 preset (rms->denoise, centroid->cfg, centroid->motion_x) |
+| `bass_driven` | Original v0.7.0 preset (low->denoise, high->cfg, low->motion_y) |
 
 ## Auto-Calibration
 
@@ -259,6 +278,15 @@ lerp(0.5, 1.5, global_rms)
 
 # Exponential onset response
 0.1 + 0.7 * pow(global_onset, 2.0)
+
+# Motion: gentle horizontal drift following bass
+global_low * 3.0 - 1.5
+
+# Motion: zoom pulse on beats (for motion_zoom target)
+1.0 + 0.02 * global_beat
+
+# Motion: slow rotation driven by spectral centroid
+sin(s * 0.5) * global_centroid * 1.0
 ```
 
 ## AnimateDiff + Audio (v0.7.3)
@@ -383,6 +411,14 @@ Optional CPU-based stem separation via demucs (htdemucs model).
 ### Seed Offset
 - Small range (0-100): Subtle frame-to-frame variation
 - Large range (0-1000): Dramatic visual jumps, especially on beats
+
+### Motion / Camera
+- Motion targets (`motion_x/y/zoom/rotation`) create smooth Deforum-like camera movement
+- Motion is **automatically dampened** by denoise strength — low denoise = minimal movement
+- Use motion presets (`gentle_drift`, `pulse_zoom`, `slow_rotate`, `cinematic_sweep`) for quick results
+- For custom motion, use high attack (4-6) and release (20-30) for ultra-smooth movement
+- Combining `motion_zoom` with `global_beat` creates satisfying pulse-zoom effects on beats
+- Keep ranges conservative: ±2-3px translation, zoom 0.99-1.01, rotation ±1deg for pixel art
 
 ### Attack/Release Tuning
 - **Fast music**: attack=1, release=3-6 (snappy response)

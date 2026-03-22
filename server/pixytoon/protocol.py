@@ -291,6 +291,7 @@ class Request(BaseModel):
     audio_path: Optional[str] = None
     fps: Optional[float] = None
     enable_stems: Optional[bool] = None
+    max_frames: Optional[int] = None
     modulation_slots: Optional[list[dict]] = None
     expressions: Optional[dict[str, str]] = None
     modulation_preset: Optional[str] = None
@@ -403,6 +404,7 @@ class AudioReactiveRequest(BaseModel):
     expressions: Optional[dict[str, str]] = None
     modulation_preset: Optional[str] = None
     prompt_segments: list[dict] = Field(default_factory=list)
+    max_frames: Optional[int] = Field(None, ge=1, le=3600)
     # Animation method: chain (default) or animatediff_audio
     method: AnimationMethod = AnimationMethod.CHAIN
     # AnimateDiff-specific

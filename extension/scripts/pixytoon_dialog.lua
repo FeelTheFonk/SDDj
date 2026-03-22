@@ -554,6 +554,8 @@ local MOD_TARGETS = {
   "denoise_strength", "cfg_scale", "noise_amplitude",
   "controlnet_scale", "seed_offset", "palette_shift",
   "frame_cadence",
+  -- Motion / camera (smooth Deforum-like)
+  "motion_x", "motion_y", "motion_zoom", "motion_rotation",
 }
 
 -- Syncs slot widget visibility based on slot count and advanced toggle
@@ -574,13 +576,17 @@ local function sync_slot_visibility()
   end
   dlg:modify{ id = "audio_use_expressions", visible = adv }
   local expr_vis = adv and dlg.data.audio_use_expressions
-  dlg:modify{ id = "expr_denoise",    visible = expr_vis }
-  dlg:modify{ id = "expr_cfg",        visible = expr_vis }
-  dlg:modify{ id = "expr_noise",      visible = expr_vis }
-  dlg:modify{ id = "expr_controlnet", visible = expr_vis }
-  dlg:modify{ id = "expr_seed",       visible = expr_vis }
-  dlg:modify{ id = "expr_palette",    visible = expr_vis }
-  dlg:modify{ id = "expr_cadence",    visible = expr_vis }
+  dlg:modify{ id = "expr_denoise",      visible = expr_vis }
+  dlg:modify{ id = "expr_cfg",          visible = expr_vis }
+  dlg:modify{ id = "expr_noise",        visible = expr_vis }
+  dlg:modify{ id = "expr_controlnet",   visible = expr_vis }
+  dlg:modify{ id = "expr_seed",         visible = expr_vis }
+  dlg:modify{ id = "expr_palette",      visible = expr_vis }
+  dlg:modify{ id = "expr_cadence",      visible = expr_vis }
+  dlg:modify{ id = "expr_motion_x",     visible = expr_vis }
+  dlg:modify{ id = "expr_motion_y",     visible = expr_vis }
+  dlg:modify{ id = "expr_motion_zoom",  visible = expr_vis }
+  dlg:modify{ id = "expr_motion_rot",   visible = expr_vis }
   dlg:modify{ id = "audio_random_seed", visible = adv }
   -- Prompt schedule visibility
   dlg:modify{ id = "audio_prompt_schedule", visible = adv }
@@ -650,6 +656,16 @@ local function build_tab_audio()
         label = "Frame (" .. dlg.data.audio_frame_duration .. "ms)" }
     end,
   }
+  dlg:slider{
+    id = "audio_max_frames",
+    label = "Max Frames (0=all)",
+    min = 0, max = 3600, value = 0,
+    onchange = function()
+      local v = dlg.data.audio_max_frames
+      dlg:modify{ id = "audio_max_frames",
+        label = v == 0 and "Max Frames (0=all)" or ("Max Frames (" .. v .. ")") }
+    end,
+  }
   dlg:combobox{
     id = "audio_method",
     label = "Method",
@@ -696,6 +712,8 @@ local function build_tab_audio()
       "intermediate_full", "advanced_max",
       -- Target-specific
       "controlnet_reactive", "seed_scatter", "noise_sculpt",
+      -- Motion / camera
+      "gentle_drift", "pulse_zoom", "slow_rotate", "cinematic_sweep",
       -- Legacy
       "energetic", "ambient", "bass_driven",
     },
@@ -834,6 +852,34 @@ local function build_tab_audio()
   dlg:entry{
     id = "expr_cadence",
     label = "cadence",
+    text = "",
+    visible = false,
+    hexpand = true,
+  }
+  dlg:entry{
+    id = "expr_motion_x",
+    label = "motion_x",
+    text = "",
+    visible = false,
+    hexpand = true,
+  }
+  dlg:entry{
+    id = "expr_motion_y",
+    label = "motion_y",
+    text = "",
+    visible = false,
+    hexpand = true,
+  }
+  dlg:entry{
+    id = "expr_motion_zoom",
+    label = "zoom",
+    text = "",
+    visible = false,
+    hexpand = true,
+  }
+  dlg:entry{
+    id = "expr_motion_rot",
+    label = "rotation",
     text = "",
     visible = false,
     hexpand = true,

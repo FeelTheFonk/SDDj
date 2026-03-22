@@ -57,6 +57,7 @@ function PT.save_settings()
     audio_fps          = d.audio_fps,
     audio_stems_enable = d.audio_stems_enable,
     audio_frame_duration = d.audio_frame_duration,
+    audio_max_frames   = d.audio_max_frames,
     audio_mod_preset   = d.audio_mod_preset,
     mod_slot_count     = d.mod_slot_count,
     audio_advanced     = d.audio_advanced,
@@ -64,6 +65,14 @@ function PT.save_settings()
     expr_denoise       = d.expr_denoise,
     expr_cfg           = d.expr_cfg,
     expr_noise         = d.expr_noise,
+    expr_controlnet    = d.expr_controlnet,
+    expr_seed          = d.expr_seed,
+    expr_palette       = d.expr_palette,
+    expr_cadence       = d.expr_cadence,
+    expr_motion_x      = d.expr_motion_x,
+    expr_motion_y      = d.expr_motion_y,
+    expr_motion_zoom   = d.expr_motion_zoom,
+    expr_motion_rot    = d.expr_motion_rot,
     mod1_enable = d.mod1_enable, mod1_source = d.mod1_source, mod1_target = d.mod1_target,
     mod1_min = d.mod1_min, mod1_max = d.mod1_max, mod1_attack = d.mod1_attack, mod1_release = d.mod1_release,
     mod2_enable = d.mod2_enable, mod2_source = d.mod2_source, mod2_target = d.mod2_target,
@@ -96,7 +105,9 @@ function PT.apply_settings(s)
   if not s or not PT.dlg then return end
   -- Text fields
   local texts = { "server_url", "prompt", "negative_prompt", "seed", "fixed_subject", "palette_custom_colors", "anim_tag",
-                   "expr_denoise", "expr_cfg", "expr_noise" }
+                   "expr_denoise", "expr_cfg", "expr_noise", "expr_controlnet", "expr_seed",
+                   "expr_palette", "expr_cadence", "expr_motion_x", "expr_motion_y",
+                   "expr_motion_zoom", "expr_motion_rot" }
   for _, id in ipairs(texts) do
     if s[id] ~= nil then PT.dlg:modify{ id = id, text = s[id] } end
   end
@@ -118,7 +129,7 @@ function PT.apply_settings(s)
     "neg_ti_weight", "pixel_size", "colors",
     "anim_frames", "anim_duration", "anim_denoise", "anim_freeinit_iters",
     "live_strength", "live_steps", "live_cfg", "live_opacity",
-    "audio_frame_duration", "mod_slot_count",
+    "audio_frame_duration", "audio_max_frames", "mod_slot_count",
     "mod1_min", "mod1_max", "mod1_attack", "mod1_release",
     "mod2_min", "mod2_max", "mod2_attack", "mod2_release",
     "mod3_min", "mod3_max", "mod3_attack", "mod3_release",
@@ -184,9 +195,21 @@ function PT.apply_settings(s)
       PT.dlg:modify{ id = "mod" .. i .. "_release", visible = vis and adv }
     end
     PT.dlg:modify{ id = "audio_use_expressions", visible = adv }
-    PT.dlg:modify{ id = "expr_denoise", visible = adv and PT.dlg.data.audio_use_expressions }
-    PT.dlg:modify{ id = "expr_cfg",     visible = adv and PT.dlg.data.audio_use_expressions }
-    PT.dlg:modify{ id = "expr_noise",   visible = adv and PT.dlg.data.audio_use_expressions }
+    local expr_vis = adv and PT.dlg.data.audio_use_expressions
+    local expr_ids = {
+      "expr_denoise", "expr_cfg", "expr_noise", "expr_controlnet",
+      "expr_seed", "expr_palette", "expr_cadence",
+      "expr_motion_x", "expr_motion_y", "expr_motion_zoom", "expr_motion_rot",
+    }
+    for _, eid in ipairs(expr_ids) do
+      PT.dlg:modify{ id = eid, visible = expr_vis }
+    end
+  end
+  -- Sync max frames label
+  if s.audio_max_frames then
+    local v = s.audio_max_frames
+    PT.dlg:modify{ id = "audio_max_frames",
+      label = v == 0 and "Max Frames (0=all)" or ("Max Frames (" .. v .. ")") }
   end
   -- Sync frame duration label
   if s.audio_frame_duration then
