@@ -75,7 +75,7 @@ pixytoon/
 │   │   ├── loras/               # User LoRA files (.safetensors)
 │   │   └── embeddings/          # Textual Inversion embeddings
 │   └── pixytoon/                # Python package
-│       ├── __init__.py          # Package version (0.6.0)
+│       ├── __init__.py          # Package version
 │       ├── config.py            # Pydantic Settings (env vars)
 │       ├── protocol.py          # WebSocket schemas (Pydantic v2)
 │       ├── engine.py            # SD1.5 SOTA pipeline orchestrator
@@ -100,6 +100,7 @@ pixytoon/
 
 - **txt2img / img2img / inpaint / ControlNet** — OpenPose, Canny, Scribble, Lineart (v1.1)
 - **Live Paint** (v0.3.0, v0.6.0 rewrite) — Event-driven SD-assisted painting: Auto mode (sends after each brush stroke) + Manual mode (F5 hotkey), zero CPU when idle, ROI dirty-region detection, debounced stroke detection via `sprite.events:on('change')`
+- **Sequence Output** (v0.6.1) — Choose per-generation output: new layer (default) or new frame in the timeline — ideal for img2img iteration and loop workflows
 - **Loop Mode** (v0.4.0) — Continuous generation with random seeds for rapid variation exploration
 - **Random Loop** (v0.5.0) — Continuous generation with auto-randomized prompts; lock subject/elements while randomizing the rest
 - **Auto-Prompt Generator** (v0.4.0) — Randomize creative prompts from curated templates with lockable fields
@@ -115,8 +116,9 @@ pixytoon/
 - **Startup warmup** — Pre-compiles torch + Numba JIT on boot (first real generation is fast)
 - **Health check** — `GET /health` for readiness polling
 - **Concurrency safe** — GPU access serialized via asyncio lock
-- **Cancellation** — Generation stops cleanly on WebSocket disconnect
-- **Generation timeout** — Configurable max time per generation (default 10min, auto-scaled for animation)
+- **Cancellation** (v0.6.1) — Robust multi-layered cancel: immediate server ACK, 30s safety timer fallback, GPU cleanup on timeout; works across all modes (txt2img, img2img, inpaint, ControlNet, animation, live)
+- **Auto-reconnect** (v0.6.1) — Exponential backoff reconnection (2s → 30s max) with heartbeat pong watchdog (3× interval unresponsive → disconnect + reconnect)
+- **Generation timeout** — Configurable max time per generation (default 10min, auto-scaled for animation); sends cancel to server to free the GPU
 
 ## Performance Stack
 
@@ -167,7 +169,7 @@ Connect to `ws://127.0.0.1:9876/ws`. All messages are JSON.
 | Action               | Description                        |
 |----------------------|------------------------------------|
 | `ping`               | Health check, returns `pong`       |
-| `cancel`             | Cancel in-progress generation      |
+| `cancel`             | Cancel in-progress generation (server ACK + GPU cleanup) |
 | `generate`           | Run single-frame generation        |
 | `generate_animation` | Run multi-frame animation          |
 | `list_loras`         | List available LoRAs               |
@@ -385,10 +387,12 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 | `HOST`                     | `127.0.0.1`                           | Server bind address             |
 | `PORT`                     | `9876`                                | Server port                     |
 | `MODELS_DIR`               | `server/models`                       | Root models directory           |
+| `CHECKPOINTS_DIR`          | `server/models/checkpoints`           | SD checkpoint cache             |
 | `LORAS_DIR`                | `server/models/loras`                 | LoRA files (.safetensors)       |
 | `EMBEDDINGS_DIR`           | `server/models/embeddings`            | Textual Inversion embeddings    |
 | `PALETTES_DIR`             | `server/palettes`                     | Palette JSON files              |
 | `PRESETS_DIR`              | `server/presets`                      | Generation presets              |
+| `PROMPTS_DATA_DIR`         | `server/data/prompts`                 | Auto-prompt generator data      |
 | `DEFAULT_CHECKPOINT`       | `Lykon/dreamshaper-8`                 | SD1.5 checkpoint                |
 | `HYPER_SD_REPO`            | `ByteDance/Hyper-SD`                  | Hyper-SD HuggingFace repo       |
 | `HYPER_SD_LORA_FILE`       | `Hyper-SD15-8steps-CFG-lora.safetensors` | Hyper-SD LoRA filename       |
@@ -454,6 +458,9 @@ All prefixed with `PIXYTOON_`. Example: `PIXYTOON_PORT=8080`.
 | AnimateDiff OOM                | AnimateDiff needs ~8-10GB VRAM; reduce `frame_count` or resolution |
 | AnimateDiff slow first run     | Motion adapter downloads on first use (~97MB); subsequent runs use cache |
 | Chain animation hangs          | Fixed in v0.1.5: dynamo.reset + scheduler reset + RGBA→RGB fix     |
+| Cancel button doesn't stop     | Server-side cancel ACK + 30s safety timer auto-unlocks UI; check server terminal |
+| "Server unresponsive"          | Heartbeat watchdog detected no pong for 90s; auto-reconnect kicks in |
+| "Reconnecting in Xs"           | Normal: exponential backoff (2s→30s); server is unreachable, will auto-retry |
 | Live Paint not starting        | Ensure no generation is in progress (GPU_BUSY); check server logs  |
 | Live Paint high latency        | Reduce steps (2-3), reduce resolution, ensure no other GPU load    |
 | Live Paint auto-stopped        | Session times out after 5min of inactivity (configurable via `PIXYTOON_REALTIME_TIMEOUT`) |

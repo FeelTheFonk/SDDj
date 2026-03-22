@@ -10,8 +10,10 @@
 
 - [Prerequisites](#prerequisites)
 - [First Launch](#first-launch)
+- [Connection](#connection)
 - [How It Works](#how-it-works)
 - [Modes](#modes)
+- [Output Mode](#output-mode)
 - [Generation Parameters](#generation-parameters)
 - [Post-Processing Pipeline](#post-processing-pipeline)
 - [LoRA and Models](#lora-and-models)
@@ -51,6 +53,9 @@ The status bar shows "Connected" and the available resources (LoRAs, palettes, e
 > [!TIP]
 > If Aseprite is already open, the server still starts. Just run the script manually via File > Scripts.
 
+> [!NOTE]
+> If the server connection drops, PixyToon automatically reconnects with exponential backoff (2s, 4s, 8s... up to 30s). You don't need to click Connect again.
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -70,6 +75,30 @@ sequenceDiagram
 
 ---
 
+## Connection
+
+The top section of the PixyToon dialog manages the server connection.
+
+| Control | What it does |
+|---------|-------------|
+| **Server** | WebSocket URL (default: `ws://127.0.0.1:9876/ws`) |
+| **Status** | Current connection state and generation progress |
+| **Connect / Disconnect** | Toggle the server connection |
+| **Refresh Resources** | Re-fetch LoRAs, palettes, embeddings, and presets from the server |
+| **Cleanup GPU** | Free GPU VRAM and run garbage collection (only when idle) |
+
+### Auto-Reconnect
+
+If the server connection drops unexpectedly (crash, network issue), PixyToon automatically reconnects using exponential backoff: 2s, 4s, 8s, 16s, up to a maximum of 30s between attempts. The status bar shows the countdown and attempt number.
+
+Clicking **Disconnect** manually disables auto-reconnect. Clicking **Connect** re-enables it.
+
+### Heartbeat Watchdog
+
+A heartbeat ping is sent every 30 seconds. If the server doesn't respond with a pong within 90 seconds (3× the interval), the connection is considered dead and auto-reconnect triggers. This detects silent server crashes that don't properly close the WebSocket.
+
+---
+
 ## How It Works
 
 PixyToon is a bridge between Aseprite and a local Stable Diffusion server running on your GPU.
@@ -85,7 +114,7 @@ flowchart LR
 - You describe what you want (prompt) and configure parameters in the dialog
 - The server generates an image using Stable Diffusion 1.5
 - The image goes through a pixel art post-processing pipeline
-- The result appears as a new layer in your Aseprite sprite
+- The result appears as a new layer (or new frame in sequence mode) in your Aseprite sprite
 
 Everything runs **locally on your machine**. No cloud, no API key, no internet needed after setup.
 
@@ -93,7 +122,10 @@ Everything runs **locally on your machine**. No cloud, no API key, no internet n
 
 ## Modes
 
-The PixyToon dialog has **4 tabs**: Generate, Post-Process, Animation, and Live. The **Generate tab** includes a **Mode** dropdown with 4 generation modes (txt2img, img2img, inpaint, controlnet).
+The PixyToon dialog has **4 tabs**: Generate, Post-Process, Animation, and Live. The **Generate tab** includes a **Mode** dropdown with 7 generation modes: txt2img, img2img, inpaint, and 4 ControlNet variants (openpose, canny, scribble, lineart).
+
+> [!NOTE]
+> The Strength slider is hidden in txt2img mode (it doesn't apply). In other modes, the Mode label shows a hint: "Mode (needs mask)" for inpaint, "Mode (needs layer)" for img2img and ControlNet.
 
 ### Generate (txt2img)
 
@@ -158,15 +190,40 @@ Parameters in the Animation tab:
 
 Real-time SD-assisted painting. See [the dedicated Live Paint guide](LIVE-PAINT.md).
 
+---
+
+## Output Mode
+
+The **Output** dropdown in the Generate tab controls where results are placed:
+
+| Mode | Behavior |
+|------|----------|
+| **layer** (default) | Each result creates a new layer on the current frame |
+| **sequence** | Each result creates a new frame in the timeline (like animation output) |
+
+**When to use sequence mode:**
+
+- **Loop + img2img**: See each iteration as a timeline frame — scrub through to compare
+- **Rapid txt2img exploration**: Generate 20 variations and review them as an animation
+- **Reference sheets**: Stack character poses in the timeline
+
+When the loop ends (or you cancel), sequence frames are finalized with 100ms duration each. The sequence layer is named `PixyToon Seq #<seed>`.
+
+> [!TIP]
+> Sequence mode is especially powerful with Loop Mode. Set output to "sequence", enable Loop, and each generation becomes a new frame you can scrub through in Aseprite's timeline.
+
+---
+
 ### Loop Mode
 
 Enable **Loop Mode** to continuously generate images with the same settings.
 
 1. Check the "Loop Mode" checkbox
 2. Choose a **Loop Seed** mode: `random` (new seed each time) or `increment` (seed +1 each iteration)
-3. Click **Generate**
-4. Images generate one after another automatically
-5. Click **Cancel** to stop the loop
+3. Optionally set **Output** to `sequence` to place each result as a timeline frame
+4. Click **Generate**
+5. Images generate one after another automatically
+6. Click **Cancel** to stop the loop (partial results are kept)
 
 ### Random Loop
 
@@ -527,7 +584,9 @@ To reproduce: enter that seed number in the Seed field, keep all other parameter
 
 | Problem | Solution |
 |---------|----------|
-| **"Connection failed"** | Is the server running? Check the terminal window for errors |
+| **"Connection failed"** | Is the server running? Check the terminal window for errors. Auto-reconnect will retry automatically |
+| **"Reconnecting in Xs"** | Normal: the server is unreachable. Exponential backoff retries (2s→30s). Check if the server crashed |
+| **"Server unresponsive"** | Heartbeat watchdog detected no response for 90s. Auto-reconnect triggers. Restart server if persistent |
 | **"GPU_BUSY"** | Another generation is running — wait for it to finish or cancel |
 | **Black image** | Check your prompt. Try a simple one like `pixel art, character` |
 | **Blurry / not pixelated** | Enable Pixelate in Post-Process tab, set target size to 64-128 |
@@ -537,8 +596,9 @@ To reproduce: enter that seed number in the Seed field, keep all other parameter
 | **"CUDA out of memory"** | Reduce resolution, disable torch.compile, or close other GPU apps |
 | **LoRA switch is slow** | Expected: triggers model recompilation (~30-60s once per LoRA change) |
 | **AnimateDiff OOM** | Needs ~10 GB VRAM — reduce frame count or resolution |
+| **Cancel doesn't stop generation** | Server-side cancel is acknowledged immediately. A 30s safety timer auto-unlocks the UI if no response is received |
 | **Live Paint not starting** | GPU must be idle. Cancel any running generation first |
-| **Server crashed** | Restart via `start.ps1`. Check terminal for the error |
+| **Server crashed** | Restart via `start.ps1`. Auto-reconnect will retry until the server is back |
 | **torch.compile fails** | Install Visual Studio 2022 with C++ Desktop Development workload |
 
 <details>

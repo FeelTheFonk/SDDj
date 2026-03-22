@@ -15,6 +15,7 @@
 - [Portraits](#portraits)
 - [Inpaint](#inpaint)
 - [Animation](#animation)
+- [Output Mode: Sequence](#output-mode-sequence)
 - [Loop and Random Loop](#loop-and-random-loop)
 - [Live Paint Recipes](#live-paint-recipes)
 - [ControlNet Recipes](#controlnet-recipes)
@@ -437,6 +438,38 @@ orange yellow, game effect, pixel art style
 
 ---
 
+## Output Mode: Sequence
+
+### Img2Img Iteration Timeline
+
+Generate multiple img2img passes and review them as timeline frames.
+
+1. Draw your base on a layer
+2. Set mode to **img2img**, strength 0.3-0.5
+3. Set **Output** to **sequence**
+4. Enable **Loop Mode**, set Loop Seed to `increment`
+5. Click **Generate** — each iteration becomes a new frame
+6. Click **Cancel** when you have enough — scrub the timeline to pick the best
+
+**Why sequence?** In "layer" mode, 20 generations stack as 20 layers on one frame — hard to compare. In "sequence" mode, they become 20 frames you can scrub through in Aseprite's timeline.
+
+> [!TIP]
+> Combine with different Loop Seed modes: `increment` for subtle variations of the same composition, `random` for diverse explorations.
+
+---
+
+### Txt2Img Reference Sheet
+
+Generate many variations of a prompt and browse them as an animation.
+
+1. Set mode to **txt2img**
+2. Set **Output** to **sequence**
+3. Enable **Loop Mode**, Loop Seed `random`
+4. Click **Generate** — each result becomes a frame
+5. Cancel after 10-20 frames, then scrub to find your favorite
+
+---
+
 ## Loop and Random Loop
 
 ### Rapid Variation Exploration (Loop Mode)
@@ -450,6 +483,9 @@ Generate 20+ variations of the same prompt to find the perfect one.
 
 > [!TIP]
 > Use `increment` seed mode to get subtle variations — each seed nearby produces similar but slightly different results.
+
+> [!TIP]
+> Set **Output** to `sequence` before starting a loop. Each generation becomes a timeline frame — much easier to compare than stacked layers. Cancel anytime; partial results are kept and finalized.
 
 ---
 
@@ -683,6 +719,7 @@ Quick reference: recommended settings by creative intention.
 | **Retro (NES)** | 8 | 5.0 | 1.0 | 64 | 12-16 | kmeans | none |
 | **Retro (PICO-8)** | 8 | 5.0 | 1.0 | 64-128 | 16 | kmeans | none |
 | **Hi-fi pixel art** | 10-12 | 5.0 | 1.0 | 192-256 | 48-64 | kmeans | floyd_steinberg |
+| **Loop + sequence** | 8 | 5.0 | 0.3-0.5 | 64-128 | 16-32 | kmeans | none |
 
 ---
 

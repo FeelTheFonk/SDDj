@@ -205,7 +205,7 @@ pixel art, stardew valley style, cute farmer, warm colors
 Same drawing, completely different interpretations. This is one of the fastest ways to explore art direction.
 
 > [!TIP]
-> Prompt changes are auto-detected by a lightweight watchdog (500ms interval). Just edit the prompt field in the Generate tab — Live Paint picks it up automatically. Steps and CFG sliders are also hot-updatable mid-session (debounced 100ms).
+> Prompt changes are auto-detected by a lightweight watchdog (500ms interval). Just edit the prompt field in the Generate tab — Live Paint picks it up automatically. Steps and CFG sliders are also hot-updatable mid-session (slider debounce: 100ms, separate from the 300ms stroke debounce).
 
 ---
 
@@ -353,6 +353,14 @@ When auto-stop triggers:
 
 Just click **START LIVE** again to resume.
 
+### Connection Watchdog
+
+If the server connection drops during a Live Paint session, the client-side watchdog (500ms interval) detects the disconnection and automatically stops the session cleanly. This prevents the UI from getting stuck in a "Live — processing..." state if the server crashes.
+
+### Per-Frame Inflight Timeout
+
+Each sent frame has a 10-second inflight timeout. If the server doesn't respond within 10s, the frame is considered lost, the inflight flag is cleared, and the next pending change is sent automatically. This prevents a single dropped response from freezing the entire live session.
+
 ---
 
 ## Troubleshooting
@@ -402,7 +410,8 @@ If you close the sprite while Live Paint is active, the session ends automatical
 Check the server terminal for error messages. Common causes:
 - **OOM**: Reduce resolution or close other GPU apps
 - **Timeout**: No painting for 5 minutes triggers auto-stop
-- **Server crash**: Restart via `start.ps1`
+- **Server crash**: Restart via `start.ps1` — the connection watchdog auto-stops the session cleanly
+- **Connection lost**: The watchdog detected the server is unreachable and stopped the session to prevent UI lockup
 
 ---
 
