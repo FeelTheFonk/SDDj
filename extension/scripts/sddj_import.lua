@@ -1,5 +1,5 @@
 --
--- SDDj — Image Import (result, animation frame, live preview)
+-- SDDj — Image Import (result, animation frame)
 --
 
 return function(PT)
@@ -223,87 +223,6 @@ function PT.import_animation_frame(resp)
   if not ok then
     if tmp then pcall(os.remove, tmp) end
     PT.update_status("Import error: " .. tostring(err))
-  end
-end
-
-function PT.live_update_preview(resp)
-  PT.live.importing = true  -- Guard: prevent sprite change event from re-triggering
-
-  local spr = app.sprite
-  if spr == nil or app.frame == nil then
-    PT.live.importing = false
-    return
-  end
-
-  -- Validate or find/create preview layer
-  local need_new = PT.live.preview_layer == nil
-      or PT.live.preview_sprite ~= spr
-      or not pcall(function() return PT.live.preview_layer.name end)
-  if not need_new then
-    -- Verify the layer still exists in the sprite
-    local found = false
-    for _, layer in ipairs(spr.layers) do
-      if layer == PT.live.preview_layer then found = true; break end
-    end
-    if not found then need_new = true end
-  end
-
-  if need_new then
-    PT.live.preview_layer = nil
-    for _, layer in ipairs(spr.layers) do
-      if layer.name == "_sddj_live" then
-        PT.live.preview_layer = layer
-        break
-      end
-    end
-    if PT.live.preview_layer == nil then
-      PT.live.preview_layer = spr:newLayer()
-      PT.live.preview_layer.name = "_sddj_live"
-    end
-    PT.live.preview_sprite = spr
-  end
-
-  local img_data = PT.base64_decode(resp.image)
-  local tmp = PT.make_tmp_path("live")
-  local f = io.open(tmp, "wb")
-  if not f then PT.live.importing = false; return end
-  f:write(img_data)
-  f:close()
-
-  local ok_img, img = pcall(function() return Image{ fromFile = tmp } end)
-  os.remove(tmp)
-  if not ok_img or not img then
-    PT.update_status("Preview load failed")
-    PT.live.importing = false
-    return
-  end
-
-  -- Update existing cel in-place (avoids layer churn)
-  local ok_cel, cel = pcall(function() return PT.live.preview_layer:cel(app.frame) end)
-  if not ok_cel then
-    PT.live.preview_layer = nil
-    PT.live.importing = false
-    return
-  end
-  if cel then
-    cel.image = img
-    cel.position = Point(0, 0)
-  else
-    spr:newCel(PT.live.preview_layer, app.frame, img, Point(0, 0))
-  end
-
-  -- Apply opacity
-  if PT.dlg then
-    PT.live.preview_layer.opacity = math.floor(PT.dlg.data.live_opacity * 255 / 100)
-  end
-
-  app.refresh()
-
-  PT.live.importing = false
-
-  -- If a change was pending during import, send now
-  if PT.live.pending_send and not PT.live.request_inflight then
-    PT.live_send_now()
   end
 end
 

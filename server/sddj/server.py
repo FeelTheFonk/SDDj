@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import atexit
-import base64
 import itertools
-import json as json_stdlib
 import logging
 import os
 import signal
-import struct
+import sys
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -26,10 +24,8 @@ from .engine import DiffusionEngine, GenerationCancelled
 from .protocol import (
     Action,
     AnimationCompleteResponse,
-    AnimationFrameResponse,
     AudioAnalysisResponse,
     AudioReactiveCompleteResponse,
-    AudioReactiveFrameResponse,
     CleanupResponse,
     ErrorResponse,
     ListResponse,
@@ -42,9 +38,6 @@ from .protocol import (
     PresetSavedResponse,
     ProgressResponse,
     PromptResultResponse,
-    RealtimeReadyResponse,
-    RealtimeResultResponse,
-    RealtimeStoppedResponse,
     Request,
     ShutdownResponse,
     StemsAvailableResponse,
@@ -69,14 +62,10 @@ log = logging.getLogger("sddj.server")
 
 engine = DiffusionEngine()
 _generate_lock: asyncio.Lock | None = None
-_realtime_lock: asyncio.Lock | None = None  # protects _realtime_owner / _realtime_ws
 _generating: dict[int, threading.Event] = {}  # connection id -> cancel event
 _active_connections: set[WebSocket] = set()
 _MAX_CONNECTIONS = 5
 _ws_id_gen = itertools.count(1)  # thread-safe monotonic connection ID
-_realtime_owner: int | None = None  # ws_id that owns realtime mode (None = free)
-_realtime_ws: WebSocket | None = None  # WebSocket of the realtime owner (for auto-stop notify)
-_realtime_timeout_task: asyncio.Task | None = None  # auto-stop timer
 
 # Actions that run long enough to block the receive loop.
 # During these, we keep receiving cancel/ping messages concurrently.
@@ -114,9 +103,8 @@ atexit.register(lambda: torch.cuda.empty_cache() if torch.cuda.is_available() el
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
-    global _generate_lock, _realtime_lock
+    global _generate_lock
     _generate_lock = asyncio.Lock()
-    _realtime_lock = asyncio.Lock()
 
     _write_pid()
     log.info("SDDj server starting — loading diffusion engine...")
@@ -242,17 +230,6 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                                 message=f"Handler error: {e}",
                             ))
 
-                elif "bytes" in msg:
-                    # P0-L4: Binary frame from live painting client
-                    try:
-                        await _handle_binary_frame(websocket, msg["bytes"], ws_id)
-                    except Exception as e:
-                        log.warning("Binary frame error: %s", e)
-                        await _send(websocket, ErrorResponse(
-                            code="INVALID_REQUEST",
-                            message=f"Binary frame error: {e}",
-                        ))
-
                 elif msg.get("type") == "websocket.disconnect":
                     break
 
@@ -274,8 +251,6 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                 pass
         _active_connections.discard(websocket)
         _generating.pop(ws_id, None)
-        # Clean up realtime session if this client owned it
-        await _cleanup_realtime(ws_id)
 
 
 async def _handle_msg_during_gen(
@@ -337,65 +312,6 @@ def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop,
         except Exception:
             pass
     return callback
-
-
-def _parse_binary_frame(data: bytes) -> tuple[dict, bytes]:
-    """Parse a binary live frame: 4-byte LE header length + JSON header + PNG data.
-
-    Returns (header_dict, png_bytes).
-    """
-    if len(data) < 4:
-        raise ValueError("Binary frame too short (< 4 bytes)")
-    header_len = struct.unpack("<I", data[:4])[0]
-    if len(data) < 4 + header_len:
-        raise ValueError(f"Binary frame truncated: need {4 + header_len}, got {len(data)}")
-    header_json = data[4:4 + header_len]
-    png_data = data[4 + header_len:]
-    header = json_stdlib.loads(header_json)
-    return header, png_data
-
-
-async def _handle_binary_frame(websocket: WebSocket, data: bytes, ws_id: int) -> None:
-    """Handle a binary WebSocket frame (live painting fast path).
-
-    The client sends PNG data as raw bytes instead of base64-in-JSON to eliminate
-    the expensive pure-Lua base64 encoding step (~200ms on 512x512).
-    Server-side base64 encoding of the PNG is done in C (Python stdlib) — negligible.
-    """
-    header, png_data = _parse_binary_frame(data)
-
-    action = header.get("action")
-    if action != "realtime_frame":
-        await _send(websocket, ErrorResponse(
-            code="INVALID_REQUEST",
-            message=f"Binary frames only support realtime_frame, got: {action!r}",
-        ))
-        return
-
-    # Convert PNG bytes to base64 for the existing engine API
-    image_b64 = base64.b64encode(png_data).decode("ascii")
-
-    # Build a Request-compatible dict and dispatch to the existing handler
-    req_data = {
-        "action": "realtime_frame",
-        "image": image_b64,
-        "frame_id": header.get("frame_id", 0),
-    }
-    # Forward ROI fields if present
-    for key in ("roi_x", "roi_y", "roi_w", "roi_h", "mask", "prompt"):
-        if key in header:
-            req_data[key] = header[key]
-
-    try:
-        req = Request.model_validate(req_data)
-    except Exception as e:
-        await _send(websocket, ErrorResponse(
-            code="INVALID_REQUEST",
-            message=f"Binary frame header invalid: {e}",
-        ))
-        return
-
-    await _handle(websocket, req, ws_id)
 
 
 async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
@@ -474,32 +390,11 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
         elif req.action == Action.EXPORT_MP4:
             await _handle_export_mp4(websocket, req)
 
-        elif req.action == Action.REALTIME_START:
-            await _handle_realtime_start(websocket, req, ws_id)
-
-        elif req.action == Action.REALTIME_FRAME:
-            await _handle_realtime_frame(websocket, req, ws_id)
-
-        elif req.action == Action.REALTIME_UPDATE:
-            await _handle_realtime_update(websocket, req, ws_id)
-
-        elif req.action == Action.REALTIME_STOP:
-            await _handle_realtime_stop(websocket, ws_id)
-
         elif req.action == Action.SHUTDOWN:
             await _handle_shutdown(websocket, ws_id)
             return  # Connection will close after shutdown
 
         elif req.action == Action.GENERATE:
-            # Block if realtime mode is active
-            async with _realtime_lock:
-                rt_busy = _realtime_owner is not None
-            if rt_busy:
-                await _send(websocket, ErrorResponse(
-                    code="REALTIME_BUSY",
-                    message="Cannot generate while real-time mode is active",
-                ))
-                return
             gen_req = req.to_generate_request()
             loop = asyncio.get_running_loop()
 
@@ -528,15 +423,6 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             await _send(websocket, result)
 
         elif req.action == Action.GENERATE_ANIMATION:
-            # Block if realtime mode is active
-            async with _realtime_lock:
-                rt_busy = _realtime_owner is not None
-            if rt_busy:
-                await _send(websocket, ErrorResponse(
-                    code="REALTIME_BUSY",
-                    message="Cannot animate while real-time mode is active",
-                ))
-                return
             anim_req = req.to_animation_request()
 
             # Server-side frame count validation (protocol allows 120, config may differ)
@@ -703,13 +589,6 @@ async def _handle_delete_palette(websocket: WebSocket, req: Request) -> None:
 
 
 async def _handle_cleanup(websocket: WebSocket) -> None:
-    async with _realtime_lock:
-        rt_busy = _realtime_owner is not None
-    if rt_busy:
-        await _send(websocket, ErrorResponse(
-            code="REALTIME_BUSY",
-            message="Cannot cleanup while real-time mode is active"))
-        return
     # Best-effort check: locked() is racy but acceptable here — we only use it
     # as a courtesy guard and never enter the lock afterward.
     if _generate_lock is not None and _generate_lock.locked():
@@ -739,15 +618,6 @@ async def _handle_shutdown(websocket: WebSocket, ws_id: int) -> None:
         ))
         return
 
-    async with _realtime_lock:
-        rt_busy = _realtime_owner is not None
-    if rt_busy:
-        await _send(websocket, ErrorResponse(
-            code="REALTIME_BUSY",
-            message="Cannot shutdown while real-time mode is active",
-        ))
-        return
-
     log.info("Shutdown requested by client ws_id=%d", ws_id)
     await _send(websocket, ShutdownResponse())
 
@@ -758,8 +628,8 @@ async def _handle_shutdown(websocket: WebSocket, ws_id: int) -> None:
         except Exception:
             pass
 
-    # Trigger uvicorn graceful shutdown via SIGINT
-    os.kill(os.getpid(), signal.SIGINT)
+    # Trigger uvicorn graceful shutdown — platform-safe
+    _request_shutdown()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -862,12 +732,31 @@ async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:
             message="output_dir is required"))
         return
 
-    # Security: validate output_dir is within the project
+    # Security: validate output_dir exists and contains SDDj frames
     real_dir = os.path.realpath(output_dir)
     if not os.path.isdir(real_dir):
         await _send(websocket, ExportMp4ErrorResponse(
             message=f"Output directory not found: {output_dir}"))
         return
+    # Ensure dir contains .png frames (prevents arbitrary dir export)
+    has_frames = any(f.endswith(".png") for f in os.listdir(real_dir))
+    if not has_frames:
+        await _send(websocket, ExportMp4ErrorResponse(
+            message="Output directory contains no PNG frames"))
+        return
+
+    # Validate audio_path if provided
+    if audio_path:
+        audio_real = os.path.realpath(audio_path)
+        if not os.path.isfile(audio_real):
+            await _send(websocket, ExportMp4ErrorResponse(
+                message=f"Audio file not found: {audio_path}"))
+            return
+        audio_ext = os.path.splitext(audio_real)[1].lower()
+        if audio_ext not in {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}:
+            await _send(websocket, ExportMp4ErrorResponse(
+                message=f"Unsupported audio format: {audio_ext}"))
+            return
 
     # Build metadata from request
     export_meta: dict[str, str] = {}
@@ -902,15 +791,6 @@ async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:
 async def _handle_generate_audio_reactive(
     websocket: WebSocket, req: Request, ws_id: int,
 ) -> None:
-    # Block if realtime mode is active
-    async with _realtime_lock:
-        rt_busy = _realtime_owner is not None
-    if rt_busy:
-        await _send(websocket, ErrorResponse(
-            code="REALTIME_BUSY",
-            message="Cannot generate while real-time mode is active"))
-        return
-
     audio_req = req.to_audio_reactive_request()
     if not audio_req.audio_path:
         await _send(websocket, ErrorResponse(
@@ -981,217 +861,6 @@ async def _handle_generate_audio_reactive(
     ))
 
 
-# ─────────────────────────────────────────────────────────────
-# REAL-TIME PAINT HANDLERS
-# ─────────────────────────────────────────────────────────────
-
-async def _handle_realtime_start(websocket: WebSocket, req: Request, ws_id: int) -> None:
-    global _realtime_owner, _realtime_ws, _realtime_timeout_task
-
-    async with _realtime_lock:
-        if _realtime_owner is not None and _realtime_owner != ws_id:
-            await _send(websocket, ErrorResponse(
-                code="REALTIME_BUSY",
-                message="Another client is using real-time mode",
-            ))
-            return
-
-        if _generate_lock is None:
-            raise RuntimeError("Server not fully initialized")
-
-        # Best-effort check: locked() is racy but acceptable here — we only use it
-        # as a courtesy guard and never enter the lock afterward.
-        if _generate_lock.locked():
-            await _send(websocket, ErrorResponse(
-                code="GPU_BUSY",
-                message="Cannot start real-time mode while a generation is in progress",
-            ))
-            return
-
-        # Claim ownership inside the lock to prevent race condition
-        _realtime_owner = ws_id
-        _realtime_ws = websocket
-
-    rt_req = req.to_realtime_start()
-    loop = asyncio.get_running_loop()
-
-    try:
-        result = await loop.run_in_executor(
-            None, lambda: engine.start_realtime(rt_req),
-        )
-        _reset_realtime_timeout()
-        await _send(websocket, result)
-    except Exception as e:
-        # Release ownership on failure
-        async with _realtime_lock:
-            _realtime_owner = None
-            _realtime_ws = None
-        log.exception("Failed to start realtime: %s", e)
-        await _send(websocket, ErrorResponse(code="ENGINE_ERROR", message=str(e)))
-
-
-async def _handle_realtime_frame(websocket: WebSocket, req: Request, ws_id: int) -> None:
-    async with _realtime_lock:
-        is_owner = _realtime_owner == ws_id
-    if not is_owner:
-        await _send(websocket, ErrorResponse(
-            code="REALTIME_NOT_ACTIVE",
-            message="Real-time mode not active for this connection",
-        ))
-        return
-
-    frame_req = req.to_realtime_frame()
-    if not frame_req.image:
-        await _send(websocket, ErrorResponse(
-            code="INVALID_REQUEST",
-            message="realtime_frame requires image",
-        ))
-        return
-
-    # P2-O3: Acquire GPU lock with a short timeout instead of racy locked() check.
-    # This gives the frame a brief window to wait for GPU availability.
-    gpu_acquired = False
-    if _generate_lock is not None:
-        try:
-            await asyncio.wait_for(_generate_lock.acquire(), timeout=0.5)
-            gpu_acquired = True
-        except asyncio.TimeoutError:
-            await _send(websocket, ErrorResponse(
-                code="GPU_BUSY",
-                message="Frame skipped — GPU busy",
-            ))
-            return
-
-    _reset_realtime_timeout()
-
-    loop = asyncio.get_running_loop()
-    try:
-        result = await loop.run_in_executor(
-            None,
-            lambda: engine.process_realtime_frame(
-                frame_req.image,
-                frame_req.frame_id,
-                prompt_override=frame_req.prompt,
-                mask_b64=frame_req.mask,
-                roi_x=frame_req.roi_x,
-                roi_y=frame_req.roi_y,
-                roi_w=frame_req.roi_w,
-                roi_h=frame_req.roi_h,
-            ),
-        )
-        await _send(websocket, result)
-    except torch.cuda.OutOfMemoryError as e:
-        log.error("CUDA OOM during realtime frame: %s", e)
-        await _send(websocket, ErrorResponse(code="OOM", message=str(e)))
-    except Exception as e:
-        log.warning("Realtime frame error: %s", e)
-        await _send(websocket, ErrorResponse(code="ENGINE_ERROR", message=str(e)))
-    finally:
-        # P2-O3: Release GPU lock if we acquired it
-        if gpu_acquired and _generate_lock is not None:
-            _generate_lock.release()
-
-
-async def _handle_realtime_update(websocket: WebSocket, req: Request, ws_id: int) -> None:
-    async with _realtime_lock:
-        is_owner = _realtime_owner == ws_id
-    if not is_owner:
-        return  # Silently ignore updates from non-owner
-
-    update_req = req.to_realtime_update()
-    loop = asyncio.get_running_loop()
-    try:
-        await loop.run_in_executor(
-            None, lambda: engine.update_realtime_params(update_req),
-        )
-    except Exception as e:
-        log.exception("Realtime update error: %s", e)
-
-
-async def _handle_realtime_stop(websocket: WebSocket, ws_id: int) -> None:
-    async with _realtime_lock:
-        is_owner = _realtime_owner == ws_id
-    if not is_owner:
-        await _send(websocket, ErrorResponse(
-            code="REALTIME_NOT_ACTIVE",
-            message="Real-time mode not active for this connection",
-        ))
-        return
-
-    await _cleanup_realtime(ws_id)
-    await _send(websocket, RealtimeStoppedResponse())
-
-
-async def _cleanup_realtime(ws_id: int) -> None:
-    """Stop realtime mode if owned by ws_id. Safe to call multiple times."""
-    global _realtime_owner, _realtime_ws, _realtime_timeout_task
-
-    task_to_cancel = None
-    async with _realtime_lock:
-        if _realtime_owner != ws_id:
-            return
-
-        task_to_cancel = _realtime_timeout_task
-        _realtime_timeout_task = None
-        _realtime_owner = None
-        _realtime_ws = None
-
-    # Cancel timeout task outside the lock (task itself acquires the lock)
-    if task_to_cancel is not None:
-        task_to_cancel.cancel()
-        try:
-            await task_to_cancel
-        except (asyncio.CancelledError, Exception):
-            pass
-
-    loop = asyncio.get_running_loop()
-    try:
-        await loop.run_in_executor(None, engine.stop_realtime)
-    except Exception as e:
-        log.warning("Realtime cleanup error: %s", e)
-
-    log.info("Realtime session cleaned up for ws_id=%d", ws_id)
-
-
-def _reset_realtime_timeout() -> None:
-    """Reset the auto-stop timer for realtime mode."""
-    global _realtime_timeout_task
-
-    if _realtime_timeout_task is not None:
-        _realtime_timeout_task.cancel()
-
-    async def _auto_stop():
-        global _realtime_timeout_task, _realtime_owner, _realtime_ws
-        await asyncio.sleep(settings.realtime_timeout)
-        async with _realtime_lock:
-            _realtime_timeout_task = None
-            if _realtime_owner is None:
-                return
-            log.info("Realtime auto-stop: no frame for %.0fs", settings.realtime_timeout)
-            ws = _realtime_ws
-            _realtime_owner = None
-            _realtime_ws = None
-        loop = asyncio.get_running_loop()
-        try:
-            await loop.run_in_executor(None, engine.stop_realtime)
-        except Exception as e:
-            log.warning("Realtime auto-stop cleanup error: %s", e)
-        # Notify client that realtime was auto-stopped
-        if ws is not None:
-            try:
-                await _send(ws, RealtimeStoppedResponse(
-                    message="Real-time mode auto-stopped (timeout)",
-                ))
-            except Exception:
-                pass  # Client already disconnected
-
-    try:
-        loop = asyncio.get_running_loop()
-        _realtime_timeout_task = loop.create_task(_auto_stop())
-    except RuntimeError:
-        pass  # No running loop (shouldn't happen in normal operation)
-
-
 async def _send(websocket: WebSocket, response) -> None:
     try:
         text = response.model_dump_json()
@@ -1226,9 +895,29 @@ async def http_shutdown() -> JSONResponse:
         except Exception:
             pass
 
-    # Schedule SIGINT after response is sent
-    asyncio.get_running_loop().call_later(0.5, lambda: os.kill(os.getpid(), signal.SIGINT))
+    # Schedule graceful shutdown after response is sent
+    asyncio.get_running_loop().call_later(0.5, _request_shutdown)
     return JSONResponse({"status": "shutting_down"})
+
+
+def _request_shutdown() -> None:
+    """Platform-safe uvicorn shutdown.
+
+    On POSIX, SIGINT triggers uvicorn's graceful shutdown handler.
+    On Windows, os.kill(SIGINT) sends CTRL_C_EVENT to the entire console
+    group, which can crash parent processes (Aseprite, PowerShell).
+    We use SIGBREAK on Windows (only targets the current process) and
+    fall back to sys.exit(0) if SIGBREAK is unavailable.
+    """
+    pid = os.getpid()
+    if sys.platform == "win32":
+        sig = getattr(signal, "SIGBREAK", None)
+        if sig is not None:
+            os.kill(pid, sig)
+        else:
+            os._exit(0)
+    else:
+        os.kill(pid, signal.SIGINT)
 
 
 # ─────────────────────────────────────────────────────────────

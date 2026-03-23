@@ -2,7 +2,7 @@
 
 Quick fixes for common issues. For detailed configuration, see [Configuration](CONFIGURATION.md).
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
 
 ---
 
@@ -51,15 +51,6 @@ Quick fixes for common issues. For detailed configuration, see [Configuration](C
 | AnimateDiff slow first run | Motion adapter downloads on first use (~97MB); subsequent runs use cache |
 | Chain animation flicker | Lower denoise_strength (0.20-0.35) for more frame coherence |
 
-## Live Paint
-
-| Problem | Solution |
-|---------|----------|
-| Live Paint not starting | Ensure no generation is in progress (GPU_BUSY); check server logs |
-| Live Paint high latency | Reduce steps (2-3), reduce resolution, ensure no other GPU load |
-| Live Paint auto-stopped | Session times out after 5min of inactivity (configurable via `SDDJ_REALTIME_TIMEOUT`) |
-| Brush strokes not detected | Ensure Auto mode is enabled, or use F5 (Manual mode) |
-
 ## Audio Reactivity
 
 | Problem | Solution |
@@ -82,4 +73,4 @@ The server logs to stdout with timestamps. Key log patterns:
 
 ---
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**

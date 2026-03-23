@@ -2,7 +2,7 @@
 
 All environment variables are prefixed with `SDDJ_`. Example: `SDDJ_PORT=8080`.
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
 
 ---
 
@@ -71,7 +71,6 @@ All environment variables are prefixed with `SDDJ_`. Example: `SDDJ_PORT=8080`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SDDJ_GENERATION_TIMEOUT` | `600.0` | Max seconds per generation |
-| `SDDJ_REALTIME_TIMEOUT` | `300.0` | Auto-stop if no frame for N seconds |
 
 ## Animation
 
@@ -81,16 +80,6 @@ All environment variables are prefixed with `SDDJ_`. Example: `SDDJ_PORT=8080`.
 | `SDDJ_ANIMATEDIFF_MODEL` | `guoyww/animatediff-motion-adapter-v1-5-3` | AnimateDiff motion adapter |
 | `SDDJ_ENABLE_FREEINIT` | `False` | FreeInit for AnimateDiff |
 | `SDDJ_FREEINIT_ITERATIONS` | `2` | FreeInit iteration count |
-
-## Real-Time Paint
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SDDJ_REALTIME_DEFAULT_STEPS` | `4` | Default realtime inference steps |
-| `SDDJ_REALTIME_DEFAULT_CFG` | `2.5` | Default realtime CFG scale |
-| `SDDJ_REALTIME_DEFAULT_DENOISE` | `0.5` | Default realtime denoise strength |
-| `SDDJ_REALTIME_ROI_PADDING` | `32` | Padding around ROI crop (pixels) |
-| `SDDJ_REALTIME_ROI_MIN_SIZE` | `64` | Minimum ROI dimension (pixels) |
 
 ## Audio
 
@@ -107,4 +96,4 @@ All environment variables are prefixed with `SDDJ_`. Example: `SDDJ_PORT=8080`.
 
 ---
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**

@@ -39,9 +39,8 @@ local modules = {
   "sddj_ws",        -- WebSocket transport + connection
   "sddj_capture",   -- image capture (active layer, flattened, mask)
   "sddj_request",   -- request builders (parse, attach, build)
-  "sddj_import",    -- import result, animation frame, live preview
+  "sddj_import",    -- import result, animation frame
   "sddj_output",    -- output directory, metadata persistence, load/apply
-  "sddj_live",      -- live paint system (event-driven, dirty region, F5 hotkey)
   "sddj_handler",   -- response dispatch table
   "sddj_dialog",    -- dialog construction (tabs + actions)
 }
@@ -69,25 +68,10 @@ end
 -- By this point, all modules are loaded and all functions in _PT are ready.
 
 function init(plugin)
-  _PT.plugin = plugin
-
   -- Clean up any leftover temp files from previous sessions
   if _PT.cleanup_session_temp_files then
     pcall(_PT.cleanup_session_temp_files, true)  -- all_sessions = true
   end
-
-  -- Register hotkey command for live send (F5 default via .aseprite-keys)
-  plugin:newCommand{
-    id = "SDDjLiveSend",
-    title = "SDDj: Send Live Frame",
-    group = "sprite_crop",
-    onenabled = function()
-      return _PT.live.mode and _PT.state.connected and not _PT.live.request_inflight
-    end,
-    onclick = function()
-      if _PT.live_send_now then _PT.live_send_now() end
-    end,
-  }
 
   _PT.build_dialog()
   _PT.apply_settings(_PT.load_settings())
@@ -95,13 +79,6 @@ end
 
 function exit(plugin)
   if not _PT then return end
-
-  -- Stop live mode first (sends realtime_stop + unregisters listeners)
-  if _PT.stop_live_timer then pcall(_PT.stop_live_timer) end
-  if _PT.live and _PT.live.mode then
-    pcall(function() _PT.send({ action = "realtime_stop" }) end)
-    _PT.live.mode = false
-  end
 
   -- Cancel any in-progress generation
   if _PT.state and (_PT.state.generating or _PT.state.animating) then

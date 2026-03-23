@@ -2,7 +2,7 @@
 
 WebSocket protocol specification for SDDj.
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
 
 ---
 
@@ -24,10 +24,6 @@ Connect to `ws://127.0.0.1:9876/ws`. All messages are JSON. Maximum 5 concurrent
 | `delete_palette`     | Delete a user palette              |
 | `list_controlnets`   | List available ControlNet modes    |
 | `list_embeddings`    | List available TI embeddings       |
-| `realtime_start`     | Start real-time paint session       |
-| `realtime_frame`     | Send canvas frame for live processing |
-| `realtime_update`    | Hot-update realtime parameters      |
-| `realtime_stop`      | Stop real-time paint session        |
 | `generate_prompt`    | Generate a random prompt using templates |
 | `list_presets`       | List available presets               |
 | `get_preset`         | Load a preset by name                |
@@ -142,68 +138,6 @@ For inpainting, set `mode` to `"inpaint"` and include `source_image` (base64 PNG
 | `tag_name`          | string or null                       | `null`        |
 | `enable_freeinit`   | boolean                              | `false`       |
 | `freeinit_iterations` | 1 - 3                              | `2`           |
-
-## Real-Time Paint Request
-
-Start a live paint session:
-
-```json
-{
-  "action": "realtime_start",
-  "prompt": "pixel art character",
-  "negative_prompt": "blurry, photorealistic",
-  "width": 512,
-  "height": 512,
-  "seed": -1,
-  "steps": 4,
-  "cfg_scale": 2.5,
-  "denoise_strength": 0.5,
-  "clip_skip": 2,
-  "lora": { "name": "pixelart_redmond", "weight": 1.0 },
-  "post_process": { "..." }
-}
-```
-
-Send canvas frames for processing:
-
-```json
-{
-  "action": "realtime_frame",
-  "image": "<base64 PNG - current canvas>",
-  "frame_id": 1,
-  "prompt": "optional prompt override",
-  "mask": "<base64 mask of dirty region (optional)>",
-  "roi_x": 0, "roi_y": 0, "roi_w": 128, "roi_h": 128
-}
-```
-
-Hot-update parameters mid-session (all fields optional):
-
-```json
-{
-  "action": "realtime_update",
-  "prompt": "new prompt",
-  "negative_prompt": "blurry, photorealistic",
-  "denoise_strength": 0.6,
-  "steps": 3,
-  "cfg_scale": 3.0,
-  "clip_skip": 2,
-  "seed": 42
-}
-```
-
-Stop the session:
-
-```json
-{ "action": "realtime_stop" }
-```
-
-| Field               | Values / Constraint                  | Default       |
-|---------------------|--------------------------------------|---------------|
-| `steps`             | 2 - 8                                | `4`           |
-| `cfg_scale`         | 1.0 - 10.0                           | `2.5`         |
-| `denoise_strength`  | 0.05 - 0.95                          | `0.5`         |
-| `clip_skip`         | 1 - 12                               | `2`           |
 
 ## Audio-Reactive Request
 
@@ -369,9 +303,6 @@ Requires ffmpeg in PATH. Export animation frames + audio to a single MP4 file.
 | `error`              | `code`, `message`                                                   |
 | `list`               | `list_type`, `items`                                                |
 | `pong`               | (no fields)                                                         |
-| `realtime_ready`     | `message`                                                           |
-| `realtime_result`    | `image` (b64 PNG), `latency_ms`, `frame_id`, `width`, `height`, `roi_x` (opt), `roi_y` (opt) |
-| `realtime_stopped`   | `message`                                                           |
 | `prompt_result`      | `prompt`, `negative_prompt`, `components`                           |
 | `preset`             | `name`, `data`                                                      |
 | `preset_saved`       | `name`                                                              |
@@ -399,8 +330,6 @@ Requires ffmpeg in PATH. Export animation frames + audio to a single MP4 file.
 | `INVALID_REQUEST`    | Malformed or invalid parameters          |
 | `MAX_CONNECTIONS`    | Server connection limit reached (5)      |
 | `UNKNOWN_ACTION`     | Unrecognized action type                 |
-| `REALTIME_BUSY`      | Live paint session already active        |
-| `REALTIME_NOT_ACTIVE`| No active live paint session             |
 | `GPU_BUSY`           | GPU is occupied by another operation     |
 
 ## Input Validation
@@ -425,4 +354,4 @@ Requires ffmpeg in PATH. Export animation frames + audio to a single MP4 file.
 
 ---
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**

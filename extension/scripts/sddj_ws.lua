@@ -69,7 +69,6 @@ function PT.start_gen_timeout(override_seconds)
         PT.timers.loop = PT.stop_timer(PT.timers.loop)
         PT.state.gen_step_start = nil
         PT.reset_sequence()
-        if PT.live.mode then PT.stop_live_mode() end
         if PT.dlg then
           PT.update_status("Timed out — no response from server")
           PT.reset_ui_buttons()
@@ -101,15 +100,10 @@ function PT.set_connected(is_connected)
     PT.update_action_button(PT.dlg.data.main_tabs or "tab_gen")
     PT.dlg:modify{ id = "action_btn", enabled = false }
     PT.dlg:modify{ id = "cancel_btn", enabled = false }
-    PT.dlg:modify{ id = "live_accept_btn", visible = false }
-    PT.dlg:modify{ id = "live_send_btn", visible = false }
     if PT.state.generating then PT.state.generating = false end
     if PT.state.animating then PT.state.animating = false end
-    PT.stop_live_timer()
     PT.stop_gen_timeout()
     PT.timers.cancel_safety = PT.stop_timer(PT.timers.cancel_safety)
-    PT.live.mode = false
-    PT.live.request_inflight = false
     PT.loop.mode = false
     PT.loop.random_mode = false
     PT.loop.counter = 0
@@ -124,6 +118,7 @@ function PT.set_connected(is_connected)
     PT.anim.base_seed = 0
     PT.anim.output_dir = nil
     PT.anim.output_count = 0
+    PT.anim.last_saved_frame = nil
     -- Reset sequence state
     PT.reset_sequence()
     -- Reset audio state
@@ -214,24 +209,7 @@ function PT.disconnect()
   PT.state.animating = false
   PT.loop.mode = false
   PT.loop.random_mode = false
-  PT.stop_live_timer()
   PT.stop_gen_timeout()
-  PT.live.mode = false
-  PT.live.request_inflight = false
-  PT.live.pending_send = false
-  -- Clean up preview layer from sprite
-  if PT.live.preview_layer then
-    local spr = app.sprite
-    if spr then
-      pcall(function()
-        local cel = PT.live.preview_layer:cel(app.frame)
-        if cel then spr:deleteCel(cel) end
-        spr:deleteLayer(PT.live.preview_layer)
-      end)
-    end
-  end
-  PT.live.preview_layer = nil
-  PT.live.preview_sprite = nil
   PT.update_status("Disconnected")
 end
 
@@ -263,7 +241,7 @@ end
 function PT.reset_ui_buttons(opts)
   if not PT.dlg then return end
   opts = opts or {}
-  local gen_enabled = opts.enabled ~= false and not PT.live.mode
+  local gen_enabled = opts.enabled ~= false
   PT.update_action_button(PT.dlg.data.main_tabs or "tab_gen")
   PT.dlg:modify{ id = "action_btn", enabled = gen_enabled }
   PT.dlg:modify{ id = "cancel_btn", enabled = opts.cancel or false }
@@ -279,28 +257,6 @@ function PT.send(payload)
   local ok, err = pcall(function() PT.ws_handle:sendText(PT.json.encode(payload)) end)
   if not ok then
     PT.update_status("Send failed: " .. tostring(err))
-    return false
-  end
-  return true
-end
-
--- Binary frame: 4-byte LE header length + JSON header + raw PNG data.
--- Eliminates Lua base64 encoding overhead (~200ms on 512×512).
-function PT.send_live_binary(header_table, png_data)
-  if not PT.state.connected or PT.ws_handle == nil then return false end
-  local header_json = PT.json.encode(header_table)
-  local header_len = #header_json
-  local len_bytes = string.char(
-    header_len % 256,
-    math.floor(header_len / 256) % 256,
-    math.floor(header_len / 65536) % 256,
-    math.floor(header_len / 16777216) % 256
-  )
-  local ok, err = pcall(function()
-    PT.ws_handle:sendBinary(len_bytes .. header_json .. png_data)
-  end)
-  if not ok then
-    PT.update_status("Binary send failed: " .. tostring(err))
     return false
   end
   return true

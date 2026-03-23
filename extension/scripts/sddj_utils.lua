@@ -29,24 +29,11 @@ function PT.image_to_base64(img)
   return PT.base64_encode(data)
 end
 
--- Raw PNG bytes for binary WebSocket send (skips base64 overhead).
-function PT.image_to_png_bytes(img)
-  local tmp = PT.make_tmp_path("bin")
-  if not img:saveAs(tmp) then return nil end
-  local f = io.open(tmp, "rb")
-  if not f then return nil end
-  local data = f:read("*a")
-  f:close()
-  os.remove(tmp)
-  return data
-end
-
 -- ─── Temp File Cleanup ────────────────────────────────────────
 
 -- Clean up temp files for the current session (or all sddj temp files).
 function PT.cleanup_session_temp_files(all_sessions)
   local tmp_dir = PT.get_tmp_dir()
-  local pattern = all_sessions and "sddj_" or ("sddj_.*_" .. PT.state.session_id .. "_")
   local ok, files = pcall(app.fs.listFiles, tmp_dir)
   if not ok or not files then return end
   local count = 0

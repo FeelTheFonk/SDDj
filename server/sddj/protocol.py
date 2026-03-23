@@ -21,11 +21,6 @@ class Action(str, Enum):
     LIST_CONTROLNETS = "list_controlnets"
     LIST_EMBEDDINGS = "list_embeddings"
     PING = "ping"
-    # Real-time paint mode
-    REALTIME_START = "realtime_start"
-    REALTIME_FRAME = "realtime_frame"
-    REALTIME_UPDATE = "realtime_update"
-    REALTIME_STOP = "realtime_stop"
     # Auto-prompt & presets
     GENERATE_PROMPT = "generate_prompt"
     LIST_PRESETS = "list_presets"
@@ -205,50 +200,6 @@ class AnimationRequest(BaseModel):
         return self
 
 
-# ─────────────────────────────────────────────────────────────
-# REAL-TIME PAINT REQUEST MODELS
-# ─────────────────────────────────────────────────────────────
-
-class RealtimeStartRequest(BaseModel):
-    action: Action = Action.REALTIME_START
-    prompt: str = ""
-    negative_prompt: str = _DEFAULT_NEGATIVE
-    width: int = Field(512, ge=64, le=2048)
-    height: int = Field(512, ge=64, le=2048)
-    seed: int = -1
-    steps: int = Field(4, ge=2, le=8)
-    cfg_scale: float = Field(2.5, ge=1.0, le=10.0)
-    denoise_strength: float = Field(0.5, ge=0.05, le=0.95)
-    clip_skip: int = Field(2, ge=1, le=12)
-    lora: Optional[LoRASpec] = None
-    negative_ti: Optional[list[EmbeddingSpec]] = None
-    post_process: PostProcessSpec = Field(default_factory=PostProcessSpec)
-
-
-class RealtimeFrameRequest(BaseModel):
-    action: Action = Action.REALTIME_FRAME
-    image: str              # base64 PNG — current canvas
-    frame_id: int = 0       # monotonic frame counter (for latest-wins)
-    prompt: Optional[str] = None  # override prompt mid-session
-    # ROI (Region of Interest) for partial regeneration
-    mask: Optional[str] = None    # base64 mask of dirty region
-    roi_x: Optional[int] = None
-    roi_y: Optional[int] = None
-    roi_w: Optional[int] = None
-    roi_h: Optional[int] = None
-
-
-class RealtimeUpdateRequest(BaseModel):
-    action: Action = Action.REALTIME_UPDATE
-    prompt: Optional[str] = None
-    negative_prompt: Optional[str] = None
-    denoise_strength: Optional[float] = Field(None, ge=0.05, le=0.95)
-    steps: Optional[int] = Field(None, ge=2, le=8)
-    cfg_scale: Optional[float] = Field(None, ge=1.0, le=10.0)
-    clip_skip: Optional[int] = Field(None, ge=1, le=12)
-    seed: Optional[int] = None
-
-
 class Request(BaseModel):
     action: Action
     # Shared generation fields (optional — only required for generate/generate_animation)
@@ -276,14 +227,6 @@ class Request(BaseModel):
     tag_name: Optional[str] = None
     enable_freeinit: Optional[bool] = None
     freeinit_iterations: Optional[int] = None
-    # Realtime fields
-    image: Optional[str] = None
-    frame_id: Optional[int] = None
-    mask: Optional[str] = None      # ROI mask for realtime
-    roi_x: Optional[int] = None
-    roi_y: Optional[int] = None
-    roi_w: Optional[int] = None
-    roi_h: Optional[int] = None
     # Auto-prompt fields
     locked_fields: Optional[dict[str, str]] = None
     prompt_template: Optional[str] = None
@@ -318,6 +261,9 @@ class Request(BaseModel):
             "audio_path", "fps", "enable_stems",
             "modulation_slots", "expressions", "modulation_preset",
             "prompt_segments",
+            # Resource / export fields
+            "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
+            "max_frames", "output_dir", "scale_factor", "quality",
         }
         data = self.model_dump(exclude_none=True, exclude=_exclude)
         return GenerateRequest(**data)
@@ -331,42 +277,12 @@ class Request(BaseModel):
             "audio_path", "fps", "enable_stems",
             "modulation_slots", "expressions", "modulation_preset",
             "prompt_segments",
+            # Resource / export fields
+            "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
+            "max_frames", "output_dir", "scale_factor", "quality",
         }
         data = self.model_dump(exclude_none=True, exclude=_exclude)
         return AnimationRequest(**data)
-
-    def to_realtime_start(self) -> RealtimeStartRequest:
-        _rt_fields = {
-            "action", "mode", "source_image", "mask_image", "control_image",
-            "method", "frame_count", "frame_duration_ms", "seed_strategy",
-            "tag_name", "enable_freeinit", "freeinit_iterations",
-            "image", "frame_id",
-        }
-        data = self.model_dump(exclude_none=True, exclude=_rt_fields)
-        return RealtimeStartRequest(**data)
-
-    def to_realtime_frame(self) -> RealtimeFrameRequest:
-        data: dict = {"action": "realtime_frame"}
-        if self.image is not None:
-            data["image"] = self.image
-        if self.frame_id is not None:
-            data["frame_id"] = self.frame_id
-        if self.prompt is not None:
-            data["prompt"] = self.prompt
-        for k in ("mask", "roi_x", "roi_y", "roi_w", "roi_h"):
-            v = getattr(self, k, None)
-            if v is not None:
-                data[k] = v
-        return RealtimeFrameRequest(**data)
-
-    def to_realtime_update(self) -> RealtimeUpdateRequest:
-        _update_keys = {
-            "prompt", "negative_prompt", "denoise_strength",
-            "steps", "cfg_scale", "clip_skip", "seed",
-        }
-        data = {k: v for k, v in self.model_dump(exclude_none=True).items()
-                if k in _update_keys}
-        return RealtimeUpdateRequest(**data)
 
     def to_analyze_audio_request(self) -> AnalyzeAudioRequest:
         return AnalyzeAudioRequest(
@@ -378,9 +294,10 @@ class Request(BaseModel):
     def to_audio_reactive_request(self) -> AudioReactiveRequest:
         _exclude = {
             "action", "frame_count", "seed_strategy",
-            "image", "frame_id", "mask", "roi_x", "roi_y", "roi_w", "roi_h",
             "locked_fields", "prompt_template",
-            "preset_name", "preset_data",
+            # Resource / export fields
+            "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
+            "output_dir", "scale_factor", "quality",
         }
         data = self.model_dump(exclude_none=True, exclude=_exclude)
         return AudioReactiveRequest(**data)
@@ -493,31 +410,6 @@ class ListResponse(BaseModel):
     type: Literal["list"] = "list"
     list_type: str  # "loras" | "palettes" | "controlnets" | "embeddings" | "presets"
     items: list[str]
-
-
-# ─────────────────────────────────────────────────────────────
-# REAL-TIME PAINT RESPONSE MODELS
-# ─────────────────────────────────────────────────────────────
-
-class RealtimeReadyResponse(BaseModel):
-    type: Literal["realtime_ready"] = "realtime_ready"
-    message: str = "Real-time mode activated"
-
-
-class RealtimeResultResponse(BaseModel):
-    type: Literal["realtime_result"] = "realtime_result"
-    image: str          # base64 PNG
-    latency_ms: int
-    frame_id: int
-    width: int
-    height: int
-    roi_x: Optional[int] = None
-    roi_y: Optional[int] = None
-
-
-class RealtimeStoppedResponse(BaseModel):
-    type: Literal["realtime_stopped"] = "realtime_stopped"
-    message: str = "Real-time mode stopped"
 
 
 class PongResponse(BaseModel):

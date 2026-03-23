@@ -38,11 +38,6 @@ function PT.save_settings()
     anim_duration      = d.anim_duration,
     anim_denoise       = d.anim_denoise,
     anim_seed_strategy = d.anim_seed_strategy,
-    live_strength      = d.live_strength,
-    live_steps         = d.live_steps,
-    live_cfg           = d.live_cfg,
-    live_opacity       = d.live_opacity,
-    live_mode          = d.live_mode,
     preset_name        = d.preset_name,
     lock_subject       = d.lock_subject,
     fixed_subject      = d.fixed_subject,
@@ -154,7 +149,7 @@ function PT.apply_settings(s)
   local opts = {
     "mode", "output_size", "output_mode", "quantize_method", "dither", "palette_mode",
     "palette_name", "lora_name", "anim_method", "anim_seed_strategy", "preset_name",
-    "loop_seed_combo", "live_mode",
+    "loop_seed_combo",
     "audio_fps", "audio_mod_preset", "audio_method",
     "mp4_quality", "mp4_scale",
     "mod1_source", "mod1_target", "mod2_source", "mod2_target",
@@ -168,7 +163,6 @@ function PT.apply_settings(s)
     "steps", "cfg_scale", "clip_skip", "denoise", "lora_weight",
     "neg_ti_weight", "pixel_size", "colors",
     "anim_steps", "anim_cfg", "anim_frames", "anim_duration", "anim_denoise", "anim_freeinit_iters",
-    "live_strength", "live_steps", "live_cfg", "live_opacity",
     "randomness",
     "audio_steps", "audio_cfg", "audio_denoise",
     "audio_frame_duration", "audio_max_frames", "audio_freeinit_iters",
@@ -202,16 +196,12 @@ function PT.apply_settings(s)
   PT.dlg:modify{ id = "anim_denoise", label = string.format("Strength (%.2f)", d.anim_denoise / 100.0) }
   PT.dlg:modify{ id = "audio_cfg", label = string.format("CFG (%.1f)", d.audio_cfg / 10.0) }
   PT.dlg:modify{ id = "audio_denoise", label = string.format("Strength (%.2f)", d.audio_denoise / 100.0) }
-  PT.dlg:modify{ id = "live_strength", label = string.format("Strength (%.2f)", d.live_strength / 100.0) }
-  PT.dlg:modify{ id = "live_cfg", label = string.format("CFG (%.1f)", d.live_cfg / 10.0) }
-  PT.dlg:modify{ id = "live_opacity", label = string.format("Preview (%d%%)", d.live_opacity) }
   PT.dlg:modify{ id = "steps", label = "Steps (" .. d.steps .. ")" }
   PT.dlg:modify{ id = "clip_skip", label = "CLIP Skip (" .. d.clip_skip .. ")" }
   PT.dlg:modify{ id = "anim_steps", label = "Steps (" .. d.anim_steps .. ")" }
   PT.dlg:modify{ id = "anim_frames", label = "Frames (" .. d.anim_frames .. ")" }
   PT.dlg:modify{ id = "anim_duration", label = "Duration (" .. d.anim_duration .. "ms)" }
   PT.dlg:modify{ id = "audio_steps", label = "Steps (" .. d.audio_steps .. ")" }
-  PT.dlg:modify{ id = "live_steps", label = "Steps (" .. d.live_steps .. ")" }
   PT.dlg:modify{ id = "audio_max_frames",
     label = d.audio_max_frames == 0 and "Max Frames (0=all)" or ("Max Frames (" .. d.audio_max_frames .. ")") }
   PT.dlg:modify{ id = "audio_frame_duration",

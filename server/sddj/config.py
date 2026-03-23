@@ -115,14 +115,6 @@ class Settings(BaseSettings):
     # ── Video Export ──────────────────────────────────────────
     ffmpeg_path: str = ""  # empty = auto-detect via shutil.which("ffmpeg")
 
-    # ── Real-Time Paint Mode ──────────────────────────────────
-    realtime_timeout: float = Field(300.0, gt=0.0)  # auto-stop if no frame for N seconds
-    realtime_default_steps: int = Field(4, ge=2, le=8)
-    realtime_default_cfg: float = Field(2.5, ge=1.0, le=10.0)
-    realtime_default_denoise: float = Field(0.5, ge=0.05, le=0.95)
-    realtime_roi_padding: int = Field(32, ge=8, le=128)  # padding around ROI crop
-    realtime_roi_min_size: int = Field(64, ge=32, le=256)  # minimum ROI dimension
-
     model_config = {"env_prefix": "SDDJ_"}
 
     @model_validator(mode='after')

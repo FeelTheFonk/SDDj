@@ -2,7 +2,7 @@
 
 > Tested recipes by creative intention. No theory — just settings that work.
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
 
 ---
 
@@ -17,7 +17,6 @@
 - [Animation](#animation)
 - [Output Mode: Sequence](#output-mode-sequence)
 - [Loop and Random Loop](#loop-and-random-loop)
-- [Live Paint Recipes](#live-paint-recipes)
 - [ControlNet Recipes](#controlnet-recipes)
 - [Color Control](#color-control)
 - [Parameter Matrix](#parameter-matrix)
@@ -931,56 +930,6 @@ Result: endless dragon variations — pixel art dragon, chibi dragon, dragon bos
 
 ---
 
-## Live Paint Recipes
-
-For detailed Live Paint technique explanations, see the [Live Paint guide](LIVE-PAINT.md).
-
-### Quick Concept Sketch
-
-Sketch rough shapes and let SD fill in details in real-time.
-
-**Live Tab Settings:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Strength | 0.50-0.60 | Strong SD interpretation |
-| Steps | 4 | Real-time speed |
-| CFG | 2.0-3.0 | Creative, loose |
-| Preview Opacity | 70% | See both your sketch and SD output |
-
-**Workflow:**
-1. Start Live, draw broad shapes and colors
-2. The model interprets them immediately
-3. Adjust prompt to steer the direction
-4. Lower strength to 0.30 to refine details
-5. Accept when satisfied
-
----
-
-### Style Exploration
-
-Try different art directions on the same drawing.
-
-**Live Tab Settings:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Strength | 0.40-0.50 | Enough to see style changes |
-| Steps | 4 | Fast feedback |
-| CFG | 2.5 | Balanced |
-
-**Technique:** Keep drawing the same thing, change the prompt:
-
-```
-pixel art, dark fantasy, grim, desaturated
-pixel art, cute, colorful, chibi style
-pixel art, sci-fi, neon lights, cyberpunk
-```
-
-The Live mode updates instantly when the prompt changes.
-
----
-
 ## ControlNet Recipes
 
 ### Line Art to Pixel Art (Canny)
@@ -1146,7 +1095,6 @@ Quick reference: recommended settings by creative intention.
 | **Walk cycle** | 8 | 5.0 | 0.25-0.35 | 64 | 16-24 | kmeans | none |
 | **Idle anim** | 8 | 5.0 | 0.20-0.30 | 64-128 | 16-32 | kmeans | none |
 | **Effect anim** | 8 | 5.0 | 0.35-0.50 | 64 | 12-20 | kmeans | none |
-| **Live concept** | 4 | 2.0-3.0 | 0.50-0.60 | 128 | 32 | kmeans | none |
 | **Retro (GB)** | 8 | 5.0 | 1.0 | 32-64 | 4 | kmeans | bayer_2x2 |
 | **Retro (NES)** | 8 | 5.0 | 1.0 | 64 | 12-16 | kmeans | none |
 | **Retro (PICO-8)** | 8 | 5.0 | 1.0 | 64-128 | 16 | kmeans | none |
@@ -1283,4 +1231,4 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 
 ---
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**

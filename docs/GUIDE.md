@@ -2,7 +2,7 @@
 
 > From first launch to advanced generation — everything you need to create images and animations with Stable Diffusion in Aseprite.
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
 
 ---
 
@@ -123,7 +123,7 @@ Everything runs **locally on your machine**. No cloud, no API key, no internet n
 
 ## Modes
 
-The SDDj dialog has **5 tabs**: Generate, Post-Process, Animation, Live, and Audio. The **Generate tab** includes a **Mode** dropdown with 7 generation modes: txt2img, img2img, inpaint, and 4 ControlNet variants (openpose, canny, scribble, lineart).
+The SDDj dialog has **4 tabs**: Generate, Post-Process, Animation, and Audio. The **Generate tab** includes a **Mode** dropdown with 7 generation modes: txt2img, img2img, inpaint, and 4 ControlNet variants (openpose, canny, scribble, lineart).
 
 > [!NOTE]
 > The Strength slider is hidden in txt2img mode (it doesn't apply). In other modes, the Mode label shows a hint: "Mode (needs mask)" for inpaint, "Mode (needs layer)" for img2img and ControlNet.
@@ -186,10 +186,6 @@ Parameters in the Animation tab:
 | Seed Mode | increment | `fixed` = same seed, `increment` = seed+1 per frame, `random` = random per frame |
 | Tag Name | (empty) | Creates an Aseprite tag for the animation range |
 | FreeInit | off | AnimateDiff only — improves temporal consistency (doubles generation time) |
-
-### Live Paint
-
-Real-time SD-assisted painting. See [the dedicated Live Paint guide](LIVE-PAINT.md).
 
 ---
 
@@ -296,7 +292,6 @@ How many iterations the model performs. More steps = more detail, but slower.
 
 | Steps | Use case |
 |-------|----------|
-| 4 | Live Paint (real-time speed) |
 | 6-8 | Pixel art — fast and effective with Hyper-SD |
 | 8-12 | Anime / illustration — good detail with stylized models |
 | 10-15 | Realistic / concept art — extra detail for complex scenes |
@@ -310,7 +305,7 @@ With Hyper-SD enabled (default), 8 steps produces results comparable to 25+ step
 
 | CFG | Effect |
 |-----|--------|
-| 1-3 | Very creative / loose interpretation (Live Paint default: 2.5) |
+| 1-3 | Very creative / loose interpretation |
 | 3-5 | Balanced — follows prompt while remaining natural |
 | **5.0** | **Default** |
 | 7-10 | Strict prompt following, can look over-saturated |
@@ -630,4 +625,4 @@ Common Aseprite-specific issues:
 
 ---
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Live Paint](LIVE-PAINT.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**

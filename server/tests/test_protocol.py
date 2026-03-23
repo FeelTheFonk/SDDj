@@ -31,11 +31,6 @@ from sddj.protocol import (
     ProgressResponse,
     PromptResultResponse,
     QuantizeMethod,
-    RealtimeFrameRequest,
-    RealtimeReadyResponse,
-    RealtimeResultResponse,
-    RealtimeStartRequest,
-    RealtimeUpdateRequest,
     Request,
     ResultResponse,
     SeedStrategy,
@@ -51,7 +46,6 @@ class TestAction:
             "generate", "generate_animation", "cancel",
             "list_loras", "list_palettes", "list_controlnets", "list_embeddings",
             "ping",
-            "realtime_start", "realtime_frame", "realtime_update", "realtime_stop",
             "generate_prompt", "list_presets", "get_preset", "save_preset", "delete_preset",
             "save_palette", "delete_palette",
             "cleanup",
@@ -125,34 +119,6 @@ class TestAnimationRequest:
             assert req.seed_strategy == SeedStrategy(s)
 
 
-class TestRealtimeModels:
-    def test_start_defaults(self):
-        req = RealtimeStartRequest(prompt="test")
-        assert req.steps == 4
-        assert req.cfg_scale == 2.5
-        assert req.denoise_strength == 0.5
-
-    def test_frame_with_roi(self):
-        req = RealtimeFrameRequest(
-            image="b64data", frame_id=5,
-            roi_x=10, roi_y=20, roi_w=100, roi_h=50,
-            mask="maskb64",
-        )
-        assert req.roi_x == 10
-        assert req.roi_w == 100
-        assert req.mask == "maskb64"
-
-    def test_frame_without_roi(self):
-        req = RealtimeFrameRequest(image="b64data")
-        assert req.roi_x is None
-        assert req.mask is None
-
-    def test_update_partial(self):
-        req = RealtimeUpdateRequest(denoise_strength=0.7)
-        assert req.prompt is None
-        assert req.denoise_strength == 0.7
-
-
 class TestPostProcessSpec:
     def test_defaults(self):
         pp = PostProcessSpec()
@@ -186,33 +152,6 @@ class TestRequestConversions:
         anim = req.to_animation_request()
         assert isinstance(anim, AnimationRequest)
         assert anim.frame_count == 16
-
-    def test_to_realtime_start(self):
-        req = Request(
-            action="realtime_start", prompt="live",
-            steps=4, cfg_scale=2.5,
-        )
-        rt = req.to_realtime_start()
-        assert isinstance(rt, RealtimeStartRequest)
-        assert rt.steps == 4
-
-    def test_to_realtime_frame(self):
-        req = Request(
-            action="realtime_frame", image="b64",
-            frame_id=3, roi_x=10, roi_y=20, roi_w=64, roi_h=64,
-        )
-        rf = req.to_realtime_frame()
-        assert isinstance(rf, RealtimeFrameRequest)
-        assert rf.roi_x == 10
-        assert rf.frame_id == 3
-
-    def test_to_realtime_update(self):
-        req = Request(action="realtime_update", prompt="new", steps=6)
-        ru = req.to_realtime_update()
-        assert isinstance(ru, RealtimeUpdateRequest)
-        assert ru.prompt == "new"
-        assert ru.steps == 6
-
 
     def test_to_generate_excludes_audio_fields(self):
         req = Request(
@@ -259,17 +198,6 @@ class TestResponseModels:
     def test_list(self):
         r = ListResponse(list_type="loras", items=["lora1", "lora2"])
         assert len(r.items) == 2
-
-    def test_realtime_ready(self):
-        r = RealtimeReadyResponse()
-        assert r.type == "realtime_ready"
-
-    def test_realtime_result_with_roi(self):
-        r = RealtimeResultResponse(
-            image="b64", latency_ms=50, frame_id=1,
-            width=512, height=512, roi_x=10, roi_y=20,
-        )
-        assert r.roi_x == 10
 
     def test_prompt_result(self):
         r = PromptResultResponse(prompt="test prompt", components={"style": "pixel art"})

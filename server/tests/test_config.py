@@ -99,47 +99,6 @@ class TestSettingsDefaults:
         with pytest.raises(ValidationError):
             self._make_settings(generation_timeout=-1.0)
 
-    def test_realtime_defaults(self):
-        s = self._make_settings()
-        assert s.realtime_timeout == 300.0
-        assert s.realtime_default_steps == 4
-        assert s.realtime_default_cfg == 2.5
-        assert s.realtime_default_denoise == 0.5
-        assert s.realtime_roi_padding == 32
-        assert s.realtime_roi_min_size == 64
-
-    def test_realtime_steps_bounds(self):
-        self._make_settings(realtime_default_steps=2)
-        self._make_settings(realtime_default_steps=8)
-        with pytest.raises(ValidationError):
-            self._make_settings(realtime_default_steps=1)
-        with pytest.raises(ValidationError):
-            self._make_settings(realtime_default_steps=9)
-
-    def test_realtime_cfg_bounds(self):
-        self._make_settings(realtime_default_cfg=1.0)
-        self._make_settings(realtime_default_cfg=10.0)
-        with pytest.raises(ValidationError):
-            self._make_settings(realtime_default_cfg=0.9)
-        with pytest.raises(ValidationError):
-            self._make_settings(realtime_default_cfg=10.1)
-
-    def test_realtime_denoise_bounds(self):
-        self._make_settings(realtime_default_denoise=0.05)
-        self._make_settings(realtime_default_denoise=0.95)
-        with pytest.raises(ValidationError):
-            self._make_settings(realtime_default_denoise=0.04)
-        with pytest.raises(ValidationError):
-            self._make_settings(realtime_default_denoise=0.96)
-
-    def test_realtime_roi_bounds(self):
-        self._make_settings(realtime_roi_padding=8)
-        self._make_settings(realtime_roi_padding=128)
-        with pytest.raises(ValidationError):
-            self._make_settings(realtime_roi_padding=7)
-        with pytest.raises(ValidationError):
-            self._make_settings(realtime_roi_padding=129)
-
     def test_animation_defaults(self):
         s = self._make_settings()
         assert s.max_animation_frames == 120

@@ -60,11 +60,11 @@ local function build_connection_section()
     text = "Cleanup GPU",
     onclick = function()
       if PT.state.connected and not PT.state.generating
-          and not PT.state.animating and not PT.live.mode then
+          and not PT.state.animating then
         PT.send({ action = "cleanup" })
         PT.update_status("Cleaning up GPU...")
       else
-        PT.update_status("Cannot cleanup during generation/live")
+        PT.update_status("Cannot cleanup during generation")
       end
     end,
   }
@@ -488,94 +488,6 @@ local function build_tab_animation()
     id = "anim_freeinit_iters",
     label = "FreeInit Iters",
     min = 1, max = 3, value = 2,
-  }
-end
-
--- ─── Tab: Live ──────────────────────────────────────────────
-
-local function build_tab_live()
-  local dlg = PT.dlg
-
-  -- Trigger mode selector
-  dlg:combobox{
-    id = "live_mode",
-    label = "Trigger",
-    options = { "Auto (stroke)", "Manual (F5)" },
-    option = "Auto (stroke)",
-    onchange = function()
-      PT.live.auto_mode = (dlg.data.live_mode == "Auto (stroke)")
-      if PT.live.mode and PT.dlg then
-        if PT.live.auto_mode then
-          PT.update_status("Live — auto mode (sends after each stroke)")
-        else
-          PT.update_status("Live — manual mode (press F5 to send)")
-        end
-      end
-    end,
-  }
-
-  -- Batched slider update: sends all changed params once after debounce
-  local function schedule_live_slider_update()
-    if not PT.live.mode then return end
-    PT.live.slider_debounce = PT.stop_timer(PT.live.slider_debounce)
-    PT.live.slider_debounce = Timer{
-      interval = PT.cfg.LIVE_SLIDER_DEBOUNCE,
-      ontick = function()
-        PT.live.slider_debounce = PT.stop_timer(PT.live.slider_debounce)
-        if not PT.live.mode or not PT.dlg then return end
-        PT.send({
-          action = "realtime_update",
-          denoise_strength = PT.dlg.data.live_strength / 100.0,
-          steps = PT.dlg.data.live_steps,
-          cfg_scale = PT.dlg.data.live_cfg / 10.0,
-        })
-      end,
-    }
-    PT.live.slider_debounce:start()
-  end
-
-  dlg:slider{
-    id = "live_strength",
-    label = "Strength (0.50)",
-    min = 5, max = 95, value = 50,
-    onchange = function()
-      slider_label("live_strength", "Strength (%.2f)", 100.0)()
-      schedule_live_slider_update()
-    end,
-  }
-
-  dlg:slider{
-    id = "live_steps",
-    label = "Steps (4)",
-    min = 2, max = 8, value = 4,
-    onchange = function()
-      dlg:modify{ id = "live_steps", label = "Steps (" .. dlg.data.live_steps .. ")" }
-      schedule_live_slider_update()
-    end,
-  }
-
-  dlg:slider{
-    id = "live_cfg",
-    label = "CFG (2.5)",
-    min = 10, max = 100, value = 25,
-    onchange = function()
-      slider_label("live_cfg", "CFG (%.1f)", 10.0)()
-      schedule_live_slider_update()
-    end,
-  }
-
-  dlg:slider{
-    id = "live_opacity",
-    label = "Preview (70%)",
-    min = 10, max = 100, value = 70,
-    onchange = function()
-      dlg:modify{ id = "live_opacity",
-        label = string.format("Preview (%d%%)", dlg.data.live_opacity) }
-      if PT.live.preview_layer then
-        PT.live.preview_layer.opacity = math.floor(dlg.data.live_opacity * 255 / 100)
-        app.refresh()
-      end
-    end,
   }
 end
 
@@ -1065,59 +977,12 @@ function PT.trigger_audio_generate()
   PT.send(req)
 end
 
-function PT.trigger_live_toggle()
-  local dlg = PT.dlg
-  if PT.live.mode then
-    PT.send({ action = "realtime_stop" })
-    PT.stop_live_mode()
-  else
-    if PT.state.generating or PT.state.animating then return end
-    local spr = app.sprite
-    if spr == nil then
-      app.alert("Open a sprite first to use Live mode.")
-      return
-    end
-    local d = dlg.data
-    local gw, gh = PT.parse_size()
-    local req = {
-      action = "realtime_start",
-      prompt = d.prompt,
-      negative_prompt = d.negative_prompt,
-      width = gw, height = gh,
-      seed = PT.parse_seed(),
-      steps = d.live_steps,
-      cfg_scale = d.live_cfg / 10.0,
-      denoise_strength = d.live_strength / 100.0,
-      clip_skip = d.clip_skip,
-      post_process = PT.build_post_process(),
-    }
-    PT.attach_lora(req)
-    PT.attach_neg_ti(req)
-    PT.live.frame_id = 0
-    PT.live.auto_mode = (d.live_mode == "Auto (stroke)")
-    PT.update_status("Starting live...")
-    PT.send(req)
-  end
-end
-
 function PT.update_action_button(tab)
   if not PT.dlg then return end
-  if PT.live.mode then
-    local live_label = "STOP LIVE"
-    if PT.dlg and PT.dlg.data.live_mode then
-      local m = PT.dlg.data.live_mode
-      if m == "Auto (stroke)" then live_label = "STOP LIVE (AUTO)"
-      elseif m == "Manual (F5)" then live_label = "STOP LIVE (F5)"
-      end
-    end
-    PT.dlg:modify{ id = "action_btn", text = live_label }
-    return
-  end
   local texts = {
     tab_gen   = "GENERATE",
     tab_pp    = "GENERATE (PP)",
     tab_anim  = "ANIMATE",
-    tab_live  = "START LIVE",
     tab_audio = "AUDIO GEN",
   }
   PT.dlg:modify{ id = "action_btn", text = texts[tab] or "GENERATE" }
@@ -1149,9 +1014,6 @@ local function build_actions_panel()
           PT.state.pending_action = "animate"
         elseif tab == "tab_audio" then
           PT.state.pending_action = "audio"
-        elseif tab == "tab_live" then
-          PT.trigger_live_toggle()
-          return
         end
         local locked = {}
         if d.lock_subject and d.fixed_subject ~= "" then
@@ -1174,8 +1036,6 @@ local function build_actions_panel()
         PT.trigger_generate()
       elseif tab == "tab_anim" then
         PT.trigger_animate()
-      elseif tab == "tab_live" then
-        PT.trigger_live_toggle()
       elseif tab == "tab_audio" then
         PT.trigger_audio_generate()
       end
@@ -1264,38 +1124,6 @@ local function build_actions_panel()
     option = "random",
   }
 
-  dlg:button{
-    id = "live_send_btn",
-    text = "SEND (F5)",
-    visible = false,
-    hexpand = true,
-    onclick = function()
-      PT.live_send_now()
-    end,
-  }
-
-  dlg:button{
-    id = "live_accept_btn",
-    text = "ACCEPT",
-    visible = false,
-    onclick = function()
-      local spr = app.sprite
-      if spr == nil or PT.live.preview_layer == nil then return end
-      local ok_cel, cel = pcall(function() return PT.live.preview_layer:cel(app.frame) end)
-      if not ok_cel or cel == nil or cel.image == nil then return end
-      PT.live.importing = true
-      app.transaction("SDDj Accept Live", function()
-        local new_layer = spr:newLayer()
-        new_layer.name = "SDDj Live"
-        spr:newCel(new_layer, app.frame, cel.image:clone(), cel.position)
-        pcall(function() spr:deleteCel(cel) end)
-      end)
-      PT.live.importing = false
-      PT.live.prev_canvas = nil
-      app.refresh()
-      PT.update_status("Live result accepted")
-    end,
-  }
 end
 
 -- ─── Main Build ─────────────────────────────────────────────
@@ -1323,9 +1151,6 @@ function PT.build_dialog()
 
   PT.dlg:tab{ id = "tab_anim", text = "Animation" }
   build_tab_animation()
-
-  PT.dlg:tab{ id = "tab_live", text = "Live" }
-  build_tab_live()
 
   PT.dlg:tab{ id = "tab_audio", text = "Audio" }
   build_tab_audio()

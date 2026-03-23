@@ -239,7 +239,6 @@ function PT.apply_metadata(meta)
   -- Mode-dependent visibility + label (mirror dialog onchange logic)
   if meta.mode then
     local m = meta.mode
-    local is_txt = (m == "txt2img")
     if m == "inpaint" then
       PT.dlg:modify{ id = "mode", label = "Mode (needs mask)" }
     elseif m == "img2img" or (m:find("controlnet_") ~= nil) then

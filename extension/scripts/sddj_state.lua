@@ -6,7 +6,7 @@ return function(PT)
 
 -- ─── Constants ──────────────────────────────────────────────
 
-PT.VERSION = "0.8.5"
+PT.VERSION = "0.8.6"
 
 PT.cfg = {
   DEFAULT_SERVER_URL      = "ws://127.0.0.1:9876/ws",
@@ -15,10 +15,6 @@ PT.cfg = {
   HEARTBEAT_INTERVAL      = 30.0,
   GEN_TIMEOUT             = 660,
   CANCEL_TIMEOUT          = 30,
-  LIVE_WATCHDOG_INTERVAL  = 0.5,
-  LIVE_STROKE_DEBOUNCE    = 0.3,
-  LIVE_INFLIGHT_TIMEOUT   = 10.0,
-  LIVE_SLIDER_DEBOUNCE    = 0.1,
   LOOP_DELAY              = 0.1,
   DIRTY_STEP_DIVISOR      = 32,
   RECONNECT_BASE_DELAY    = 2.0,
@@ -59,27 +55,6 @@ PT.seq = {
   start_frame = 0,
   frame_count = 0,
   active      = false,
-}
-
-PT.live = {
-  mode             = false,
-  timer            = nil,
-  frame_id         = 0,
-  request_inflight = false,
-  inflight_time    = nil,
-  preview_layer    = nil,
-  last_prompt      = nil,
-  preview_sprite   = nil,
-  prev_canvas      = nil,
-  slider_debounce  = nil,
-  -- Event-driven system
-  change_listener  = nil,
-  site_listener    = nil,
-  monitored_sprite = nil,
-  auto_mode        = true,
-  importing        = false,
-  pending_send     = false,
-  debounce_timer   = nil,
 }
 
 PT.loop = {

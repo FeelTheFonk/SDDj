@@ -231,12 +231,6 @@ handlers.error = function(resp)
   -- Finalize partial sequence on error
   PT.finalize_sequence()
 
-  PT.live.request_inflight = false
-  PT.live.inflight_time = nil
-  -- If live mode was active, stop it cleanly before resetting UI
-  if PT.live.mode then
-    PT.stop_live_mode()
-  end
   if PT.dlg then
     PT.update_status("Error: " .. tostring(resp.message or "Unknown"))
     PT.reset_ui_buttons()
@@ -286,60 +280,6 @@ handlers.list = function(resp)
   else
     PT.update_status("Connected (no resources found)")
   end
-end
-
--- ─── Realtime Mode ──────────────────────────────────────────
-
-handlers.realtime_ready = function(resp)
-  PT.live.mode = true
-  PT.live.request_inflight = false
-  PT.live.last_prompt = PT.dlg and PT.dlg.data.prompt or nil
-  if PT.dlg then
-    local mode_str = PT.live.auto_mode and "auto (stroke)" or "manual (F5)"
-    PT.update_status("Live mode active — " .. mode_str)
-    PT.dlg:modify{ id = "action_btn", text = "STOP LIVE", enabled = true }
-    PT.dlg:modify{ id = "live_accept_btn", visible = true }
-    PT.dlg:modify{ id = "live_send_btn", visible = true }
-  end
-  PT.start_live_timer()
-end
-
-handlers.realtime_result = function(resp)
-  PT.live.request_inflight = false
-  PT.live.inflight_time = nil
-  if not resp.image then
-    PT.update_status("Error: missing image in realtime_result")
-    return
-  end
-  -- Drop stale frames (latest-wins); use ~= nil because frame_id=0 is valid
-  if resp.frame_id ~= nil and resp.frame_id < PT.live.frame_id then
-    return
-  end
-  if PT.live.mode then
-    PT.live_update_preview(resp)
-    if PT.dlg then
-      local mode_str = PT.live.auto_mode and "auto" or "manual"
-      PT.update_status("Live " .. mode_str .. " (" .. tostring(resp.latency_ms or "?") .. "ms)")
-    end
-  end
-end
-
-handlers.realtime_stopped = function(resp)
-  -- Clean up preview layer before stopping timers/listeners
-  if PT.live.preview_layer then
-    local spr = app.sprite
-    if spr then
-      PT.live.importing = true
-      pcall(function()
-        local cel = PT.live.preview_layer:cel(app.frame)
-        if cel then spr:deleteCel(cel) end
-        spr:deleteLayer(PT.live.preview_layer)
-      end)
-      PT.live.importing = false
-    end
-    pcall(app.refresh)
-  end
-  PT.stop_live_mode()
 end
 
 -- ─── Pong / Misc ────────────────────────────────────────────
