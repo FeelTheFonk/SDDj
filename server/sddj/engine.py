@@ -564,8 +564,10 @@ class DiffusionEngine:
         source = source.convert("RGB")
         target_w, target_h = round8(req.width), round8(req.height)
         source = resize_to_target(source, target_w, target_h)
-        # Clamp: ensure at least 2 denoising steps (1 step produces poor quality)
-        min_denoise = 2.0 / max(req.steps, 1) + 1e-3
+        # Clamp: ensure at least 2 effective denoising steps (1 step produces poor quality).
+        # Use capped scaled steps for the floor so low denoise isn't killed.
+        _cap = max(settings.distilled_step_scale_cap, 1)
+        min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
         strength = max(req.denoise_strength, min_denoise)
         scaled_steps = scale_steps_for_denoise(req.steps, strength)
         torch.compiler.cudagraph_mark_step_begin()
@@ -597,8 +599,9 @@ class DiffusionEngine:
         mask = resize_to_target(mask, target_w, target_h)
 
         # Run img2img on the full source (model sees context for coherent inpainting)
-        # Clamp: ensure at least 2 denoising steps (1 step produces poor quality)
-        min_denoise = 2.0 / max(req.steps, 1) + 1e-3
+        # Clamp: ensure at least 2 effective denoising steps (1 step produces poor quality).
+        _cap = max(settings.distilled_step_scale_cap, 1)
+        min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
         strength = max(req.denoise_strength, min_denoise)
         scaled_steps = scale_steps_for_denoise(req.steps, strength)
         torch.compiler.cudagraph_mark_step_begin()
@@ -933,9 +936,13 @@ class DiffusionEngine:
                         continue
 
                 eff_denoise = frame_params.get("denoise_strength", req.denoise_strength)
-                # Clamp: ensure at least 2 denoising steps for img2img
-                # (1 step produces artifacts that accumulate in chains)
-                min_denoise = 2.0 / max(req.steps, 1) + 1e-3
+                # Clamp: ensure at least 2 effective denoising steps for img2img
+                # (1 step produces artifacts that accumulate in chains).
+                # scale_steps_for_denoise() inflates the scheduler length up to
+                # steps * cap, so the real floor is 2 / max_scaled_steps, not
+                # 2 / raw_steps (which was too aggressive and killed audio modulation).
+                _cap = max(settings.distilled_step_scale_cap, 1)
+                min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
                 eff_denoise = max(min_denoise, min(1.0, eff_denoise))
                 eff_scaled_steps = scale_steps_for_denoise(req.steps, eff_denoise)
                 eff_cfg = frame_params.get("cfg_scale", req.cfg_scale)
@@ -1295,7 +1302,8 @@ class DiffusionEngine:
             with torch.inference_mode():
                 if is_img2img:
                     # vid2vid: source image repeated as input video per chunk
-                    min_denoise = 2.0 / max(req.steps, 1) + 1e-3
+                    _cap = max(settings.distilled_step_scale_cap, 1)
+                    min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
                     chunk_strength = max(min_denoise, min(1.0, eff_denoise))
                     chunk_scaled_steps = scale_steps_for_denoise(req.steps, chunk_strength)
 
@@ -1328,6 +1336,8 @@ class DiffusionEngine:
 
                     if is_controlnet and _control_img is not None:
                         kwargs["conditioning_frames"] = [_control_img] * num_frames
+                        cn_scale = max(0.0, min(2.0, chunk_params.get("controlnet_scale", 1.0)))
+                        kwargs["controlnet_conditioning_scale"] = cn_scale
 
                 output = pipe(**kwargs)
 
@@ -1399,6 +1409,31 @@ class DiffusionEngine:
                     pil_img, tx=mx, ty=my, zoom=mz, rotation=mr,
                     denoise_strength=ad_denoise,
                 )
+
+            # Noise amplitude injection (parity with chain loop)
+            noise_amp = max(0.0, min(1.0, frame_params.get("noise_amplitude", 0.0)))
+            if settings.auto_noise_coupling and "noise_amplitude" not in frame_params:
+                noise_amp = max(0.0, (0.9 - ad_denoise) * 0.1)
+            if noise_amp > 0:
+                frame_seed_ad = frame_seeds.get(frame_idx, base_seed)
+                arr = np.array(pil_img, dtype=np.float32) / 255.0
+                noise = np.random.default_rng(frame_seed_ad).standard_normal(
+                    arr.shape, dtype=np.float32) * noise_amp
+                arr = np.clip(arr + noise, 0.0, 1.0)
+                pil_img = Image.fromarray((arr * 255).astype(np.uint8))
+
+            # Temporal coherence (parity with chain loop)
+            if frame_idx > 0 and prev_ad_image is not None:
+                if settings.color_coherence_strength > 0:
+                    pil_img = match_color_lab(
+                        pil_img, prev_ad_image,
+                        settings.color_coherence_strength,
+                    )
+                if settings.optical_flow_blend > 0:
+                    pil_img = apply_optical_flow_blend(
+                        pil_img, prev_ad_image,
+                        settings.optical_flow_blend,
+                    )
 
             image = postprocess_apply(pil_img, req.post_process)
 
@@ -1522,9 +1557,10 @@ class DiffusionEngine:
             _control_img = decode_b64_image(req.control_image).convert("RGB")
             _control_img = resize_to_target(_control_img, target_w, target_h)
 
-        # Clamp: ensure at least 1 denoising step for img2img
+        # Clamp: ensure at least 2 effective denoising steps for img2img
         # (int(steps * strength) == 0 → empty latents → VAE crash)
-        min_denoise = 2.0 / max(req.steps, 1) + 1e-3
+        _cap = max(settings.distilled_step_scale_cap, 1)
+        min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
         chain_denoise = max(req.denoise_strength, min_denoise)
         chain_scaled_steps = scale_steps_for_denoise(req.steps, chain_denoise)
 
@@ -1803,7 +1839,8 @@ class DiffusionEngine:
                 # Repeat source image as input "video"
                 video_input = [source] * req.frame_count
 
-                min_denoise = 2.0 / max(req.steps, 1) + 1e-3
+                _cap = max(settings.distilled_step_scale_cap, 1)
+                min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
                 strength = max(req.denoise_strength, min_denoise)
                 scaled_steps = scale_steps_for_denoise(req.steps, strength)
 

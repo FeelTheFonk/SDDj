@@ -59,10 +59,14 @@ class AudioAnalysis:
         return result
 
 
-def _normalize(arr: np.ndarray) -> np.ndarray:
+def _normalize(arr: np.ndarray, name: str = "") -> np.ndarray:
     """Min-max normalize to [0, 1]. Returns zeros if constant."""
-    lo, hi = arr.min(), arr.max()
+    if len(arr) == 0:
+        return np.zeros(1, dtype=np.float32)
+    lo, hi = float(arr.min()), float(arr.max())
     if hi - lo < 1e-10:
+        if name:
+            log.debug("Feature '%s' is constant (value=%.4f) — modulation will be inactive", name, lo)
         return np.zeros_like(arr, dtype=np.float32)
     return ((arr - lo) / (hi - lo)).astype(np.float32)
 
@@ -150,16 +154,20 @@ class AudioAnalyzer:
         # --- Global features ---
 
         # RMS energy
-        rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop_length)[0]
-        features["global_rms"] = _normalize(_resample_to_fps(rms, librosa_fps, fps, total_frames))
+        rms_raw = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop_length)[0]
+        rms = rms_raw if len(rms_raw) > 0 else np.zeros(1)
+        features["global_rms"] = _normalize(_resample_to_fps(rms, librosa_fps, fps, total_frames), "global_rms")
 
         # Onset strength
         onset = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
-        features["global_onset"] = _normalize(_resample_to_fps(onset, librosa_fps, fps, total_frames))
+        if len(onset) == 0:
+            onset = np.zeros(1)
+        features["global_onset"] = _normalize(_resample_to_fps(onset, librosa_fps, fps, total_frames), "global_onset")
 
         # Spectral centroid
-        centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
-        features["global_centroid"] = _normalize(_resample_to_fps(centroid, librosa_fps, fps, total_frames))
+        centroid_raw = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
+        centroid = centroid_raw if len(centroid_raw) > 0 else np.zeros(1)
+        features["global_centroid"] = _normalize(_resample_to_fps(centroid, librosa_fps, fps, total_frames), "global_centroid")
 
         # Multi-band energy from mel spectrogram
         mel = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, hop_length=hop_length)
@@ -172,18 +180,18 @@ class AudioAnalyzer:
         mid_energy = mel_linear[_BAND_LOW_END:_BAND_MID_END, :].mean(axis=0)
         high_energy = mel_linear[_BAND_MID_END:, :].mean(axis=0)
 
-        features["global_low"] = _normalize(_resample_to_fps(low_energy, librosa_fps, fps, total_frames))
-        features["global_mid"] = _normalize(_resample_to_fps(mid_energy, librosa_fps, fps, total_frames))
-        features["global_high"] = _normalize(_resample_to_fps(high_energy, librosa_fps, fps, total_frames))
+        features["global_low"] = _normalize(_resample_to_fps(low_energy, librosa_fps, fps, total_frames), "global_low")
+        features["global_mid"] = _normalize(_resample_to_fps(mid_energy, librosa_fps, fps, total_frames), "global_mid")
+        features["global_high"] = _normalize(_resample_to_fps(high_energy, librosa_fps, fps, total_frames), "global_high")
 
         # Extended bands: sub_bass (20-60Hz), upper_mid (2-4kHz), presence (4-8kHz)
         sub_bass_energy = mel_linear[:_BAND_SUB_BASS_END, :].mean(axis=0)
         upper_mid_energy = mel_linear[_BAND_MID_END:_BAND_UPPER_MID_END, :].mean(axis=0)
         presence_energy = mel_linear[_BAND_UPPER_MID_END:_BAND_PRESENCE_END, :].mean(axis=0)
 
-        features["global_sub_bass"] = _normalize(_resample_to_fps(sub_bass_energy, librosa_fps, fps, total_frames))
-        features["global_upper_mid"] = _normalize(_resample_to_fps(upper_mid_energy, librosa_fps, fps, total_frames))
-        features["global_presence"] = _normalize(_resample_to_fps(presence_energy, librosa_fps, fps, total_frames))
+        features["global_sub_bass"] = _normalize(_resample_to_fps(sub_bass_energy, librosa_fps, fps, total_frames), "global_sub_bass")
+        features["global_upper_mid"] = _normalize(_resample_to_fps(upper_mid_energy, librosa_fps, fps, total_frames), "global_upper_mid")
+        features["global_presence"] = _normalize(_resample_to_fps(presence_energy, librosa_fps, fps, total_frames), "global_presence")
 
         # BPM detection + beat feature
         tempo, beat_frames_idx = librosa.beat.beat_track(y=y, sr=sr, hop_length=hop_length)
@@ -191,13 +199,23 @@ class AudioAnalyzer:
         if np.isnan(bpm):
             bpm = 0.0
         beat_signal = np.zeros_like(onset)
-        for bf in beat_frames_idx:
-            if bf < len(beat_signal):
-                beat_signal[bf] = 1.0
+        if len(beat_frames_idx) > 0:
+            for bf in beat_frames_idx:
+                if bf < len(beat_signal):
+                    beat_signal[bf] = 1.0
+            log.info("BPM detected: %.1f (%d beats)", bpm, len(beat_frames_idx))
+        else:
+            # Fallback: derive pseudo-beats from onset peaks (75th percentile)
+            if len(onset) > 0 and onset.max() > 0:
+                threshold = np.percentile(onset, 75)
+                beat_signal = (onset > threshold).astype(np.float32)
+                log.warning("No beats detected — using onset peaks as fallback (%d pseudo-beats)",
+                            int(beat_signal.sum()))
+            else:
+                log.warning("No beats detected and onset is silent — global_beat will be inactive")
         features["global_beat"] = _normalize(
-            _resample_to_fps(beat_signal, librosa_fps, fps, total_frames)
+            _resample_to_fps(beat_signal, librosa_fps, fps, total_frames), "global_beat"
         )
-        log.info("BPM detected: %.1f", bpm)
 
         # --- Per-stem features (if stems provided) ---
         if stems:
@@ -208,14 +226,19 @@ class AudioAnalyzer:
                 if len(stem_audio) == 0:
                     continue
 
-                stem_rms = librosa.feature.rms(y=stem_audio, frame_length=2048, hop_length=hop_length)[0]
+                stem_rms_raw = librosa.feature.rms(y=stem_audio, frame_length=2048, hop_length=hop_length)[0]
+                stem_rms = stem_rms_raw if len(stem_rms_raw) > 0 else np.zeros(1)
                 features[f"{stem_name}_rms"] = _normalize(
-                    _resample_to_fps(stem_rms, librosa_fps, fps, total_frames)
+                    _resample_to_fps(stem_rms, librosa_fps, fps, total_frames),
+                    f"{stem_name}_rms",
                 )
 
                 stem_onset = librosa.onset.onset_strength(y=stem_audio, sr=sr, hop_length=hop_length)
+                if len(stem_onset) == 0:
+                    stem_onset = np.zeros(1)
                 features[f"{stem_name}_onset"] = _normalize(
-                    _resample_to_fps(stem_onset, librosa_fps, fps, total_frames)
+                    _resample_to_fps(stem_onset, librosa_fps, fps, total_frames),
+                    f"{stem_name}_onset",
                 )
 
         # Store raw (un-smoothed) features for per-slot EMA in modulation engine
@@ -224,7 +247,14 @@ class AudioAnalyzer:
         # Apply smoothing (used by expressions and UI preview)
         features = smooth_features(features, attack_frames, release_frames)
 
-        log.info("Analysis complete: %d features, %d frames", len(features), total_frames)
+        # Report dead features (all-zero after normalization)
+        dead = [n for n, arr in features.items() if arr.max() < 1e-10]
+        if dead:
+            log.warning("Inactive features (constant signal): %s — modulation slots using these will stay at min_val",
+                        ", ".join(dead))
+
+        log.info("Analysis complete: %d features (%d active), %d frames",
+                 len(features), len(features) - len(dead), total_frames)
 
         return AudioAnalysis(
             fps=fps,
