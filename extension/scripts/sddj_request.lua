@@ -223,7 +223,7 @@ function PT.build_audio_reactive_request()
     fps               = tonumber(d.audio_fps) or 24,
     enable_stems      = d.audio_stems_enable or false,
     max_frames        = max_frames,
-    modulation_slots  = slots,
+    modulation_slots  = #slots > 0 and slots or nil,
     expressions       = expressions,
     modulation_preset = mod_preset,
     prompt_segments   = #prompt_segments > 0 and prompt_segments or nil,

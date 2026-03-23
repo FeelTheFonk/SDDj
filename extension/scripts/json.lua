@@ -6,6 +6,12 @@
 
 local json = {}
 
+-- Sentinel: assign to a table value to force encoding as JSON [] instead of {}.
+-- Usage: local slots = json.EMPTY_ARRAY   →   encodes as []
+-- Normal empty tables {} still encode as {} (safe for dict-typed fields).
+local _EMPTY_ARRAY_MT = {}
+json.EMPTY_ARRAY = setmetatable({}, _EMPTY_ARRAY_MT)
+
 -- ─── DECODE ──────────────────────────────────────────────────
 
 local function skip_ws(s, i)
@@ -212,6 +218,8 @@ encode_value = function(v)
     return tostring(v)
   elseif t == 'string' then return encode_string(v)
   elseif t == 'table' then
+    -- Explicit empty-array sentinel: always encode as []
+    if getmetatable(v) == _EMPTY_ARRAY_MT then return '[]' end
     if is_array(v) then return encode_array(v)
     else return encode_object(v) end
   else

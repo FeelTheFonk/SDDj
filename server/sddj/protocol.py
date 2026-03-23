@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ─────────────────────────────────────────────────────────────
@@ -251,6 +251,23 @@ class Request(BaseModel):
     scale_factor: Optional[int] = None
     quality: Optional[str] = None
 
+    @field_validator("modulation_slots", "prompt_segments", "palette_save_colors", mode="before")
+    @classmethod
+    def _empty_dict_to_list(cls, v: Any) -> Any:
+        """Lua json.lua encodes empty tables as {} (object) instead of [] (array).
+        Normalise empty dict to empty list so Pydantic validation doesn't reject it."""
+        if isinstance(v, dict) and len(v) == 0:
+            return []
+        return v
+
+    @field_validator("negative_ti", mode="before")
+    @classmethod
+    def _empty_dict_to_list_nullable(cls, v: Any) -> Any:
+        """Same normalisation for nullable list fields."""
+        if isinstance(v, dict) and len(v) == 0:
+            return []
+        return v
+
     def to_generate_request(self) -> GenerateRequest:
         _exclude = {
             "action", "method", "frame_count", "frame_duration_ms",
@@ -333,6 +350,13 @@ class AudioReactiveRequest(BaseModel):
     expressions: Optional[dict[str, str]] = None
     modulation_preset: Optional[str] = None
     prompt_segments: list[dict] = Field(default_factory=list)
+
+    @field_validator("modulation_slots", "prompt_segments", mode="before")
+    @classmethod
+    def _empty_dict_to_list(cls, v: Any) -> Any:
+        if isinstance(v, dict) and len(v) == 0:
+            return []
+        return v
     randomness: int = Field(0, ge=0, le=20)
     max_frames: Optional[int] = Field(None, ge=1, le=3600)
     # Animation method: chain (default) or animatediff_audio

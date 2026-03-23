@@ -251,25 +251,43 @@ handlers.list = function(resp)
   if lt == "palettes" then
     PT.res.palettes = items
     if PT.dlg and #items > 0 then
+      local prev = PT.dlg.data.palette_name
       local opts = {}
       for _, n in ipairs(items) do opts[#opts + 1] = n end
       PT.dlg:modify{ id = "palette_name", options = opts }
+      if prev then
+        for _, o in ipairs(opts) do
+          if o == prev then PT.dlg:modify{ id = "palette_name", option = prev }; break end
+        end
+      end
     end
   elseif lt == "loras" then
     PT.res.loras = items
     if PT.dlg then
+      local prev = PT.dlg.data.lora_name
       local opts = { "(default)" }
       for _, n in ipairs(items) do opts[#opts + 1] = n end
       PT.dlg:modify{ id = "lora_name", options = opts }
+      if prev then
+        for _, o in ipairs(opts) do
+          if o == prev then PT.dlg:modify{ id = "lora_name", option = prev }; break end
+        end
+      end
     end
   elseif lt == "embeddings" then
     PT.res.embeddings = items
   elseif lt == "presets" then
     PT.res.presets = items
     if PT.dlg then
+      local prev = PT.dlg.data.preset_name
       local opts = { "(none)" }
       for _, n in ipairs(items) do opts[#opts + 1] = n end
       PT.dlg:modify{ id = "preset_name", options = opts }
+      if prev then
+        for _, o in ipairs(opts) do
+          if o == prev then PT.dlg:modify{ id = "preset_name", option = prev }; break end
+        end
+      end
     end
   end
 
@@ -443,14 +461,24 @@ handlers.audio_analysis = function(resp)
         .. #PT.audio.features .. " features" .. stems_str .. bpm_str }
     PT.dlg:modify{ id = "audio_analyze_btn", enabled = true }
 
-    -- Update source dropdowns with available features
+    -- Update source dropdowns with available features (preserve selection)
     local src_opts = {}
     for _, f in ipairs(PT.audio.features) do
       src_opts[#src_opts + 1] = f
     end
     if #src_opts > 0 then
       for i = 1, 4 do
+        local prev_src = PT.dlg.data["mod" .. i .. "_source"]
         PT.dlg:modify{ id = "mod" .. i .. "_source", options = src_opts }
+        -- Restore previous selection if it exists in new feature list
+        if prev_src then
+          for _, o in ipairs(src_opts) do
+            if o == prev_src then
+              PT.dlg:modify{ id = "mod" .. i .. "_source", option = prev_src }
+              break
+            end
+          end
+        end
       end
     end
 
@@ -558,11 +586,20 @@ end
 handlers.modulation_presets = function(resp)
   PT.audio.mod_presets = resp.presets or {}
   if PT.dlg and #PT.audio.mod_presets > 0 then
+    -- Preserve current selection before updating options
+    local prev = PT.dlg.data.audio_mod_preset or "(custom)"
     local opts = { "(custom)" }
     for _, p in ipairs(PT.audio.mod_presets) do
       opts[#opts + 1] = p
     end
     PT.dlg:modify{ id = "audio_mod_preset", options = opts }
+    -- Restore previous selection if it still exists in new options
+    for _, o in ipairs(opts) do
+      if o == prev then
+        PT.dlg:modify{ id = "audio_mod_preset", option = prev }
+        break
+      end
+    end
   end
 end
 
