@@ -402,13 +402,19 @@ handlers.preset = function(resp)
   if d.width and d.height then
     PT.dlg:modify{ id = "output_size", option = d.width .. "x" .. d.height }
   end
-  if d.steps then PT.dlg:modify{ id = "steps", value = d.steps } end
+  if d.steps then
+    PT.dlg:modify{ id = "steps", value = d.steps }
+    PT.dlg:modify{ id = "steps", label = "Steps (" .. d.steps .. ")" }
+  end
   if d.cfg_scale then
     local v = math.floor(d.cfg_scale * 10)
     PT.dlg:modify{ id = "cfg_scale", value = v }
     PT.dlg:modify{ id = "cfg_scale", label = string.format("CFG (%.1f)", v / 10.0) }
   end
-  if d.clip_skip then PT.dlg:modify{ id = "clip_skip", value = d.clip_skip } end
+  if d.clip_skip then
+    PT.dlg:modify{ id = "clip_skip", value = d.clip_skip }
+    PT.dlg:modify{ id = "clip_skip", label = "CLIP Skip (" .. d.clip_skip .. ")" }
+  end
   if d.denoise_strength then
     local v = math.floor(d.denoise_strength * 100)
     PT.dlg:modify{ id = "denoise", value = v }
@@ -420,12 +426,18 @@ handlers.preset = function(resp)
       local px = pp.pixelate
       if type(px) == "table" then
         if px.enabled ~= nil then PT.dlg:modify{ id = "pixelate", selected = px.enabled } end
-        if px.target_size then PT.dlg:modify{ id = "pixel_size", value = px.target_size } end
+        if px.target_size then
+          PT.dlg:modify{ id = "pixel_size", value = px.target_size }
+          PT.dlg:modify{ id = "pixel_size", label = "Target (" .. px.target_size .. "px)" }
+        end
       else
         PT.dlg:modify{ id = "pixelate", selected = px }
       end
     end
-    if pp.quantize_colors then PT.dlg:modify{ id = "colors", value = pp.quantize_colors } end
+    if pp.quantize_colors then
+      PT.dlg:modify{ id = "colors", value = pp.quantize_colors }
+      PT.dlg:modify{ id = "colors", label = "Colors (" .. pp.quantize_colors .. ")" }
+    end
     if pp.quantize_method then PT.dlg:modify{ id = "quantize_method", option = pp.quantize_method } end
     if pp.dither then PT.dlg:modify{ id = "dither", option = pp.dither } end
   end

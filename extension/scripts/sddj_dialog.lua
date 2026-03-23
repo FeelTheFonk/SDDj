@@ -261,7 +261,7 @@ local function build_tab_generate()
     options = {
       "512x512", "512x768", "768x512", "768x768",
       "384x384", "256x256", "128x128", "96x96",
-      "64x64", "48x48", "32x32",
+      "64x64",
     },
     option = "512x512",
   }
@@ -284,6 +284,7 @@ local function build_tab_generate()
     id = "denoise",
     label = "Strength (1.00)",
     min = 0, max = 100, value = 100,
+    visible = false,
     onchange = slider_label("denoise", "Strength (%.2f)", 100.0),
   }
 
@@ -450,7 +451,7 @@ local function build_tab_animation()
     onchange = function()
       local ad = dlg.data.anim_method == "animatediff"
       dlg:modify{ id = "anim_freeinit", visible = ad }
-      dlg:modify{ id = "anim_freeinit_iters", visible = ad }
+      dlg:modify{ id = "anim_freeinit_iters", visible = ad and dlg.data.anim_freeinit }
     end,
   }
 
@@ -513,6 +514,10 @@ local function build_tab_animation()
     label = "FreeInit",
     selected = false,
     visible = false,
+    onchange = function()
+      dlg:modify{ id = "anim_freeinit_iters",
+        visible = dlg.data.anim_method == "animatediff" and dlg.data.anim_freeinit }
+    end,
   }
 
   dlg:slider{
@@ -578,9 +583,10 @@ local function build_tab_live()
 
   dlg:slider{
     id = "live_steps",
-    label = "Steps",
+    label = "Steps (4)",
     min = 2, max = 8, value = 4,
     onchange = function()
+      dlg:modify{ id = "live_steps", label = "Steps (" .. dlg.data.live_steps .. ")" }
       schedule_live_slider_update()
     end,
   }
@@ -673,7 +679,7 @@ local function build_tab_audio()
   dlg:file{
     id = "audio_file",
     label = "File",
-    filetypes = { "wav", "mp3", "flac", "ogg" },
+    filetypes = { "wav", "mp3", "flac", "ogg", "m4a", "aac" },
     open = true,
   }
   dlg:button{
@@ -739,7 +745,7 @@ local function build_tab_audio()
   dlg:slider{
     id = "audio_frame_duration",
     label = "Frame (42ms)",
-    min = 30, max = 200, value = 42,
+    min = 30, max = 2000, value = 42,
     onchange = function()
       dlg:modify{ id = "audio_frame_duration",
         label = "Frame (" .. dlg.data.audio_frame_duration .. "ms)" }
@@ -1434,6 +1440,7 @@ end
 function PT.build_dialog()
   PT.dlg = Dialog{
     title = "SDDj",
+    resizeable = true,
     onclose = function()
       pcall(PT.save_settings)
       -- Shutdown + cleanup handled by exit(plugin) which is always called after onclose

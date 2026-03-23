@@ -211,6 +211,11 @@ function PT.apply_settings(s)
   PT.dlg:modify{ id = "anim_frames", label = "Frames (" .. d.anim_frames .. ")" }
   PT.dlg:modify{ id = "anim_duration", label = "Duration (" .. d.anim_duration .. "ms)" }
   PT.dlg:modify{ id = "audio_steps", label = "Steps (" .. d.audio_steps .. ")" }
+  PT.dlg:modify{ id = "live_steps", label = "Steps (" .. d.live_steps .. ")" }
+  PT.dlg:modify{ id = "audio_max_frames",
+    label = d.audio_max_frames == 0 and "Max Frames (0=all)" or ("Max Frames (" .. d.audio_max_frames .. ")") }
+  PT.dlg:modify{ id = "audio_frame_duration",
+    label = "Frame (" .. d.audio_frame_duration .. "ms)" }
   PT.dlg:modify{ id = "mod_slot_count", label = "Slots (" .. d.mod_slot_count .. ")" }
   -- Sync visibility for conditional fields
   if s.use_neg_ti ~= nil then
