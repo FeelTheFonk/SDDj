@@ -538,6 +538,9 @@ class DiffusionEngine:
         source = source.convert("RGB")
         target_w, target_h = round8(req.width), round8(req.height)
         source = resize_to_target(source, target_w, target_h)
+        # Clamp: ensure at least 1 denoising step (0 steps → empty latents → VAE crash)
+        min_denoise = 1.0 / max(req.steps, 1) + 1e-3
+        strength = max(req.denoise_strength, min_denoise)
         torch.compiler.cudagraph_mark_step_begin()
         return self._img2img_pipe(
             prompt=req.prompt,
@@ -545,7 +548,7 @@ class DiffusionEngine:
             image=source,
             num_inference_steps=req.steps,
             guidance_scale=req.cfg_scale,
-            strength=req.denoise_strength,
+            strength=strength,
             generator=generator,
             clip_skip=req.clip_skip,
             callback_on_step_end=callback,
@@ -567,6 +570,9 @@ class DiffusionEngine:
         mask = resize_to_target(mask, target_w, target_h)
 
         # Run img2img on the full source (model sees context for coherent inpainting)
+        # Clamp: ensure at least 1 denoising step (0 steps → empty latents → VAE crash)
+        min_denoise = 1.0 / max(req.steps, 1) + 1e-3
+        strength = max(req.denoise_strength, min_denoise)
         torch.compiler.cudagraph_mark_step_begin()
         inpainted = self._img2img_pipe(
             prompt=req.prompt,
@@ -574,7 +580,7 @@ class DiffusionEngine:
             image=source,
             num_inference_steps=req.steps,
             guidance_scale=req.cfg_scale,
-            strength=req.denoise_strength,
+            strength=strength,
             generator=generator,
             clip_skip=req.clip_skip,
             callback_on_step_end=callback,
@@ -894,6 +900,10 @@ class DiffusionEngine:
                         continue
 
                 eff_denoise = frame_params.get("denoise_strength", req.denoise_strength)
+                # Clamp: ensure at least 1 denoising step for img2img
+                # (int(steps * strength) == 0 → empty latents → VAE crash)
+                min_denoise = 1.0 / max(req.steps, 1) + 1e-3
+                eff_denoise = max(eff_denoise, min_denoise)
                 eff_cfg = frame_params.get("cfg_scale", req.cfg_scale)
                 seed_offset = int(frame_params.get("seed_offset", frame_idx))
                 frame_seed = (base_seed + seed_offset) % (2**32)
@@ -1402,8 +1412,13 @@ class DiffusionEngine:
             _control_img = decode_b64_image(req.control_image).convert("RGB")
             _control_img = resize_to_target(_control_img, target_w, target_h)
 
+        # Clamp: ensure at least 1 denoising step for img2img
+        # (int(steps * strength) == 0 → empty latents → VAE crash)
+        min_denoise = 1.0 / max(req.steps, 1) + 1e-3
+        chain_denoise = max(req.denoise_strength, min_denoise)
+
         log.info("Chain animation: %d frames, mode=%s, steps=%d, denoise=%.2f, seed_base=%d",
-                 req.frame_count, req.mode.value, req.steps, req.denoise_strength, base_seed)
+                 req.frame_count, req.mode.value, req.steps, chain_denoise, base_seed)
 
         with torch.inference_mode():
             for frame_idx in range(req.frame_count):
@@ -1470,7 +1485,7 @@ class DiffusionEngine:
                             image=_source_img,
                             num_inference_steps=req.steps,
                             guidance_scale=req.cfg_scale,
-                            strength=req.denoise_strength,
+                            strength=chain_denoise,
                             generator=generator,
                             clip_skip=req.clip_skip,
                             callback_on_step_end=step_callback,
@@ -1485,7 +1500,7 @@ class DiffusionEngine:
                             image=_source_img,
                             num_inference_steps=req.steps,
                             guidance_scale=req.cfg_scale,
-                            strength=req.denoise_strength,
+                            strength=chain_denoise,
                             generator=generator,
                             clip_skip=req.clip_skip,
                             callback_on_step_end=step_callback,
@@ -1528,7 +1543,7 @@ class DiffusionEngine:
                             image=source,
                             num_inference_steps=req.steps,
                             guidance_scale=req.cfg_scale,
-                            strength=req.denoise_strength,
+                            strength=chain_denoise,
                             generator=generator,
                             clip_skip=req.clip_skip,
                             callback_on_step_end=step_callback,
@@ -1536,7 +1551,7 @@ class DiffusionEngine:
                         ).images[0]
                     else:
                         log.info("Chain frame %d: calling img2img pipe (source=%s, steps=%d, strength=%.2f, unet=%s, scheduler=%s)",
-                                 frame_idx, source.size, req.steps, req.denoise_strength,
+                                 frame_idx, source.size, req.steps, chain_denoise,
                                  type(self._img2img_pipe.unet).__name__,
                                  type(self._img2img_pipe.scheduler).__name__)
                         image = self._img2img_pipe(
@@ -1545,7 +1560,7 @@ class DiffusionEngine:
                             image=source,
                             num_inference_steps=req.steps,
                             guidance_scale=req.cfg_scale,
-                            strength=req.denoise_strength,
+                            strength=chain_denoise,
                             generator=generator,
                             clip_skip=req.clip_skip,
                             callback_on_step_end=step_callback,

@@ -224,9 +224,7 @@ function PT.apply_settings(s)
   if s.pixelate ~= nil then
     PT.dlg:modify{ id = "pixel_size", visible = s.pixelate }
   end
-  if s.lock_subject ~= nil then
-    PT.dlg:modify{ id = "fixed_subject", visible = s.lock_subject }
-  end
+  -- lock_subject no longer controls fixed_subject visibility (always visible)
   if s.palette_mode ~= nil then
     PT.dlg:modify{ id = "palette_name", visible = (s.palette_mode == "preset") }
     PT.dlg:modify{ id = "palette_del_btn", visible = (s.palette_mode == "preset") }

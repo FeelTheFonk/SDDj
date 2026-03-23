@@ -219,15 +219,11 @@ local function build_tab_generate()
     id = "lock_subject",
     label = "Lock Subject",
     selected = false,
-    onchange = function()
-      dlg:modify{ id = "fixed_subject", visible = dlg.data.lock_subject }
-    end,
   }
   dlg:entry{
     id = "fixed_subject",
     label = "Subject",
     text = "",
-    visible = false,
     hexpand = true,
   }
 
