@@ -303,6 +303,14 @@ function PT.apply_metadata(meta)
     end
   end
 
+  -- Lock Subject state
+  if meta.lock_subject ~= nil then
+    PT.dlg:modify{ id = "lock_subject", selected = meta.lock_subject }
+  end
+  if meta.fixed_subject then
+    PT.dlg:modify{ id = "fixed_subject", text = meta.fixed_subject }
+  end
+
   PT.update_status("Metadata loaded (seed=" .. tostring(meta.seed or "?") .. ")")
 end
 
@@ -332,6 +340,12 @@ function PT.build_generation_meta(resp)
     meta.negative_ti = req.negative_ti
     meta.post_process = req.post_process
     meta.output_size = tostring(req.width or 512) .. "x" .. tostring(req.height or 512)
+  end
+  -- Lock Subject state for reproducibility
+  if PT.dlg then
+    meta.lock_subject = PT.dlg.data.lock_subject or false
+    local subj = PT.dlg.data.fixed_subject or ""
+    if subj ~= "" then meta.fixed_subject = subj end
   end
   return meta
 end
@@ -375,6 +389,12 @@ function PT.build_animation_meta(resp)
       meta.expressions = req.expressions
       meta.modulation_preset = req.modulation_preset
     end
+  end
+  -- Lock Subject state for reproducibility
+  if PT.dlg then
+    meta.lock_subject = PT.dlg.data.lock_subject or false
+    local subj = PT.dlg.data.fixed_subject or ""
+    if subj ~= "" then meta.fixed_subject = subj end
   end
   return meta
 end

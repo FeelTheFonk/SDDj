@@ -161,6 +161,7 @@ def auto_generate_segments(
     randomness: int,
     base_prompt: str,
     prompt_gen: "PromptGenerator",
+    locked_fields: dict[str, str] | None = None,
 ) -> list[dict]:
     """Auto-generate prompt segments aligned to audio structure.
 
@@ -174,6 +175,7 @@ def auto_generate_segments(
         randomness: Diversity level 0-20.
         base_prompt: The user's prompt — subject is extracted and locked.
         prompt_gen: PromptGenerator instance for creating variations.
+        locked_fields: Explicit locked fields from client (e.g. {"subject": "..."}).
 
     Returns:
         List of segment dicts: [{"start_second", "end_second", "prompt"}, ...]
@@ -213,18 +215,19 @@ def auto_generate_segments(
     if len(boundaries) - 1 < n_segments:
         boundaries = _fill_gaps(boundaries, n_segments + 1, analysis.duration)
 
-    # ── Extract subject from base prompt ──
-    subject = base_prompt.strip()
-    if "," in subject:
-        # Take the most significant segment (usually the subject descriptor)
-        parts = [p.strip() for p in subject.split(",")]
-        # Skip quality tags (short segments like "masterpiece", "best quality")
-        for part in parts:
-            if len(part) > 10:
-                subject = part
-                break
-        else:
-            subject = parts[0]
+    # ── Extract subject: explicit lock > heuristic extraction ──
+    if locked_fields and locked_fields.get("subject"):
+        subject = locked_fields["subject"]
+    else:
+        subject = base_prompt.strip()
+        if "," in subject:
+            parts = [p.strip() for p in subject.split(",")]
+            for part in parts:
+                if len(part) > 10:
+                    subject = part
+                    break
+            else:
+                subject = parts[0]
 
     # ── Generate varied prompts for each segment ──
     segments: list[dict] = []

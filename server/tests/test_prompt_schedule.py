@@ -241,3 +241,37 @@ class TestAutoGenerateSegments:
         assert len(result) >= 2
         for seg in result:
             assert seg["prompt"] == "fallback prompt"
+
+    def test_locked_fields_overrides_heuristic(self):
+        """Explicit locked_fields.subject should override heuristic extraction."""
+        analysis = FakeAnalysis(duration=30.0, fps=24.0, bpm=120.0)
+        analysis.features["global_onset"] = _make_onset(30.0, 24.0, [10.0, 20.0])
+        gen = MagicMock()
+        gen.generate = MagicMock(return_value=("locked prompt", "neg", {"subject": "my dragon"}))
+        # Prompt has misleading comma structure; locked_fields should win
+        result = auto_generate_segments(
+            analysis, 10, "masterpiece, pixel art, some scene", gen,
+            locked_fields={"subject": "my dragon"},
+        )
+        assert len(result) >= 2
+        # Verify generator was called with the locked subject
+        for call in gen.generate.call_args_list:
+            locked = call.kwargs.get("locked") or (call.args[0] if call.args else {})
+            assert locked.get("subject") == "my dragon"
+
+    def test_short_subject_heuristic_fallback(self):
+        """Without locked_fields, short subjects fall to heuristic (first part >10 chars)."""
+        analysis = FakeAnalysis(duration=30.0, fps=24.0, bpm=120.0)
+        analysis.features["global_onset"] = _make_onset(30.0, 24.0, [10.0, 20.0])
+        gen = MagicMock()
+        gen.generate = MagicMock(return_value=("heuristic prompt", "neg", {"subject": "x"}))
+        # "cat" is < 10 chars, so heuristic picks "a beautiful landscape" (first >10)
+        result = auto_generate_segments(
+            analysis, 10, "cat, a beautiful landscape, pixel art", gen,
+        )
+        assert len(result) >= 2
+        for call in gen.generate.call_args_list:
+            locked = call.kwargs.get("locked") or (call.args[0] if call.args else {})
+            # Heuristic should pick "a beautiful landscape" (first part > 10 chars)
+            assert locked.get("subject") == "a beautiful landscape"
+

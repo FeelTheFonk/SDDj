@@ -205,10 +205,7 @@ local function build_tab_generate()
     id = "randomize_btn",
     text = "Randomize",
     onclick = function()
-      local locked = {}
-      if PT.dlg.data.lock_subject and PT.dlg.data.fixed_subject ~= "" then
-        locked.subject = PT.dlg.data.fixed_subject
-      end
+      local locked = PT.build_locked_fields()
       PT.send({ action = "generate_prompt", locked_fields = locked, randomness = PT.dlg.data.randomness })
       PT.update_status("Generating prompt...")
     end,
@@ -930,10 +927,7 @@ function PT.trigger_generate()
     PT.loop.counter = 0
     PT.loop.seed_mode = d.loop_seed_combo or "random"
     PT.loop.random_mode = d.random_loop_check or false
-    PT.loop.locked_fields = {}
-    if d.lock_subject and d.fixed_subject ~= "" then
-      PT.loop.locked_fields.subject = d.fixed_subject
-    end
+    PT.loop.locked_fields = PT.build_locked_fields()
   end
 
   -- Random loop: first generate a random prompt, then generate image
@@ -972,10 +966,19 @@ function PT.trigger_animate()
   local tag_name = d.anim_tag or ""
   if tag_name == "" then tag_name = nil end
 
+  -- Lock Subject: inject fixed subject into animation prompt
+  local locked = PT.build_locked_fields()
+  local effective_prompt = d.prompt
+  if locked.subject then
+    if not effective_prompt:find(locked.subject, 1, true) then
+      effective_prompt = locked.subject .. ", " .. effective_prompt
+    end
+  end
+
   local req = {
     action = "generate_animation",
     method = d.anim_method,
-    prompt = d.prompt,
+    prompt = effective_prompt,
     negative_prompt = d.negative_prompt,
     mode = d.mode,
     width = gw, height = gh,
@@ -1081,10 +1084,7 @@ local function build_actions_panel()
           end
           PT.state.pending_action = "audio"
         end
-        local locked = {}
-        if d.lock_subject and d.fixed_subject ~= "" then
-          locked.subject = d.fixed_subject
-        end
+        local locked = PT.build_locked_fields()
         PT.send({
           action = "generate_prompt",
           locked_fields = locked,

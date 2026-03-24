@@ -134,6 +134,7 @@ class AudioReactiveMixin:
                 from ..prompt_generator import prompt_generator
                 auto_segs = auto_generate_segments(
                     analysis, req.randomness, req.prompt, prompt_generator,
+                    locked_fields=getattr(req, 'locked_fields', None),
                 )
                 if auto_segs:
                     req.prompt_segments = auto_segs

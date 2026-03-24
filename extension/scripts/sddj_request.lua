@@ -89,6 +89,17 @@ function PT.build_post_process()
   return pp
 end
 
+-- ─── Lock Subject ─────────────────────────────────────────
+
+function PT.build_locked_fields()
+  if not PT.dlg then return {} end
+  local d = PT.dlg.data
+  if not d.lock_subject then return {} end
+  local subj = (d.fixed_subject or ""):match("^%s*(.-)%s*$")  -- trim
+  if subj == "" then return {} end
+  return { subject = subj }
+end
+
 -- ─── Audio Requests ───────────────────────────────────────
 
 function PT.build_analyze_audio_request()
@@ -111,10 +122,11 @@ function PT.build_audio_reactive_request()
   -- Inject fixed_subject into prompt for audio-linked prompt generation.
   -- The server parses base_prompt to extract and lock the subject; ensure
   -- the user's explicit subject override is present in the prompt text.
+  local locked = PT.build_locked_fields()
   local effective_prompt = d.prompt
-  if d.lock_subject and d.fixed_subject and d.fixed_subject ~= "" then
-    if not effective_prompt:find(d.fixed_subject, 1, true) then
-      effective_prompt = d.fixed_subject .. ", " .. effective_prompt
+  if locked.subject then
+    if not effective_prompt:find(locked.subject, 1, true) then
+      effective_prompt = locked.subject .. ", " .. effective_prompt
     end
   end
 
@@ -245,6 +257,7 @@ function PT.build_audio_reactive_request()
     modulation_preset = mod_preset,
     prompt_segments   = #prompt_segments > 0 and prompt_segments or nil,
     randomness        = d.randomness or 0,
+    locked_fields     = next(locked) and locked or nil,
     method            = method,
     enable_freeinit   = enable_freeinit,
     freeinit_iterations = freeinit_iters,

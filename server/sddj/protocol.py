@@ -318,7 +318,7 @@ class Request(BaseModel):
     def to_audio_reactive_request(self) -> AudioReactiveRequest:
         _exclude = {
             "action", "frame_count", "seed_strategy",
-            "locked_fields", "prompt_template",
+            "prompt_template",
             "subject_type", "prompt_mode", "exclude_terms",
             # Resource / export fields
             "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
@@ -359,6 +359,7 @@ class AudioReactiveRequest(BaseModel):
     modulation_preset: Optional[str] = None
     prompt_segments: list[dict] = Field(default_factory=list)
     randomness: int = Field(0, ge=0, le=20)
+    locked_fields: Optional[dict[str, str]] = None
     max_frames: Optional[int] = Field(None, ge=1, le=3600)
     # Animation method: chain (default) or animatediff_audio
     method: AnimationMethod = AnimationMethod.CHAIN

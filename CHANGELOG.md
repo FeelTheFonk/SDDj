@@ -2,6 +2,17 @@
 
 All notable changes to SDDj are documented here.
 
+## [0.9.37] — 2026-03
+
+### Fixed
+- **Lock Subject universality** — centralized all inline `locked_fields` construction into a single `PT.build_locked_fields()` helper with whitespace trim; eliminated 5 redundant inline patterns across dialog, request builder, and handler
+- **Animation tab ignored Lock Subject** — `trigger_animate()` now injects the locked subject into the animation prompt (with duplicate-prevention guard), ensuring subject persistence across all animation frames
+- **Audio-reactive lost locked subject** — `AudioReactiveRequest` now carries `locked_fields` through the protocol; `auto_generate_segments()` uses explicit locked subject instead of heuristic comma-split extraction (fixes short-subject misidentification)
+- **Metadata did not persist lock state** — `build_generation_meta()` and `build_animation_meta()` now store `lock_subject` and `fixed_subject`; `apply_metadata()` restores both fields on load
+
+### Added
+- 6 new unit tests: locked_fields propagation in `AudioReactiveRequest` (4 tests), explicit locked subject override in `auto_generate_segments` (2 tests)
+
 ## [0.9.36] — 2026-03
 
 ### Fixed

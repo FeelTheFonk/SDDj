@@ -489,3 +489,37 @@ class TestPaletteCrudProtocol:
         )
         assert req.palette_save_name == "test_pal"
         assert req.palette_save_colors == ["#FF0000", "#00FF00"]
+
+
+class TestLockedFieldsPropagation:
+    """Lock Subject: locked_fields forwarded to AudioReactiveRequest."""
+
+    def test_audio_reactive_locked_fields_default_none(self):
+        req = AudioReactiveRequest(audio_path="/test.wav")
+        assert req.locked_fields is None
+
+    def test_audio_reactive_locked_fields_explicit(self):
+        req = AudioReactiveRequest(
+            audio_path="/test.wav",
+            locked_fields={"subject": "a dragon"},
+        )
+        assert req.locked_fields == {"subject": "a dragon"}
+
+    def test_forwarded_from_request(self):
+        req = Request(
+            action="generate_audio_reactive",
+            audio_path="/test.wav", prompt="test",
+            locked_fields={"subject": "robot knight"},
+        )
+        ar = req.to_audio_reactive_request()
+        assert isinstance(ar, AudioReactiveRequest)
+        assert ar.locked_fields == {"subject": "robot knight"}
+
+    def test_none_not_forwarded(self):
+        req = Request(
+            action="generate_audio_reactive",
+            audio_path="/test.wav", prompt="test",
+        )
+        ar = req.to_audio_reactive_request()
+        assert ar.locked_fields is None
+
