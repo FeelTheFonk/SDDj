@@ -163,29 +163,31 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             log.warning("Failed to load default style LoRA '%s': %s", lora_name, e)
 
     def _warmup(self) -> None:
-        """Run a dummy txt2img to pre-compile the torch.compile graph.
+        """Pre-compile the torch.compile graph with a dummy generation.
 
-        NOTE: torch.compile is a one-time cost on first run. Subsequent
-        generations reuse the compiled graph and are significantly faster.
+        CRITICAL: The warmup MUST run in the EXACT same pipeline state as real
+        generation.  DeepCache wraps every UNet block's forward() with caching
+        closures (enable → wrap_modules).  If warmup runs without DeepCache,
+        torch.compile traces the original forwards; when DeepCache re-enables
+        afterward, all forward functions change → dynamo guard failure → full
+        recompilation on the first real generate() call (~15-25 s penalty).
 
-        CRITICAL: All parameters must match real generation defaults:
-        - guidance_scale: Differs → CFG branch changes (single vs double UNet)
-        - width/height: Differs → different tensor shapes → graph recompilation
-        - steps: Must exercise enough steps for DeepCache cache/skip branches
+        Requirements for graph stability:
+          - DeepCache ENABLED (same wrapped forwards as real generation)
+          - Parameters matching defaults (steps, CFG, resolution, clip_skip)
+          - callback_on_step_end provided (parity with real gen path)
         """
         log.info("Warmup: triggering torch.compile + JIT compilation...")
         t0 = time.perf_counter()
-
-        # Disable DeepCache during warmup — warmup runs with dummy prompts
-        # and DeepCache caching can produce invalid compiled graph states.
-        dc_was_active = self._deepcache_helper is not None
-        if dc_was_active:
-            deepcache_manager.disable(self._deepcache_helper)
 
         try:
             with torch.inference_mode():
                 gen = torch.Generator("cuda").manual_seed(0)
                 torch.compiler.cudagraph_mark_step_begin()
+
+                def _noop_callback(pipe, step_idx, timestep, cb_kwargs):
+                    return cb_kwargs
+
                 self._pipe(
                     prompt="warmup",
                     negative_prompt="warmup",
@@ -195,20 +197,20 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                     height=settings.default_height,
                     generator=gen,
                     clip_skip=settings.default_clip_skip,
+                    callback_on_step_end=_noop_callback,
                     output_type="pil",
                 )
             elapsed = time.perf_counter() - t0
             log.info("Warmup complete in %.1fs", elapsed)
         except Exception as e:
             log.warning("Warmup generation failed (non-critical): %s", e)
-        finally:
-            # Re-enable DeepCache after warmup
-            if dc_was_active:
-                try:
-                    deepcache_manager.enable(self._deepcache_helper)
-                except Exception as e:
-                    log.error("Failed to re-enable DeepCache after warmup: %s", e)
-                    self._deepcache_helper = None
+
+        # Flush DeepCache's stale cached_output from warmup — prevents
+        # dummy features from leaking into the first real generation.
+        if self._deepcache_helper is not None:
+            self._deepcache_helper.cached_output = {}
+            self._deepcache_helper.start_timestep = None
+            self._deepcache_helper.cur_timestep = 0
 
     def _load_embeddings(self) -> None:
         """Load all textual inversion embeddings from embeddings_dir."""

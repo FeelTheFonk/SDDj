@@ -2,6 +2,11 @@
 
 All notable changes to SDDj are documented here.
 
+## [0.9.38] — 2026-03
+
+### Fixed
+- **Double warmup / recompilation on first generation** — `_warmup()` was disabling DeepCache before the dummy generation, causing `torch.compile` to trace the UNet with original forwards; when DeepCache re-enabled afterward, all 30+ wrapped block forwards triggered dynamo guard failures and a full ~15-25s recompilation on the first real `generate()` call. Warmup now runs with DeepCache active (matching real generation state), plus noop `callback_on_step_end` for graph parity and post-warmup cache flush to prevent stale feature leakage.
+
 ## [0.9.37] — 2026-03
 
 ### Fixed
