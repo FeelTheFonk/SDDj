@@ -19,7 +19,7 @@ log = logging.getLogger("sddj.audio")
 
 # Valid modulation targets and their clamping ranges
 TARGET_RANGES: dict[str, tuple[float, float]] = {
-    "denoise_strength": (0.05, 0.95),
+    "denoise_strength": (0.20, 0.95),
     "cfg_scale": (1.0, 30.0),
     "noise_amplitude": (0.0, 1.0),
     "controlnet_scale": (0.0, 2.0),
@@ -38,7 +38,7 @@ PRESETS: dict[str, list[dict]] = {
     # ─── Genre-Specific ──────────────────────────────────────────
     "electronic_pulse": [
         {"source": "global_beat", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.65, "attack": 1, "release": 4, "enabled": True},
+         "min_val": 0.30, "max_val": 0.65, "attack": 1, "release": 4, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 4.0, "max_val": 7.0, "attack": 1, "release": 6, "enabled": True},
         {"source": "global_high", "target": "noise_amplitude",
@@ -48,7 +48,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "rock_energy": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.20, "max_val": 0.70, "attack": 2, "release": 5, "enabled": True},
+         "min_val": 0.30, "max_val": 0.70, "attack": 2, "release": 5, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 7.0, "attack": 1, "release": 8, "enabled": True},
         {"source": "global_low", "target": "seed_offset",
@@ -58,7 +58,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "hiphop_bounce": [
         {"source": "global_low", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.55, "attack": 1, "release": 6, "enabled": True},
+         "min_val": 0.30, "max_val": 0.55, "attack": 1, "release": 6, "enabled": True},
         {"source": "global_beat", "target": "cfg_scale",
          "min_val": 4.0, "max_val": 7.0, "attack": 1, "release": 4, "enabled": True},
         {"source": "global_onset", "target": "noise_amplitude",
@@ -68,7 +68,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "classical_flow": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.45, "attack": 5, "release": 20, "enabled": True},
+         "min_val": 0.30, "max_val": 0.45, "attack": 5, "release": 20, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 7.0, "attack": 4, "release": 15, "enabled": True},
         {"source": "global_rms", "target": "motion_x",
@@ -76,7 +76,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "ambient_drift": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.45, "attack": 8, "release": 30, "enabled": True},
+         "min_val": 0.30, "max_val": 0.45, "attack": 8, "release": 30, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 2.0, "max_val": 5.0, "attack": 6, "release": 25, "enabled": True},
         {"source": "global_mid", "target": "noise_amplitude",
@@ -89,7 +89,7 @@ PRESETS: dict[str, list[dict]] = {
     # ─── Style-Specific ──────────────────────────────────────────
     "glitch_chaos": [
         {"source": "global_onset", "target": "denoise_strength",
-         "min_val": 0.30, "max_val": 0.90, "attack": 1, "release": 2, "enabled": True},
+         "min_val": 0.35, "max_val": 0.90, "attack": 1, "release": 2, "enabled": True},
         {"source": "global_high", "target": "cfg_scale",
          "min_val": 1.0, "max_val": 8.0, "attack": 1, "release": 2, "enabled": True},
         {"source": "global_beat", "target": "seed_offset",
@@ -101,7 +101,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "smooth_morph": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.50, "attack": 6, "release": 18, "enabled": True},
+         "min_val": 0.30, "max_val": 0.50, "attack": 6, "release": 18, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 4.0, "max_val": 6.0, "attack": 5, "release": 15, "enabled": True},
         {"source": "global_rms", "target": "motion_zoom",
@@ -109,7 +109,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "rhythmic_pulse": [
         {"source": "global_beat", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.60, "attack": 1, "release": 8, "enabled": True},
+         "min_val": 0.30, "max_val": 0.60, "attack": 1, "release": 8, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 7.0, "attack": 1, "release": 6, "enabled": True},
         {"source": "global_beat", "target": "motion_zoom",
@@ -117,7 +117,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "atmospheric": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.45, "attack": 4, "release": 25, "enabled": True},
+         "min_val": 0.30, "max_val": 0.45, "attack": 4, "release": 25, "enabled": True},
         {"source": "global_mid", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 6.5, "attack": 3, "release": 20, "enabled": True},
         {"source": "global_high", "target": "noise_amplitude",
@@ -129,7 +129,7 @@ PRESETS: dict[str, list[dict]] = {
         {"source": "global_rms", "target": "noise_amplitude",
          "min_val": 0.05, "max_val": 0.40, "attack": 2, "release": 5, "enabled": True},
         {"source": "global_onset", "target": "denoise_strength",
-         "min_val": 0.30, "max_val": 0.85, "attack": 1, "release": 4, "enabled": True},
+         "min_val": 0.35, "max_val": 0.85, "attack": 1, "release": 4, "enabled": True},
         {"source": "global_centroid", "target": "seed_offset",
          "min_val": 0.0, "max_val": 500.0, "attack": 2, "release": 6, "enabled": True},
         {"source": "global_high", "target": "cfg_scale",
@@ -142,17 +142,17 @@ PRESETS: dict[str, list[dict]] = {
     # ─── Complexity Levels ───────────────────────────────────────
     "one_click_easy": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.50, "attack": 3, "release": 10, "enabled": True},
+         "min_val": 0.30, "max_val": 0.50, "attack": 3, "release": 10, "enabled": True},
     ],
     "beginner_balanced": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.50, "attack": 3, "release": 10, "enabled": True},
+         "min_val": 0.30, "max_val": 0.50, "attack": 3, "release": 10, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 7.0, "attack": 2, "release": 8, "enabled": True},
     ],
     "intermediate_full": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.55, "attack": 2, "release": 8, "enabled": True},
+         "min_val": 0.30, "max_val": 0.55, "attack": 2, "release": 8, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 7.0, "attack": 2, "release": 6, "enabled": True},
         {"source": "global_low", "target": "noise_amplitude",
@@ -162,7 +162,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "advanced_max": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.65, "attack": 2, "release": 6, "enabled": True},
+         "min_val": 0.30, "max_val": 0.65, "attack": 2, "release": 6, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 2.0, "max_val": 7.0, "attack": 1, "release": 5, "enabled": True},
         {"source": "global_low", "target": "noise_amplitude",
@@ -179,19 +179,19 @@ PRESETS: dict[str, list[dict]] = {
         {"source": "global_rms", "target": "controlnet_scale",
          "min_val": 0.3, "max_val": 1.5, "attack": 2, "release": 8, "enabled": True},
         {"source": "global_onset", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.50, "attack": 2, "release": 6, "enabled": True},
+         "min_val": 0.30, "max_val": 0.50, "attack": 2, "release": 6, "enabled": True},
     ],
     "seed_scatter": [
         {"source": "global_onset", "target": "seed_offset",
          "min_val": 0.0, "max_val": 800.0, "attack": 1, "release": 3, "enabled": True},
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.20, "max_val": 0.50, "attack": 2, "release": 8, "enabled": True},
+         "min_val": 0.30, "max_val": 0.50, "attack": 2, "release": 8, "enabled": True},
     ],
     "noise_sculpt": [
         {"source": "global_rms", "target": "noise_amplitude",
          "min_val": 0.0, "max_val": 0.35, "attack": 2, "release": 6, "enabled": True},
         {"source": "global_onset", "target": "denoise_strength",
-         "min_val": 0.20, "max_val": 0.60, "attack": 1, "release": 5, "enabled": True},
+         "min_val": 0.30, "max_val": 0.60, "attack": 1, "release": 5, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 7.0, "attack": 3, "release": 10, "enabled": True},
         {"source": "global_rms", "target": "motion_zoom",
@@ -200,7 +200,7 @@ PRESETS: dict[str, list[dict]] = {
     # ─── Legacy (backward-compatible) ────────────────────────────
     "energetic": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.20, "max_val": 0.70, "attack": 2, "release": 6, "enabled": True},
+         "min_val": 0.30, "max_val": 0.70, "attack": 2, "release": 6, "enabled": True},
         {"source": "global_onset", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 7.0, "attack": 1, "release": 10, "enabled": True},
         {"source": "global_rms", "target": "motion_x",
@@ -208,7 +208,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "ambient": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.45, "attack": 5, "release": 20, "enabled": True},
+         "min_val": 0.30, "max_val": 0.45, "attack": 5, "release": 20, "enabled": True},
         {"source": "global_centroid", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 6.0, "attack": 3, "release": 15, "enabled": True},
         {"source": "global_centroid", "target": "motion_x",
@@ -216,7 +216,7 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "bass_driven": [
         {"source": "global_low", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.60, "attack": 2, "release": 8, "enabled": True},
+         "min_val": 0.30, "max_val": 0.60, "attack": 2, "release": 8, "enabled": True},
         {"source": "global_high", "target": "cfg_scale",
          "min_val": 4.0, "max_val": 7.0, "attack": 1, "release": 5, "enabled": True},
         {"source": "global_low", "target": "motion_y",
@@ -225,7 +225,7 @@ PRESETS: dict[str, list[dict]] = {
     # ─── Motion / Camera ──────────────────────────────────────
     "gentle_drift": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.50, "attack": 3, "release": 15, "enabled": True},
+         "min_val": 0.30, "max_val": 0.50, "attack": 3, "release": 15, "enabled": True},
         {"source": "global_low", "target": "motion_x",
          "min_val": -2.0, "max_val": 2.0, "attack": 4, "release": 20, "enabled": True},
         {"source": "global_mid", "target": "motion_y",
@@ -233,19 +233,19 @@ PRESETS: dict[str, list[dict]] = {
     ],
     "pulse_zoom": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.15, "max_val": 0.50, "attack": 2, "release": 10, "enabled": True},
+         "min_val": 0.30, "max_val": 0.50, "attack": 2, "release": 10, "enabled": True},
         {"source": "global_beat", "target": "motion_zoom",
          "min_val": 0.98, "max_val": 1.02, "attack": 2, "release": 15, "enabled": True},
     ],
     "slow_rotate": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.45, "attack": 4, "release": 18, "enabled": True},
+         "min_val": 0.30, "max_val": 0.45, "attack": 4, "release": 18, "enabled": True},
         {"source": "global_centroid", "target": "motion_rotation",
          "min_val": -1.0, "max_val": 1.0, "attack": 5, "release": 25, "enabled": True},
     ],
     "cinematic_sweep": [
         {"source": "global_rms", "target": "denoise_strength",
-         "min_val": 0.25, "max_val": 0.50, "attack": 3, "release": 15, "enabled": True},
+         "min_val": 0.30, "max_val": 0.50, "attack": 3, "release": 15, "enabled": True},
         {"source": "global_low", "target": "motion_x",
          "min_val": -3.0, "max_val": 3.0, "attack": 5, "release": 25, "enabled": True},
         {"source": "global_beat", "target": "motion_zoom",

@@ -628,6 +628,57 @@ handlers.modulation_presets = function(resp)
   end
 end
 
+handlers.modulation_preset_detail = function(resp)
+  if not PT.dlg or not resp.slots then return end
+  local slots = resp.slots
+  local count = math.min(#slots, 4)  -- UI supports max 4 slots
+
+  -- Inverse scaling: convert actual parameter values to slider % (0-100)
+  local function to_pct(target, val)
+    if target == "cfg_scale" then return val / 30.0 * 100
+    elseif target == "seed_offset" then return val / 1000.0 * 100
+    elseif target == "controlnet_scale" then return val / 2.0 * 100
+    elseif target == "frame_cadence" then return (val - 1.0) / 7.0 * 100
+    elseif target == "motion_x" or target == "motion_y" then return (val + 5.0) / 10.0 * 100
+    elseif target == "motion_zoom" then return (val - 0.95) / 0.10 * 100
+    elseif target == "motion_rotation" then return (val + 2.0) / 4.0 * 100
+    else return val * 100  -- denoise_strength, noise_amplitude, palette_shift
+    end
+  end
+
+  -- Suppress auto-switch to (custom) during hydration
+  PT.audio._hydrating_preset = true
+
+  -- Update slot count
+  PT.dlg:modify{ id = "mod_slot_count", value = count }
+  PT.dlg:modify{ id = "mod_slot_count", label = "Slots (" .. count .. ")" }
+
+  -- Populate each slot
+  for i = 1, 4 do
+    local prefix = "mod" .. i .. "_"
+    if i <= count then
+      local s = slots[i]
+      PT.dlg:modify{ id = prefix .. "enable", selected = s.enabled ~= false }
+      PT.dlg:modify{ id = prefix .. "source", option = s.source }
+      PT.dlg:modify{ id = prefix .. "target", option = s.target }
+      local mn = math.floor(to_pct(s.target, s.min_val) + 0.5)
+      local mx = math.floor(to_pct(s.target, s.max_val) + 0.5)
+      mn = math.max(0, math.min(100, mn))
+      mx = math.max(0, math.min(100, mx))
+      PT.dlg:modify{ id = prefix .. "min", value = mn }
+      PT.dlg:modify{ id = prefix .. "max", value = mx }
+      PT.dlg:modify{ id = prefix .. "attack", value = s.attack or 2 }
+      PT.dlg:modify{ id = prefix .. "release", value = s.release or 8 }
+    else
+      -- Disable unused slots
+      PT.dlg:modify{ id = prefix .. "enable", selected = false }
+    end
+  end
+
+  PT.audio._hydrating_preset = false
+  PT.update_status("Preset '" .. (resp.name or "?") .. "' loaded (" .. count .. " slots)")
+end
+
 -- ─── MP4 Export ──────────────────────────────────────────────
 
 handlers.export_mp4_complete = function(resp)

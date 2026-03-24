@@ -146,8 +146,13 @@ def apply_motion_warp(
     Returns:
         Warped PIL image (same size and mode).
     """
-    # Correlation: scale motion by denoise_strength (clamped 0.1-0.8)
-    scale = max(0.1, min(0.8, denoise_strength))
+    # Safety guard: skip motion when denoise is too low for the model
+    # to absorb warp artifacts (< 4 effective steps at 8-step/cap-2).
+    if denoise_strength < 0.25:
+        return image
+
+    # Correlation: scale motion by denoise_strength (clamped 0.15-0.8)
+    scale = max(0.15, min(0.8, denoise_strength))
     eff_tx = tx * scale
     eff_ty = ty * scale
     eff_zoom = 1.0 + (zoom - 1.0) * scale
@@ -175,11 +180,13 @@ def apply_motion_warp(
     has_alpha = image.mode == "RGBA"
     arr = np.array(image)
 
-    # Apply warp with border reflection (no black edges)
+    # Apply warp with edge replication (Deforum pattern — avoids
+    # mirror-image artifacts from REFLECT that compound when
+    # denoising cannot fully absorb the warp).
     warped = cv2.warpAffine(
         arr, M, (w, h),
         flags=cv2.INTER_LANCZOS4,
-        borderMode=cv2.BORDER_REFLECT_101,
+        borderMode=cv2.BORDER_REPLICATE,
     )
 
     return Image.fromarray(warped)

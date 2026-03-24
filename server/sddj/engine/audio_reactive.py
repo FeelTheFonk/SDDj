@@ -435,12 +435,18 @@ class AudioReactiveMixin:
                         )
 
                     # Noise amplitude modulation: inject noise into source.
-                    # Auto coupling (Deforum pattern): when no noise_amplitude
-                    # slot is active, inject subtle noise inversely proportional
-                    # to denoise strength for smoother transitions.
+                    # Auto coupling: when no noise_amplitude slot is active,
+                    # inject subtle noise inversely proportional to denoise
+                    # strength — but ONLY when denoise is high enough for the
+                    # model to resolve the injected noise (≥0.35 → ≥5 effective
+                    # steps at 8-step/cap-2).  Below this, noise accumulates
+                    # frame-over-frame causing spaghetti artifacts.
                     noise_amp = max(0.0, min(1.0, frame_params.get("noise_amplitude", 0.0)))
                     if settings.auto_noise_coupling and "noise_amplitude" not in frame_params:
-                        noise_amp = max(0.0, (0.9 - _raw_denoise) * 0.1)
+                        if _raw_denoise >= 0.35:
+                            noise_amp = max(0.0, (0.9 - _raw_denoise) * 0.1)
+                        else:
+                            noise_amp = 0.0
                     if noise_amp > 0:
                         arr = np.array(source, dtype=np.float32) / 255.0
                         noise = np.random.default_rng(frame_seed).standard_normal(
@@ -801,7 +807,10 @@ class AudioReactiveMixin:
             # Noise amplitude injection (parity with chain loop)
             noise_amp = max(0.0, min(1.0, frame_params.get("noise_amplitude", 0.0)))
             if settings.auto_noise_coupling and "noise_amplitude" not in frame_params:
-                noise_amp = max(0.0, (0.9 - ad_denoise) * 0.1)
+                if ad_denoise >= 0.35:
+                    noise_amp = max(0.0, (0.9 - ad_denoise) * 0.1)
+                else:
+                    noise_amp = 0.0
             if noise_amp > 0:
                 frame_seed_ad = frame_seeds.get(frame_idx, base_seed)
                 arr = np.array(pil_img, dtype=np.float32) / 255.0

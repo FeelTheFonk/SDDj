@@ -103,9 +103,10 @@ class Settings(BaseSettings):
     # Matches each generated frame's LAB statistics to the previous frame,
     # preventing color drift in chains. Recommended: 0.3-0.7.
     color_coherence_strength: float = Field(0.5, ge=0.0, le=1.0)
-    # Auto noise-denoise coupling (Deforum pattern): when no noise_amplitude
-    # slot is active, inject subtle noise inversely proportional to denoise
-    # strength. Less denoise → more stabilizing noise for smoother transitions.
+    # Auto noise-denoise coupling: when no noise_amplitude slot is active,
+    # inject subtle noise inversely proportional to denoise strength.
+    # Gated below denoise 0.35 — at lower values the model lacks capacity
+    # to resolve injected noise, causing progressive artifact accumulation.
     auto_noise_coupling: bool = True
     # Optical flow temporal blending strength (0 = disabled).
     # Blends each frame with a flow-warped previous frame to reduce jitter.

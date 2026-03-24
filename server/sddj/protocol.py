@@ -37,6 +37,7 @@ class Action(str, Enum):
     GENERATE_AUDIO_REACTIVE = "generate_audio_reactive"
     CHECK_STEMS = "check_stems"
     LIST_MODULATION_PRESETS = "list_modulation_presets"
+    GET_MODULATION_PRESET = "get_modulation_preset"
     # Video export
     EXPORT_MP4 = "export_mp4"
     # Server lifecycle
@@ -530,6 +531,12 @@ class StemsAvailableResponse(BaseModel):
 class ModulationPresetsResponse(BaseModel):
     type: Literal["modulation_presets"] = "modulation_presets"
     presets: list[str]
+
+
+class ModulationPresetDetailResponse(BaseModel):
+    type: Literal["modulation_preset_detail"] = "modulation_preset_detail"
+    name: str
+    slots: list[dict]
 
 
 # ─────────────────────────────────────────────────────────────

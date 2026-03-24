@@ -466,7 +466,7 @@ local function build_tab_animation()
   dlg:slider{
     id = "anim_denoise",
     label = "Strength (0.30)",
-    min = 5, max = 100, value = 30,
+    min = 20, max = 100, value = 30,
     onchange = slider_label("anim_denoise", "Strength (%.2f)", 100.0),
   }
 
@@ -581,7 +581,7 @@ local function build_tab_audio()
   dlg:slider{
     id = "audio_denoise",
     label = "Strength (0.50)",
-    min = 0, max = 100, value = 50,
+    min = 20, max = 100, value = 50,
     onchange = slider_label("audio_denoise", "Strength (%.2f)", 100.0),
   }
   dlg:slider{
@@ -647,8 +647,10 @@ local function build_tab_audio()
     onchange = function()
       local sel = dlg.data.audio_mod_preset
       if sel == "(custom)" then return end
-      -- Preset is applied server-side via modulation_preset field in request.
-      -- Status feedback so user knows the selection registered.
+      -- Request preset slot details from server for slider hydration
+      if PT.state.connected then
+        PT.send({ action = "get_modulation_preset", preset_name = sel })
+      end
       PT.update_status("Preset '" .. sel .. "' selected")
     end,
   }
@@ -662,9 +664,18 @@ local function build_tab_audio()
     end,
   }
 
+  -- Auto-switch to (custom) when any mod slot field is changed by the user
+  local function mod_slot_changed()
+    if PT.audio and PT.audio._hydrating_preset then return end
+    local cur = dlg.data.audio_mod_preset
+    if cur and cur ~= "(custom)" then
+      dlg:modify{ id = "audio_mod_preset", option = "(custom)" }
+    end
+  end
+
   -- Slot defaults: [source, target, min, max, attack, release]
   local slot_defaults = {
-    { "global_rms",    "denoise_strength",  15, 65, 2, 8 },
+    { "global_rms",    "denoise_strength",  30, 65, 2, 8 },
     { "global_onset",  "cfg_scale",         30, 80, 2, 8 },
     { "global_low",    "noise_amplitude",    0, 30, 2, 8 },
     { "global_high",   "seed_offset",        0, 50, 2, 8 },
@@ -677,38 +688,45 @@ local function build_tab_audio()
       id = prefix .. "enable",
       text = "Slot " .. i,
       selected = true,
+      onchange = mod_slot_changed,
     }
     dlg:combobox{
       id = prefix .. "source",
       label = "Source",
       options = GLOBAL_SOURCES,
       option = def[1],
+      onchange = mod_slot_changed,
     }
     dlg:combobox{
       id = prefix .. "target",
       label = "Target",
       options = MOD_TARGETS,
       option = def[2],
+      onchange = mod_slot_changed,
     }
     dlg:slider{
       id = prefix .. "min",
       label = "Min (%)",
       min = 0, max = 100, value = def[3],
+      onchange = mod_slot_changed,
     }
     dlg:slider{
       id = prefix .. "max",
       label = "Max (%)",
       min = 0, max = 100, value = def[4],
+      onchange = mod_slot_changed,
     }
     dlg:slider{
       id = prefix .. "attack",
       label = "Attack",
       min = 1, max = 30, value = def[5],
+      onchange = mod_slot_changed,
     }
     dlg:slider{
       id = prefix .. "release",
       label = "Release",
       min = 1, max = 60, value = def[6],
+      onchange = mod_slot_changed,
     }
   end
 

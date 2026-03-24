@@ -455,6 +455,25 @@ class TestPresets:
         assert len(schedule.frame_params) == 30
         assert schedule.get_params(29) == {"denoise_strength": pytest.approx(0.529)}
 
+    def test_all_presets_denoise_min_val_above_floor(self):
+        """All presets with denoise_strength must have min_val >= 0.30.
+
+        Research: Hyper-SD 8-step needs >=0.35 for meaningful output.
+        Floor 0.30 guarantees >=4 effective steps at steps=8/cap=2.
+        """
+        for name, slots in PRESETS.items():
+            for slot in slots:
+                if slot["target"] == "denoise_strength":
+                    assert slot["min_val"] >= 0.30, (
+                        f"Preset {name!r} has denoise min_val={slot['min_val']} < 0.30"
+                    )
+
+    def test_target_range_denoise_lower_bound(self):
+        """TARGET_RANGES denoise_strength lower bound must be >= 0.20."""
+        lo, hi = TARGET_RANGES["denoise_strength"]
+        assert lo >= 0.20, f"Denoise lower bound {lo} < 0.20"
+        assert hi <= 0.95
+
 
 # ─── Validate Expressions ──────────────────────────────────
 

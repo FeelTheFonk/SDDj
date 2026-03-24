@@ -50,7 +50,7 @@ class TestAction:
             "save_palette", "delete_palette",
             "cleanup",
             "analyze_audio", "generate_audio_reactive", "check_stems",
-            "list_modulation_presets",
+            "list_modulation_presets", "get_modulation_preset",
             "export_mp4",
             "shutdown",
         }

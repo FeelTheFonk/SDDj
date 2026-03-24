@@ -203,3 +203,17 @@ class TestApplyMotionWarp:
         img = self._make_image(mode="RGB")
         result = apply_motion_warp(img, tx=3.0, denoise_strength=0.5)
         assert result.mode == "RGB"
+
+    def test_motion_killed_at_low_denoise(self):
+        """Below denoise 0.25, motion warp must return original unchanged."""
+        img = self._make_image()
+        result = apply_motion_warp(img, tx=5.0, ty=3.0, zoom=1.05, denoise_strength=0.20)
+        assert result is img  # Same object — no warp applied
+
+    def test_motion_works_above_threshold(self):
+        """Above denoise 0.30, motion warp must produce a different image."""
+        img = self._make_image()
+        import numpy as np
+        original_arr = np.array(img)
+        result = apply_motion_warp(img, tx=5.0, denoise_strength=0.30)
+        assert not np.array_equal(original_arr, np.array(result))

@@ -30,6 +30,7 @@ from .protocol import (
     ErrorResponse,
     ListResponse,
     ModulationPresetsResponse,
+    ModulationPresetDetailResponse,
     PaletteDeletedResponse,
     PaletteSavedResponse,
     PongResponse,
@@ -405,6 +406,9 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
         elif req.action == Action.LIST_MODULATION_PRESETS:
             await _handle_list_modulation_presets(websocket)
 
+        elif req.action == Action.GET_MODULATION_PRESET:
+            await _handle_get_modulation_preset(websocket, req)
+
         elif req.action == Action.GENERATE_AUDIO_REACTIVE:
             await _handle_generate_audio_reactive(websocket, req, ws_id)
 
@@ -713,6 +717,31 @@ async def _handle_list_modulation_presets(websocket: WebSocket) -> None:
     from .modulation_engine import ModulationEngine
     presets = ModulationEngine.list_presets()
     await _send(websocket, ModulationPresetsResponse(presets=presets))
+
+
+async def _handle_get_modulation_preset(websocket: WebSocket, req: Request) -> None:
+    name = req.preset_name
+    if not name:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message="preset_name required"))
+        return
+    from .modulation_engine import ModulationEngine
+    try:
+        slots = ModulationEngine.get_preset(name)
+        slot_dicts = [
+            {
+                "source": s.source, "target": s.target,
+                "min_val": s.min_val, "max_val": s.max_val,
+                "attack": s.attack, "release": s.release,
+                "enabled": s.enabled,
+            }
+            for s in slots
+        ]
+        await _send(websocket, ModulationPresetDetailResponse(
+            name=name, slots=slot_dicts))
+    except ValueError as e:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message=str(e)))
 
 
 async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:

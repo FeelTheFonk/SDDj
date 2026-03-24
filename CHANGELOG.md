@@ -2,6 +2,27 @@
 
 All notable changes to SDDj are documented here.
 
+## [0.9.32] — 2026-03
+
+### Fixed
+- **Audio-reactive spaghetti artifacts during silence** — sub-floor denoising, unresolvable auto-noise coupling, and compounding motion warp artifacts during low-activity segments
+  - Raised `denoise_strength` lower bound in `TARGET_RANGES` to 0.20
+  - Raised `min_val` floor to ≥0.30 across all 27 modulation presets
+  - Gated auto-noise coupling below `denoise_strength < 0.35` (both chain and AnimateDiff loops)
+  - Added motion warp kill-switch below `denoise_strength < 0.25`
+  - Switched `cv2.warpAffine` border mode from `REFLECT_101` to `REPLICATE`
+  - Raised motion warp scale clamp from 0.10 to 0.15
+- **Preset selection did not update UI sliders** — modulation preset selection was purely server-side, causing UI/server parameter desync
+- Corrected misleading "Deforum pattern" reference in `auto_noise_coupling` docstring
+
+### Added
+- `GET_MODULATION_PRESET` server action — returns slot details for client-side hydration
+- Preset hydration: selecting a modulation preset now populates all UI sliders via inverse-scaled slot values
+- Auto-switch to `(custom)` when any modulation slot field is manually edited
+
+### Changed
+- Frontend slider minimums aligned with server-side safety floors: `anim_denoise` 5→20, `audio_denoise` 0→20, slot default min 15→30
+
 ## [0.9.31] — 2026-03
 
 ### Added
