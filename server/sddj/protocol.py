@@ -410,11 +410,12 @@ class AnimationFrameResponse(BaseModel):
     type: Literal["animation_frame"] = "animation_frame"
     frame_index: int
     total_frames: int
-    image: str          # base64 PNG
+    image: str          # base64 PNG or raw RGBA
     seed: int
     time_ms: int
     width: int
     height: int
+    encoding: Optional[str] = None  # None = PNG (legacy), "raw_rgba" = raw RGBA bytes
 
 
 class AnimationCompleteResponse(BaseModel):
@@ -503,11 +504,12 @@ class AudioReactiveFrameResponse(BaseModel):
     type: Literal["audio_reactive_frame"] = "audio_reactive_frame"
     frame_index: int
     total_frames: int
-    image: str          # base64 PNG
+    image: str          # base64 PNG or raw RGBA
     seed: int
     time_ms: int
     width: int
     height: int
+    encoding: Optional[str] = None  # None = PNG (legacy), "raw_rgba" = raw RGBA bytes
     params_used: dict[str, float] = Field(default_factory=dict)
 
 

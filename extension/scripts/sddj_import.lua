@@ -1,18 +1,43 @@
 --
 -- SDDj — Image Import (result, animation frame)
+-- Optimized: raw RGBA Image.bytes fast path, shared decode between import/save
 --
 
 return function(PT)
 
-function PT.import_result(resp)
-  local img_data = PT.base64_decode(resp.image)
-  local tmp = PT.make_tmp_path("res")
+-- ─── Decode helper: raw RGBA → Image via Image.bytes, or PNG fallback ───
 
-  local ok, err = pcall(function()
+local function _decode_to_image(resp, decoded_bytes)
+  local raw = decoded_bytes or PT.base64_decode(resp.image)
+  if not raw or #raw == 0 then return nil, nil end
+
+  if resp.encoding == "raw_rgba" and resp.width and resp.height then
+    -- Fast path: raw RGBA bytes → Image.bytes (no temp file, no PNG decode)
+    local img = Image(resp.width, resp.height, ColorMode.RGB)
+    img.bytes = raw
+    return img, raw
+  else
+    -- Legacy PNG path: temp file → Image{fromFile}
+    local tmp = PT.make_tmp_path("dec")
     local f = io.open(tmp, "wb")
-    if not f then error("Failed to create temp file") end
-    f:write(img_data)
+    if not f then return nil, raw end
+    f:write(raw)
     f:close()
+    local img = Image{ fromFile = tmp }
+    os.remove(tmp)
+    return img, raw
+  end
+end
+
+-- ─── Single Result Import ────────────────────────────────────
+
+function PT.import_result(resp)
+  local ok, err = pcall(function()
+    local img, _ = _decode_to_image(resp)
+    if not img then
+      PT.update_status("Decode failed — skipped")
+      return
+    end
 
     local spr = app.sprite
     if spr == nil then
@@ -20,27 +45,20 @@ function PT.import_result(resp)
       app.activeSprite = spr
     end
 
-    local img = Image{ fromFile = tmp }
-    os.remove(tmp)
-    tmp = nil  -- prevent double-remove in error handler
-
-    if img then
-      app.transaction("SDDj Generate", function()
-        local layer = spr:newLayer()
-        layer.name = "SDDj #" .. tostring(resp.seed or "?")
-        spr:newCel(layer, app.frame, img, Point(0, 0))
-      end)
-    end
+    app.transaction("SDDj Generate", function()
+      local layer = spr:newLayer()
+      layer.name = "SDDj #" .. tostring(resp.seed or "?")
+      spr:newCel(layer, app.frame, img, Point(0, 0))
+    end)
 
     app.refresh()
   end)
   if not ok then
-    if tmp then pcall(os.remove, tmp) end
     PT.update_status("Import error: " .. tostring(err))
   end
 end
 
--- ─── Sequence Mode: place each result as a new frame ───────
+-- ─── Sequence Mode: place each result as a new frame ─────────
 
 function PT.reset_sequence()
   PT.seq.layer = nil
@@ -70,14 +88,12 @@ function PT.finalize_sequence()
 end
 
 function PT.import_result_as_frame(resp)
-  local img_data = PT.base64_decode(resp.image)
-  local tmp = PT.make_tmp_path("seq")
-
   local ok, err = pcall(function()
-    local f = io.open(tmp, "wb")
-    if not f then error("Failed to create temp file") end
-    f:write(img_data)
-    f:close()
+    local img, _ = _decode_to_image(resp)
+    if not img then
+      PT.update_status("Seq frame decode failed — skipped")
+      return
+    end
 
     local spr = app.sprite
     local created_sprite = false
@@ -87,11 +103,7 @@ function PT.import_result_as_frame(resp)
       created_sprite = true
     end
 
-    local img = Image{ fromFile = tmp }
-    os.remove(tmp)
-    tmp = nil
-
-    app.transaction("SDDj Seq Frame " .. (PT.seq.frame_count + 1), function()
+    app.transaction("SDDj Seq", function()
       -- First frame in sequence: create layer and anchor
       if PT.seq.layer == nil then
         PT.seq.layer = spr:newLayer()
@@ -105,16 +117,10 @@ function PT.import_result_as_frame(resp)
         end
       end
 
-      -- Determine frame position
+      -- Create or reuse frame
       local frame_num
       if PT.seq.frame_count == 0 and created_sprite then
         frame_num = 1
-      elseif PT.seq.frame_count == 0 and not created_sprite then
-        -- First result: use current frame position
-        local target_pos = PT.seq.start_frame
-        target_pos = math.min(target_pos, #spr.frames + 1)
-        local new_frame = spr:newEmptyFrame(target_pos)
-        frame_num = new_frame.frameNumber
       else
         local target_pos = PT.seq.start_frame + PT.seq.frame_count
         target_pos = math.min(target_pos, #spr.frames + 1)
@@ -122,7 +128,7 @@ function PT.import_result_as_frame(resp)
         frame_num = new_frame.frameNumber
       end
 
-      -- Validate layer still exists
+      -- Validate layer exists before creating cel
       local layer_valid = false
       if img and PT.seq.layer and spr.frames[frame_num] then
         for _, layer in ipairs(spr.layers) do
@@ -143,30 +149,26 @@ function PT.import_result_as_frame(resp)
     end
   end)
   if not ok then
-    if tmp then pcall(os.remove, tmp) end
     PT.update_status("Import error: " .. tostring(err))
   end
 end
 
--- ─── Animation Frame Import ──────────────────────────────
+-- ─── Animation Frame Import (optimized: shared decode + Image.bytes) ──
 
 function PT.import_animation_frame(resp)
   if not PT.state.animating then return end
   if resp.frame_index ~= 0 and PT.anim.layer == nil then return end
 
-  local img_data = PT.base64_decode(resp.image)
-  if not img_data or #img_data == 0 then
+  -- Decode once — store for save_animation_frame to reuse (B3 fix)
+  local img, decoded_bytes = _decode_to_image(resp)
+  resp._decoded_bytes = decoded_bytes
+
+  if not img then
     PT.update_status("Frame " .. (resp.frame_index + 1) .. " decode failed — skipped")
     return
   end
-  local tmp = PT.make_tmp_path("anim")
 
   local ok, err = pcall(function()
-    local f = io.open(tmp, "wb")
-    if not f then error("Failed to open temp file for writing") end
-    f:write(img_data)
-    f:close()
-
     local spr = app.sprite
     local created_sprite = false
     if spr == nil then
@@ -175,11 +177,7 @@ function PT.import_animation_frame(resp)
       created_sprite = true
     end
 
-    local img = Image{ fromFile = tmp }
-    os.remove(tmp)
-    tmp = nil
-
-    app.transaction("SDDj Frame " .. (resp.frame_index + 1), function()
+    app.transaction("SDDj Frame", function()
       -- First frame: create layer and anchor position
       if resp.frame_index == 0 then
         PT.anim.layer = spr:newLayer()
@@ -225,7 +223,6 @@ function PT.import_animation_frame(resp)
     end
   end)
   if not ok then
-    if tmp then pcall(os.remove, tmp) end
     PT.update_status("Import error: " .. tostring(err))
   end
 end

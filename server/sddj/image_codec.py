@@ -43,7 +43,7 @@ def decode_b64_image(data: str) -> Image.Image:
         raise ValueError(f"Invalid base64 image data: {e}") from e
 
 
-def encode_image_b64(image: Image.Image, compress_level: int = 1) -> str:
+def encode_image_b64(image: Image.Image, compress_level: int = 0) -> str:
     """Encode a PIL Image to base64 PNG string.
 
     Args:
@@ -52,6 +52,21 @@ def encode_image_b64(image: Image.Image, compress_level: int = 1) -> str:
     buf = BytesIO()
     image.save(buf, format="PNG", compress_level=compress_level)
     return b64encode(buf.getvalue()).decode("ascii")
+
+
+def encode_image_raw_b64(image: Image.Image) -> str:
+    """Encode PIL Image as raw RGBA bytes → base64.
+
+    No PNG compression — raw pixel data for maximum throughput in local
+    inter-process transport. The client reconstructs the Image directly
+    from the raw bytes using Image.bytes (Aseprite API), bypassing
+    temp file I/O and PNG decode entirely.
+
+    Payload size: width × height × 4 bytes (before base64).
+    """
+    rgba = image.convert("RGBA")
+    raw = rgba.tobytes()
+    return b64encode(raw).decode("ascii")
 
 
 def resize_to_target(image: Image.Image, width: int, height: int) -> Image.Image:

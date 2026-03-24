@@ -705,15 +705,20 @@ end
 
 local function _drain_next()
   if #_response_queue == 0 then return end
-  local queued = table.remove(_response_queue, 1)
-  _processing = true
-  local ok, err = pcall(function()
-    local handler = handlers[queued.type]
-    if handler then handler(queued) end
-  end)
-  _processing = false
-  if not ok then
-    pcall(PT.update_status, "Handler error: " .. tostring(err))
+  -- Process up to 4 messages per tick to clear backlog faster (B6 fix)
+  local batch = math.min(#_response_queue, 4)
+  for _ = 1, batch do
+    if #_response_queue == 0 then break end
+    local queued = table.remove(_response_queue, 1)
+    _processing = true
+    local ok, err = pcall(function()
+      local handler = handlers[queued.type]
+      if handler then handler(queued) end
+    end)
+    _processing = false
+    if not ok then
+      pcall(PT.update_status, "Handler error: " .. tostring(err))
+    end
   end
   if #_response_queue > 0 then
     _schedule_drain()

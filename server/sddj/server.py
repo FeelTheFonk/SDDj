@@ -291,8 +291,10 @@ async def _handle_msg_during_gen(
 def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop, timeout: float = 1.0):
     """Create a thread-safe callback that sends responses via the event loop.
 
-    Used by both generate and animate handlers to send progress/frame updates
-    from the engine thread back through the WebSocket.
+    Fire-and-forget: schedules the WS send on the async loop but does NOT block
+    the engine thread waiting for completion. This eliminates the GPU idle time
+    that occurred when .result(timeout) would stall the diffusion thread for
+    every frame callback.
     """
     def callback(response) -> None:
         try:
@@ -300,15 +302,8 @@ def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop,
                 if websocket.application_state.name != "CONNECTED":
                     return
             except AttributeError:
-                log.debug("WebSocket state check failed (Starlette internal changed) — skipping send")
                 return
-            fut = asyncio.run_coroutine_threadsafe(
-                _send(websocket, response), loop
-            )
-            try:
-                fut.result(timeout=timeout)
-            except Exception:
-                pass  # Send failed or timed out — skip
+            asyncio.run_coroutine_threadsafe(_send(websocket, response), loop)
         except Exception:
             pass
     return callback
@@ -449,7 +444,7 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
                 _generating[ws_id].set()
                 try:
                     t0 = time.perf_counter()
-                    frames = await asyncio.wait_for(
+                    frame_count = await asyncio.wait_for(
                         loop.run_in_executor(
                             None,
                             lambda: engine.generate_animation(
@@ -470,7 +465,7 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
                     _generating[ws_id].clear()
 
             await _send(websocket, AnimationCompleteResponse(
-                total_frames=len(frames),
+                total_frames=frame_count,
                 total_time_ms=total_ms,
                 tag_name=anim_req.tag_name,
             ))
@@ -834,7 +829,7 @@ async def _handle_generate_audio_reactive(
         _generating[ws_id].set()
         try:
             t0 = time.perf_counter()
-            frames = await asyncio.wait_for(
+            frame_count = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
                     lambda: engine.generate_audio_reactive(
@@ -855,7 +850,7 @@ async def _handle_generate_audio_reactive(
             _generating[ws_id].clear()
 
     await _send(websocket, AudioReactiveCompleteResponse(
-        total_frames=len(frames),
+        total_frames=frame_count,
         total_time_ms=total_ms,
         tag_name=audio_req.tag_name,
     ))

@@ -31,7 +31,7 @@ from ..image_codec import (
     composite_with_mask,
     decode_b64_image,
     decode_b64_mask,
-    encode_image_b64,
+    encode_image_raw_b64,
     match_color_lab,
     resize_to_target,
     round8,
@@ -109,7 +109,7 @@ class AudioReactiveMixin:
         req: AudioReactiveRequest,
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]] = None,
         on_progress: Optional[Callable[[ProgressResponse], None]] = None,
-    ) -> list[AudioReactiveFrameResponse]:
+    ) -> int:
         """Generate audio-reactive animation — chain animation with per-frame parameter modulation."""
         if not self._loaded:
             self.load()
@@ -198,7 +198,7 @@ class AudioReactiveMixin:
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
         audio_fps: float = 24.0,
-    ) -> list[AudioReactiveFrameResponse]:
+    ) -> int:
         """Audio-reactive chain animation — wraps raw UNet like _generate_chain."""
         raw_unet = get_uncompiled_unet(self._pipe)
         compiled_unet = self._pipe.unet
@@ -229,9 +229,9 @@ class AudioReactiveMixin:
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
         audio_fps: float = 24.0,
-    ) -> list[AudioReactiveFrameResponse]:
+    ) -> int:
         """Core audio-reactive chain loop — per-frame parameter modulation."""
-        frames: list[AudioReactiveFrameResponse] = []
+        frame_count = 0
         base_seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
         base_seed = base_seed % (2**32)
         chain_source: Optional[Image.Image] = None
@@ -283,17 +283,18 @@ class AudioReactiveMixin:
                         hue_shift = frame_params.get("palette_shift", 0.0)
                         if hue_shift > 0.01:
                             image = _apply_hue_shift(image, hue_shift)
-                        b64_image = encode_image_b64(image)
+                        b64_image = encode_image_raw_b64(image)
                         w, h = image.size
                         elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
                         frame_resp = AudioReactiveFrameResponse(
                             frame_index=frame_idx, total_frames=total_frames,
                             image=b64_image, seed=0, time_ms=elapsed_ms,
                             width=w, height=h, params_used=frame_params,
+                            encoding="raw_rgba",
                         )
                         if on_frame:
                             on_frame(frame_resp)
-                        frames.append(frame_resp)
+                        frame_count += 1
                         log.debug("Audio frame %d/%d: cadence skip (reuse)", frame_idx, total_frames)
                         continue
 
@@ -492,7 +493,7 @@ class AudioReactiveMixin:
                 if self._cancel_event.is_set():
                     raise GenerationCancelled("Audio-reactive cancelled during post-processing")
 
-                b64_image = encode_image_b64(image)
+                b64_image = encode_image_raw_b64(image)
                 w, h = image.size
                 elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
 
@@ -505,12 +506,13 @@ class AudioReactiveMixin:
                     width=w,
                     height=h,
                     params_used=frame_params,
+                    encoding="raw_rgba",
                 )
-                frames.append(frame_resp)
+                frame_count += 1
                 if on_frame:
                     on_frame(frame_resp)
 
-        return frames
+        return frame_count
 
     # ── AnimateDiff + Audio ──────────────────────────────────
 
@@ -521,7 +523,7 @@ class AudioReactiveMixin:
         schedule,
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> list[AudioReactiveFrameResponse]:
+    ) -> int:
         """Audio-reactive AnimateDiff — temporal consistency via chunked batches.
 
         Divides the audio timeline into overlapping 16-frame AnimateDiff chunks.
@@ -546,7 +548,7 @@ class AudioReactiveMixin:
         schedule,
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> list[AudioReactiveFrameResponse]:
+    ) -> int:
         """Core AnimateDiff audio loop — chunked with overlap blending."""
         is_controlnet = req.mode.value.startswith("controlnet_")
         is_img2img = req.mode == GenerationMode.IMG2IMG
@@ -615,7 +617,7 @@ class AudioReactiveMixin:
         # Results indexed by frame
         frame_images: dict[int, Image.Image] = {}
         frame_seeds: dict[int, int] = {}
-        all_frames: list[AudioReactiveFrameResponse] = []
+        frame_count_ad = 0
         t0_total = time.perf_counter()
 
         for chunk_idx, (c_start, c_end) in enumerate(chunks):
@@ -767,7 +769,7 @@ class AudioReactiveMixin:
                 hue_shift = frame_params.get("palette_shift", 0.0)
                 if hue_shift > 0.01:
                     image = _apply_hue_shift(image, hue_shift)
-                b64_image = encode_image_b64(image)
+                b64_image = encode_image_raw_b64(image)
                 w, h = image.size
                 elapsed_ms = int((time.perf_counter() - t0_total) * 1000)
                 frame_resp = AudioReactiveFrameResponse(
@@ -775,8 +777,9 @@ class AudioReactiveMixin:
                     image=b64_image, seed=frame_seeds.get(frame_idx, base_seed),
                     time_ms=elapsed_ms, width=w, height=h,
                     params_used=frame_params,
+                    encoding="raw_rgba",
                 )
-                all_frames.append(frame_resp)
+                frame_count_ad += 1
                 if on_frame:
                     on_frame(frame_resp)
                 log.debug("AnimateDiff audio frame %d: cadence skip (reuse)", frame_idx)
@@ -829,7 +832,7 @@ class AudioReactiveMixin:
 
             prev_ad_image = image
 
-            b64_image = encode_image_b64(image)
+            b64_image = encode_image_raw_b64(image)
             w, h = image.size
             elapsed_ms = int((time.perf_counter() - t0_total) * 1000)
 
@@ -842,8 +845,9 @@ class AudioReactiveMixin:
                 width=w,
                 height=h,
                 params_used=frame_params,
+                encoding="raw_rgba",
             )
-            all_frames.append(frame_resp)
+            frame_count_ad += 1
             if on_frame:
                 on_frame(frame_resp)
 
@@ -854,4 +858,4 @@ class AudioReactiveMixin:
             except Exception:
                 pass
 
-        return all_frames
+        return frame_count_ad

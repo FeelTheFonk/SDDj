@@ -122,15 +122,26 @@ function PT.save_animation_frame(resp)
     -- Write frame to disk immediately
     local frame_name = string.format("frame_%03d.png", resp.frame_index + 1)
     local frame_path = app.fs.joinPath(PT.anim.output_dir, frame_name)
-    local img_data = PT.base64_decode(resp.image)
+
+    -- Reuse decoded bytes from import_animation_frame (B3: no double decode)
+    local img_data = resp._decoded_bytes or PT.base64_decode(resp.image)
+
     if img_data and #img_data > 0 then
-      local f = io.open(frame_path, "wb")
-      if f then
-        f:write(img_data)
-        f:close()
-        PT.anim.last_saved_frame = frame_path
-        PT.anim.output_count = PT.anim.output_count + 1
+      if resp.encoding == "raw_rgba" and resp.width and resp.height then
+        -- Raw RGBA: create Image, save as PNG natively (raw bytes ≠ valid PNG)
+        local img = Image(resp.width, resp.height, ColorMode.RGB)
+        img.bytes = img_data
+        img:saveAs(frame_path)
+      else
+        -- Legacy PNG: write directly
+        local f = io.open(frame_path, "wb")
+        if f then
+          f:write(img_data)
+          f:close()
+        end
       end
+      PT.anim.last_saved_frame = frame_path
+      PT.anim.output_count = PT.anim.output_count + 1
     elseif PT.anim.last_saved_frame then
       -- Decode failed — copy previous frame to avoid numbering gaps (breaks ffmpeg)
       local src = io.open(PT.anim.last_saved_frame, "rb")

@@ -29,7 +29,7 @@ from ..image_codec import (
     composite_with_mask,
     decode_b64_image,
     decode_b64_mask,
-    encode_image_b64,
+    encode_image_raw_b64,
     match_color_lab,
     apply_optical_flow_blend,
     resize_to_target,
@@ -48,7 +48,7 @@ class AnimationMixin:
         req: AnimationRequest,
         on_frame: Optional[Callable[[AnimationFrameResponse], None]] = None,
         on_progress: Optional[Callable[[ProgressResponse], None]] = None,
-    ) -> list[AnimationFrameResponse]:
+    ) -> int:
         """Generate multi-frame animation — dispatches to chain or animatediff method."""
         if not self._loaded:
             self.load()
@@ -82,7 +82,7 @@ class AnimationMixin:
         req: AnimationRequest,
         on_frame: Optional[Callable[[AnimationFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> list[AnimationFrameResponse]:
+    ) -> int:
         """Frame-by-frame chaining: each frame feeds into the next via img2img.
 
         Uses a temporary UNet swap + dynamo disable to bypass torch.compile + DeepCache:
@@ -141,7 +141,7 @@ class AnimationMixin:
         recognizes _orig_mod (the raw UNet) as a compiled object and triggers
         recompilation with stale guards, hanging indefinitely.
         """
-        frames: list[AnimationFrameResponse] = []
+        frame_count = 0
         base_seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
         base_seed = base_seed % (2**32)  # clamp to valid range
         chain_source: Optional[Image.Image] = None
@@ -345,7 +345,7 @@ class AnimationMixin:
                     raise GenerationCancelled("Animation cancelled during post-processing")
 
                 # Encode
-                b64_image = encode_image_b64(image)
+                b64_image = encode_image_raw_b64(image)
                 w, h = image.size
                 # frame_time_ms: per-frame generation time (from this frame's t0_frame)
                 elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
@@ -358,19 +358,20 @@ class AnimationMixin:
                     time_ms=elapsed_ms,
                     width=w,
                     height=h,
+                    encoding="raw_rgba",
                 )
-                frames.append(frame_resp)
+                frame_count += 1
                 if on_frame:
                     on_frame(frame_resp)
 
-        return frames
+        return frame_count
 
     def _generate_animatediff(
         self,
         req: AnimationRequest,
         on_frame: Optional[Callable[[AnimationFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> list[AnimationFrameResponse]:
+    ) -> int:
         """AnimateDiff motion module generation for temporal consistency."""
         # Smart transition: free ControlNet if not needed for this request
         is_controlnet = req.mode.value.startswith("controlnet_")
@@ -387,7 +388,7 @@ class AnimationMixin:
         req: AnimationRequest,
         on_frame: Optional[Callable[[AnimationFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> list[AnimationFrameResponse]:
+    ) -> int:
         """Core AnimateDiff generation logic (txt2img, img2img, controlnet)."""
         is_controlnet = req.mode.value.startswith("controlnet_")
         is_img2img = req.mode == GenerationMode.IMG2IMG
@@ -499,13 +500,13 @@ class AnimationMixin:
                 pass
 
         # Post-process and encode each frame
-        frames: list[AnimationFrameResponse] = []
+        frame_count = 0
         for frame_idx, pil_img in enumerate(pil_frames):
             if self._cancel_event.is_set():
                 raise GenerationCancelled("AnimateDiff cancelled during post-processing")
             t0_frame = time.perf_counter()
             image = postprocess_apply(pil_img, req.post_process)
-            b64_image = encode_image_b64(image)
+            b64_image = encode_image_raw_b64(image)
             w, h = image.size
             # time_ms: total elapsed since animation start (intentional —
             # gives the client cumulative progress for the whole batch).
@@ -523,9 +524,10 @@ class AnimationMixin:
                 time_ms=elapsed_ms,
                 width=w,
                 height=h,
+                encoding="raw_rgba",
             )
-            frames.append(frame_resp)
+            frame_count += 1
             if on_frame:
                 on_frame(frame_resp)
 
-        return frames
+        return frame_count
