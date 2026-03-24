@@ -233,6 +233,9 @@ class Request(BaseModel):
     locked_fields: Optional[dict[str, str]] = None
     prompt_template: Optional[str] = None
     randomness: int = Field(0, ge=0, le=20)
+    subject_type: Optional[str] = None
+    prompt_mode: Optional[str] = None
+    exclude_terms: Optional[list[str]] = None
     # Preset fields
     preset_name: Optional[str] = None
     preset_data: Optional[dict] = None
@@ -276,6 +279,7 @@ class Request(BaseModel):
             "seed_strategy", "tag_name", "enable_freeinit", "freeinit_iterations",
             # Auto-prompt fields
             "locked_fields", "prompt_template", "randomness",
+            "subject_type", "prompt_mode", "exclude_terms",
             # Audio reactivity fields
             "audio_path", "fps", "enable_stems",
             "modulation_slots", "expressions", "modulation_preset",
@@ -292,6 +296,7 @@ class Request(BaseModel):
             "action",
             # Auto-prompt fields
             "locked_fields", "prompt_template", "randomness",
+            "subject_type", "prompt_mode", "exclude_terms",
             # Audio reactivity fields
             "audio_path", "fps", "enable_stems",
             "modulation_slots", "expressions", "modulation_preset",
@@ -314,6 +319,7 @@ class Request(BaseModel):
         _exclude = {
             "action", "frame_count", "seed_strategy",
             "locked_fields", "prompt_template",
+            "subject_type", "prompt_mode", "exclude_terms",
             # Resource / export fields
             "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
             "output_dir", "scale_factor", "quality",

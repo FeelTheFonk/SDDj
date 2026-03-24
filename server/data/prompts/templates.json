@@ -79,6 +79,10 @@
     "paper_cut": "{quality}, paper cut art, {subject}, {style}, layered paper, {colors}, shadow play, {lighting}, intricate cuts, {details}",
     "neon_noir": "{quality}, neon noir, {subject}, {style}, {artist}, neon reflections, rain, {lighting}, {mood}, {colors}, urban night",
     "folk_art": "{quality}, folk art, {subject}, {style}, handcrafted, {colors}, traditional patterns, {mood}, naive style, {details}",
-    "cosmic_horror": "{quality}, cosmic horror, {subject}, {artist}, {style}, (eldritch:1.2), {lighting}, {mood}, {colors}, incomprehensible, tentacles"
+    "cosmic_horror": "{quality}, cosmic horror, {subject}, {artist}, {style}, (eldritch:1.2), {lighting}, {mood}, {colors}, incomprehensible, tentacles",
+    "character": "{quality}, {subject}, {pose}, {outfit}, {accessory}, {style}, {artist}, {lighting}, {mood}",
+    "material_study": "{quality}, {subject}, {material}, {style}, {artist}, {lighting}, {colors}, {details}",
+    "scene_bg": "{quality}, {subject}, {background}, {style}, {artist}, {lighting}, {mood}, {colors}",
+    "descriptor_rich": "{quality}, {descriptor}, {subject}, {style}, {artist}, {lighting}, {mood}, {colors}, {details}"
   }
 }

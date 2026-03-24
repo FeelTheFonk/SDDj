@@ -2,6 +2,22 @@
 
 All notable changes to SDDj are documented here.
 
+## [0.9.33] — 2026-03
+
+### Added
+- **9-phase prompt composition engine** — subject type awareness, generation modes (standard/art_focus/character/chaos), artist coherence via tag-bucketed selection, CLIP token budgeting (65-token soft cap), auto-negative matching, exclusion filtering
+- 6 new data categories from OBP CSVs: pose (186), outfit (557), accessory (232), material (113), background (243), descriptor (700)
+- Subject type classification: 1032 subjects across 5 types (humanoid/animal/landscape/object/concept) with keyword heuristic inference
+- Artist tag system: 881 artists tagged across 108 style categories for coherence-aware selection
+- 4 new prompt templates: character, material_study, scene_bg, descriptor_rich
+- 3 new protocol fields: `subject_type`, `prompt_mode`, `exclude_terms` (all optional, backward compatible)
+- Data audit script (`scripts/audit_data.py`) for JSON validation and cross-file dedup checking
+
+### Changed
+- `prompt_generator.py` fully rewritten as multi-phase pipeline (from simple template-based sampling)
+- Token budget trimming uses regex-escaped values for robustness
+- Artist tag matching uses word-boundary set intersection (not substring)
+
 ## [0.9.32] — 2026-03
 
 ### Fixed

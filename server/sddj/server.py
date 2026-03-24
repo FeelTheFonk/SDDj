@@ -541,6 +541,9 @@ async def _handle_generate_prompt(websocket: WebSocket, req: Request) -> None:
     randomness = getattr(req, 'randomness', 0) or 0
     prompt, negative, components = prompt_generator.generate(
         locked, template, randomness=randomness,
+        subject_type=req.subject_type,
+        mode=req.prompt_mode,
+        exclude=req.exclude_terms,
     )
     await _send(websocket, PromptResultResponse(
         prompt=prompt, negative_prompt=negative, components=components,
