@@ -34,6 +34,7 @@ Connect to `ws://127.0.0.1:9876/ws`. All messages are JSON. Maximum 5 concurrent
 | `generate_audio_reactive` | Generate audio-reactive animation   |
 | `check_stems`        | Check if stem separation (demucs) is available |
 | `list_modulation_presets` | List built-in modulation presets    |
+| `get_modulation_preset`   | Get modulation preset slot details      |
 | `export_mp4`            | Export frames + audio to MP4 (requires ffmpeg) |
 | `shutdown`              | Graceful server shutdown              |
 
@@ -52,6 +53,9 @@ Connect to `ws://127.0.0.1:9876/ws`. All messages are JSON. Maximum 5 concurrent
 | `locked_fields` | `object` | `{}` | Categories to keep fixed (e.g. `{"subject": "..."}`) |
 | `prompt_template` | `string` | `null` | Custom template with `{category}` placeholders |
 | `randomness` | `int 0-20` | `0` | Diversity level: 0=standard, 5=subtle, 10=moderate, 15=wild (rare items + random template), 20=chaos (combines multiple items per category) |
+| `subject_type` | `string` | `null` | Subject classification hint (humanoid/animal/landscape/object/concept) |
+| `prompt_mode` | `string` | `null` | Generation mode: standard, art_focus, character, chaos |
+| `exclude_terms` | `string[]` | `null` | Terms to exclude from generated prompt |
 
 **Response**: `prompt_result` with `prompt`, `negative_prompt`, and `components` dict.
 
@@ -133,7 +137,7 @@ For inpainting, set `mode` to `"inpaint"` and include `source_image` (base64 PNG
 |---------------------|--------------------------------------|---------------|
 | `method`            | `chain`, `animatediff`, `animatediff_audio` | `chain` |
 | `frame_count`       | 2 - 120                              | `8`           |
-| `frame_duration_ms` | 50 - 2000                            | `100`         |
+| `frame_duration_ms` | 30 - 2000                            | `100`         |
 | `seed_strategy`     | `fixed`, `increment`, `random`       | `increment`   |
 | `tag_name`          | string or null                       | `null`        |
 | `enable_freeinit`   | boolean                              | `false`       |
@@ -194,28 +198,25 @@ Analyze audio first, then generate animation with per-frame parameter modulation
 
 ### Modulation Sources
 
+34 features are available per source (global or per-stem). See **[Audio Reactivity — Sources](AUDIO-REACTIVITY.md#sources)** for the complete list.
+
 | Source              | Description                    |
 |---------------------|--------------------------------|
-| `global_rms`         | Overall energy                 |
-| `global_onset`       | Transient / attack strength    |
+| `global_rms`         | Overall energy (K-weighted)    |
+| `global_onset`       | Transient / attack strength (SuperFlux) |
 | `global_centroid`    | Spectral brightness            |
-| `global_low`         | Low-frequency energy (20-300Hz)  |
-| `global_mid`         | Mid-frequency energy (300-2kHz)  |
-| `global_high`        | High-frequency energy (2k-16kHz) |
-| `global_sub_bass`    | Sub-bass energy (20-60 Hz)     |
-| `global_upper_mid`   | Upper-mid energy (2-4 kHz)     |
-| `global_presence`    | Presence energy (4-8 kHz)      |
 | `global_beat`        | Beat impulse (BPM-aligned)     |
-| `drums_rms/onset`    | Per-stem (requires `enable_stems`) |
-| `bass_rms/onset`     | Per-stem (requires `enable_stems`) |
-| `vocals_rms/onset`   | Per-stem (requires `enable_stems`) |
-| `other_rms/onset`    | Per-stem (requires `enable_stems`) |
+| `global_sub_bass` / `bass` / `low_mid` / `mid` / `upper_mid` / `presence` / `brilliance` / `air` / `ultrasonic` | 9-band frequency segmentation |
+| `global_low` / `mid` / `high` | Backward-compatible band aliases |
+| `global_spectral_contrast` / `flatness` / `bandwidth` / `rolloff` / `flux` | 5 spectral timbral features |
+| `global_chroma_C` ... `global_chroma_B` / `chroma_energy` | 12-bin CQT chromagram + aggregate |
+| `drums_*` / `bass_*` / `vocals_*` / `other_*` | Per-stem: all 34 features (requires `enable_stems`) |
 
 ### Modulation Targets
 
 | Target              | Range           | Description                |
 |----------------------|-----------------|----------------------------|
-| `denoise_strength`   | 0.05 - 0.95     | Frame-to-frame change      |
+| `denoise_strength`   | 0.20 - 0.95     | Frame-to-frame change      |
 | `cfg_scale`          | 1.0 - 30.0      | Prompt adherence           |
 | `noise_amplitude`    | 0.0 - 1.0       | Additive latent noise      |
 | `controlnet_scale`   | 0.0 - 2.0       | ControlNet influence       |
@@ -224,8 +225,10 @@ Analyze audio first, then generate animation with per-frame parameter modulation
 | `frame_cadence`      | 1.0 - 8.0        | Frame skip cadence         |
 | `motion_x`           | -5.0 - 5.0       | Horizontal pan (pixels)    |
 | `motion_y`           | -5.0 - 5.0       | Vertical pan (pixels)      |
-| `motion_zoom`        | 0.95 - 1.05      | Zoom factor (1.0 = none)   |
+| `motion_zoom`        | 0.92 - 1.08      | Zoom factor (1.0 = none)   |
 | `motion_rotation`    | -2.0 - 2.0       | Rotation (degrees)         |
+| `motion_tilt_x`      | -3.0 - 3.0       | Perspective pitch (degrees, faux 3D) |
+| `motion_tilt_y`      | -3.0 - 3.0       | Perspective yaw (degrees, faux 3D)   |
 
 ### Audio-Linked Randomness
 
@@ -298,7 +301,7 @@ Requires ffmpeg in PATH. Export animation frames + audio to a single MP4 file.
 |----------------------|---------------------------------------------------------------------|
 | `progress`           | `step`, `total`, `frame_index` (opt), `total_frames` (opt)         |
 | `result`             | `image` (b64 PNG), `seed`, `time_ms`, `width`, `height`            |
-| `animation_frame`    | `frame_index`, `total_frames`, `image` (b64 PNG), `seed`, `time_ms`, `width`, `height` |
+| `animation_frame`    | `frame_index`, `total_frames`, `image` (b64 PNG), `seed`, `time_ms`, `width`, `height`, `encoding` (opt) |
 | `animation_complete` | `total_frames`, `total_time_ms`, `tag_name` (opt)                  |
 | `error`              | `code`, `message`                                                   |
 | `list`               | `list_type`, `items`                                                |
@@ -310,11 +313,12 @@ Requires ffmpeg in PATH. Export animation frames + audio to a single MP4 file.
 | `palette_saved`      | `name`                                                              |
 | `palette_deleted`    | `name`                                                              |
 | `cleanup_done`       | `message`, `freed_mb`                                               |
-| `audio_analysis`     | `duration`, `total_frames`, `features`, `bpm`, `recommended_preset`, `stems_available`, `stems`, `waveform` (opt) |
-| `audio_reactive_frame` | `frame_index`, `total_frames`, `image`, `seed`, `time_ms`, `width`, `height`, `params_used` |
+| `audio_analysis`     | `duration`, `total_frames`, `features`, `bpm`, `lufs`, `sample_rate`, `hop_length`, `recommended_preset`, `stems_available`, `stems`, `waveform` (opt) |
+| `audio_reactive_frame` | `frame_index`, `total_frames`, `image`, `seed`, `time_ms`, `width`, `height`, `encoding` (opt), `params_used` |
 | `audio_reactive_complete` | `total_frames`, `total_time_ms`, `tag_name` (opt)               |
 | `stems_available`    | `available`, `message`                                              |
 | `modulation_presets` | `presets` (list of names)                                           |
+| `modulation_preset_detail` | `name`, `slots`                                                |
 | `export_mp4_complete`| `path`, `size_mb`, `duration_s`                                     |
 | `export_mp4_error`   | `message`                                                           |
 | `shutdown_ack`       | `message`                                                           |

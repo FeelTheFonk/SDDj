@@ -39,6 +39,9 @@ Before using SDDj, make sure you have:
 > [!NOTE]
 > If you haven't run `setup.ps1` yet, do it first. It handles everything: Python environment, model downloads, extension install.
 
+> [!TIP]
+> Copy `server/.env.example` to `server/.env` to customize defaults (checkpoint, port, performance flags). Environment variables override `.env` values.
+
 ---
 
 ## First Launch
@@ -97,6 +100,20 @@ Clicking **Disconnect** manually disables auto-reconnect. Clicking **Connect** r
 ### Heartbeat Watchdog
 
 A heartbeat ping is sent every 30 seconds. If the server doesn't respond with a pong within 90 seconds (3× the interval), the connection is considered dead and auto-reconnect triggers. This detects silent server crashes that don't properly close the WebSocket.
+
+---
+
+## Quick Reference Card
+
+If you already know the basics, here are the top 5 SDDj workflows and their optimal settings at a glance:
+
+| Goal | Mode | Key Settings | Post-Process |
+|------|------|--------------|--------------|
+| **Tiny Sprite (16x16-32x32)** | `txt2img` / `img2img` | CFG: `6.0-7.0`, Steps: `8` | Pixelate `32`, Colors `8-12`, Quant `kmeans` |
+| **Clean Lineart to Sprite** | `controlnet_canny` / `lineart` | CFG: `5.5-6.0`, Strength: `1.0` | Pixelate `64`, Colors `16`, Preset Palette |
+| **Hi-Fi Illustration** | `txt2img` / `inpaint` | CFG: `7.0`, Steps: `12` | Pixelate `OFF`, Colors `256`, Palette `Auto` |
+| **Rapid Variation (Scrub)** | `txt2img` / `img2img` | Loop: `ON`, Output: `sequence` | Cancel after 10-20 frames, scrub timeline |
+| **Audio Anim (Deforum style)**| `Animation` + `Audio` | Lightning (CFG `2.0`, Steps `4`) | Load preset (e.g. `cinematic_sweep`) |
 
 ---
 
@@ -186,6 +203,25 @@ Parameters in the Animation tab:
 | Seed Mode | increment | `fixed` = same seed, `increment` = seed+1 per frame, `random` = random per frame |
 | Tag Name | (empty) | Creates an Aseprite tag for the animation range |
 | FreeInit | off | AnimateDiff only — improves temporal consistency (doubles generation time) |
+
+### AnimateDiff-Lightning (v0.9.41)
+
+AnimateDiff-Lightning (ByteDance) uses progressive adversarial distillation for **10× faster animation** via 2/4/8-step checkpoints.
+
+To enable, set `SDDJ_ANIMATEDIFF_MODEL=ByteDance/AnimateDiff-Lightning` in `server/.env` and run `python scripts/download_models.py --animatediff-lightning`.
+
+Auto-applied changes when Lightning is active:
+
+| Setting | Standard AnimateDiff | Lightning |
+|---------|---------------------|-----------|
+| Scheduler | DDIM | EulerDiscrete (trailing, linear) |
+| Default CFG | 5.0 | 2.0 (preserves negative prompts) |
+| Steps | 8 | 4 (aligned to distillation target) |
+| FreeInit | Optional | Force-disabled (incompatible) |
+| FreeU | On | Configurable via `SDDJ_ANIMATEDIFF_LIGHTNING_FREEU` |
+
+> [!WARNING]
+> FreeInit is incompatible with distilled models and is force-disabled when Lightning is active.
 
 ---
 
@@ -429,23 +465,10 @@ Forces all colors to match a specific palette using CIELAB color distance (perce
 | Preset | Uses one of the built-in palettes |
 | Custom | Uses hex codes you provide (e.g., `#FF0000 #00FF00 #0000FF`) |
 
-<details>
-<summary>Built-in palettes</summary>
-
-| Palette | Colors | Style |
-|---------|--------|-------|
-| **PICO-8** | 16 | Fantasy console, vibrant and limited |
-| **NES** | 54 | Nintendo Entertainment System |
-| **SNES** | 256 | Super Nintendo |
-| **Game Boy** | 4 | Green monochrome |
-| **C64** | 16 | Commodore 64 |
-| **Endesga 32** | 32 | Modern pixel art, warm tones |
-| **Endesga 64** | 64 | Extended modern pixel art |
-
-</details>
-
 > [!TIP]
 > Palette presets are designed for retro-gaming aesthetics. For non-pixel-art styles (anime, illustration, realistic, concept art), use **palette_mode=Auto** or disable palette mapping to preserve the model's full color range.
+>
+> See **[Cookbook — Color Control](COOKBOOK.md#color-control)** for the full palette list and usage guidance.
 
 ### 5. Dithering
 

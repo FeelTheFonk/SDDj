@@ -2,6 +2,38 @@
 
 All notable changes to SDDj are documented here.
 
+## [0.9.42] — 2026-03
+
+### Changed
+- **SOTA Documentation Overhaul** — Massive, multi-level audit of the entire SDDj documentation suite to ensure SOTA 2026 pinnacle of clarity, optimization, and completeness.
+  - **API-REFERENCE**: added missing `motion_tilt_x`/`motion_tilt_y` targets, `get_modulation_preset` action, `modulation_preset_detail` response, `encoding` field on frames; corrected `motion_zoom` and `frame_duration_ms` numeric ranges; aligned Modulation Sources with full 34-feature list; added `subject_type`/`prompt_mode`/`exclude_terms` to generate_prompt docs.
+  - **CONFIGURATION**: documented all 4 AnimateDiff-Lightning environment variables (`SDDJ_ANIMATEDIFF_LIGHTNING_STEPS`, `SDDJ_ANIMATEDIFF_LIGHTNING_CFG`, `SDDJ_ANIMATEDIFF_MOTION_LORA_STRENGTH`, `SDDJ_ANIMATEDIFF_LIGHTNING_FREEU`); added `.env` priority explanation.
+  - **GUIDE**: added AnimateDiff-Lightning documentation; added Quick Reference Card for top 5 workflows; replaced redundant built-in palette list with cross-reference to Cookbook.
+  - **COOKBOOK**: eliminated 150+ lines of redundant post-processing boilerplate by standardizing a reusable "non-pixel-art default" block (Pixelate OFF, Colors 256, Palette Auto).
+  - **AUDIO-REACTIVITY**: fixed `denoise_strength` lower bound range (0.20); corrected stated stem features count.
+  - **README**: refactored unreadable features list into a structured, categorized table with deep-links to documentation; added AnimateDiff-Lightning to Performance Stack; added Version/Python/CUDA shields.
+  - **TROUBLESHOOTING**: removed historical version clutter (e.g., "fixed in v0.8.7") to focus exclusively on current behavior.
+  - Standardized all CHANGELOG date formats to ISO 8601 (YYYY-MM).
+
+### Added
+- **CONTRIBUTING.md** — Developer guide covering repository structure, `uv` environment setup, Ruff code style, and PR process.
+- **ARCHITECTURE.md** — Module-level system design covering Lua ↔ Python WS flow, inference optimizations (DeepCache/Hyper-SD), and DSP pipeline routing.
+
+## [0.9.41] — 2026-03
+
+### Added
+- **AnimateDiff-Lightning support** (ByteDance) — 10× faster animation via progressive adversarial distillation (2/4/8-step checkpoints)
+  - Auto-detection via `is_animatediff_lightning` config property
+  - `EulerDiscreteScheduler` (trailing, linear, `clip_sample=False`) auto-applied to all AnimateDiff pipelines
+  - Lightning-optimal CFG (default 2.0 — preserves negative prompt effectiveness)
+  - Step count enforcement aligned to checkpoint distillation target
+  - FreeInit force-disabled with log warning (incompatible with distilled models)
+  - Conditional FreeU toggle (`animatediff_lightning_freeu` setting)
+- New config: `SDDJ_ANIMATEDIFF_LIGHTNING_STEPS`, `SDDJ_ANIMATEDIFF_LIGHTNING_CFG`, `SDDJ_ANIMATEDIFF_MOTION_LORA_STRENGTH`, `SDDJ_ANIMATEDIFF_LIGHTNING_FREEU`
+- Download script: `--animatediff-lightning` flag with `HF_HUB_OFFLINE` guard
+- `pipeline_factory.create_lightning_scheduler()` utility
+- AnimateDiff-Lightning integration test in `test_animation.py`
+
 ## [0.9.40] — 2026-03
 
 ### Fixed
@@ -239,12 +271,12 @@ All notable changes to SDDj are documented here.
 
 ---
 
-## [0.7.9] — 2025
+## [0.7.9] — 2025-12
 
 ### Added
 - Palette CRUD: save/delete custom palettes from the UI (persist as JSON)
 
-## [0.7.7] — 2025
+## [0.7.7] — 2025-11
 
 ### Added
 - Contextual action button adapts to active tab (GENERATE, ANIMATE, AUDIO GEN)
@@ -253,7 +285,7 @@ All notable changes to SDDj are documented here.
 - Dedicated per-pipeline Steps/CFG/Strength sliders (Animation + Audio)
 - Audio-linked randomness: auto-generates prompt segments from musical structure
 
-## [0.7.4] — 2025
+## [0.7.4] — 2025-10
 
 ### Added
 - Audio-reactive motion/camera: smooth Deforum-like pan, zoom, rotation
@@ -261,7 +293,7 @@ All notable changes to SDDj are documented here.
 - 4 dedicated motion presets + 14 existing presets enriched with motion
 - Frame limit control (0 = all, or exact count)
 
-## [0.7.3] — 2025
+## [0.7.3] — 2025-09
 
 ### Added
 - AnimateDiff + Audio: 16-frame temporal batches with overlap blending
@@ -272,7 +304,7 @@ All notable changes to SDDj are documented here.
 ### Fixed
 - Cancellation works during long-running generations (concurrent receive)
 
-## [0.7.0] — 2025
+## [0.7.0] — 2025-08
 
 ### Added
 - Audio reactivity: synth-style modulation matrix
@@ -283,7 +315,7 @@ All notable changes to SDDj are documented here.
 - Stem separation (demucs, CPU)
 - 20 built-in modulation presets
 
-## [0.6.1] — 2025
+## [0.6.1] — 2025-07
 
 ### Added
 - Sequence output mode (new layer vs new frame)
@@ -291,20 +323,20 @@ All notable changes to SDDj are documented here.
 - Auto-reconnect with exponential backoff (2s → 30s)
 - Heartbeat pong watchdog (3× interval)
 
-## [0.5.0] — 2025
+## [0.5.0] — 2025-06
 
 ### Added
 - Random loop: auto-randomized prompts per iteration
 - Lock subject: keep fixed subject while randomizing style
 
-## [0.4.0] — 2025
+## [0.4.0] — 2025-05
 
 ### Added
 - Loop mode: continuous generation
 - Auto-prompt generator from curated templates
 - Presets: save/load generation settings
 
-## [0.3.0] — 2025
+## [0.3.0] — 2025-04
 
 ### Added
 - Initial release

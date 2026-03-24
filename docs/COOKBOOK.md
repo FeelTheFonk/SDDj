@@ -37,7 +37,9 @@ Each recipe shows:
 Default settings (if not overridden in a recipe): steps=8, CFG=5.0, clip_skip=2, denoise=1.0, pixelate=128, colors=32, quantize=kmeans, dither=none, palette=auto.
 
 > [!NOTE]
-> The default post-processing settings (pixelate, colors, quantize, dither) are optimized for **pixel art**. For non-pixel-art styles (anime, illustration, concept art, realistic, etc.), set **Pixelate to OFF** (or 0) and **Colors to 256** with **Palette set to Auto**. This lets the model's native output come through without pixel-art-specific processing.
+> The default post-processing settings (pixelate, colors, quantize, dither) are optimized for **pixel art**. For non-pixel-art styles (anime, illustration, concept art, realistic, etc.), use the **non-pixel-art default** below.
+
+> **Non-pixel-art default post-process**: Pixelate **OFF**, Colors **256**, Palette **Auto**. All non-pixel-art recipes use this unless stated otherwise.
 
 ---
 
@@ -164,13 +166,7 @@ detailed eyes, soft shading, clean linework
 | Clip Skip | 2 | Standard for anime aesthetics |
 | Denoise | 1.0 | Full generation |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve smooth anime lines and shading |
-| Colors | 256 | Full color range for gradients |
-| Palette | Auto | Let the model choose colors freely |
+**Post-Process:** Non-pixel-art default.
 
 ---
 
@@ -194,13 +190,7 @@ intricate details, dramatic pose, high quality
 | CFG | 7.0 | Tighter prompt following for specific details |
 | Denoise | 1.0 | Full generation |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve illustration detail |
-| Colors | 256 | Full color range |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 ---
 
@@ -224,13 +214,7 @@ clean design, technical illustration, cool lighting
 | CFG | 6.5 | Balanced between creativity and control |
 | Denoise | 1.0 | Full generation |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve fine concept art detail |
-| Colors | 256 | Full color range |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 ---
 
@@ -338,13 +322,7 @@ beautiful sky, detailed clouds, vibrant scenery
 | Steps | 10 | Enough for smooth gradients |
 | CFG | 5.0 | Balanced for natural-feeling scenery |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve soft anime gradients |
-| Colors | 256 | Full color range for sky gradients |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 ---
 
@@ -366,13 +344,7 @@ atmospheric perspective, dramatic lighting, detailed environment
 | Steps | 12 | Extra steps for atmospheric detail |
 | CFG | 6.5 | Tighter adherence to sci-fi prompt |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve painterly detail |
-| Colors | 256 | Full color range |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 ---
 
@@ -478,14 +450,7 @@ clean shapes, modern, centered, simple
 | Steps | 8 | Clean shapes don't need many steps |
 | CFG | 7.0 | Strict for clean geometric shapes |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve smooth gradients and edges |
-| Colors | 256 | Full color for gradients |
-| Remove BG | Optional | Depends on icon use |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default. Optionally set Remove BG.
 
 ---
 
@@ -507,14 +472,7 @@ intricate details, dramatic lighting, centered, high quality
 | Steps | 12 | Extra steps for fine rendering |
 | CFG | 7.0 | Precise adherence to item description |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve illustration detail |
-| Colors | 256 | Full color range for glow effects |
-| Remove BG | Yes | Clean extraction for compositing |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default. Remove BG **Yes**.
 
 ---
 
@@ -574,13 +532,7 @@ beautiful face, clean linework, high quality
 | CFG | 6.0 | Clean prompt following |
 | Clip Skip | 2 | Standard for anime style |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve soft anime shading |
-| Colors | 256 | Full color for skin tones and pastels |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 ---
 
@@ -604,13 +556,7 @@ sharp focus, professional photography, high quality
 | CFG | 7.5 | Tight adherence for realism |
 | Clip Skip | 1 | Better for photorealistic styles |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve photorealistic detail |
-| Colors | 256 | Full color range for skin tones |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 **Negative prompt additions:** cartoon, anime, pixel art, illustration, painting
 
@@ -635,13 +581,7 @@ artistic, dramatic lighting, bold colors
 | Steps | 10 | Balanced quality |
 | CFG | 5.5 | Slightly loose for painterly expression |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve brushstroke texture |
-| Colors | 256 | Full color range |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 ---
 
@@ -785,13 +725,7 @@ consistent style, clean linework, detailed
 | Strength | 0.35 | Consistent between frames |
 | Seed Mode | increment | Slight variation per frame |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve smooth anime lines |
-| Colors | 256 | Full color range |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 ---
 
@@ -815,13 +749,7 @@ smooth motion, vibrant, trippy, fluid
 | CFG | 4.0 | Loose = more creative, abstract results |
 | FreeInit | On | Better temporal consistency |
 
-**Post-Process:**
-
-| Parameter | Value | Why |
-|-----------|-------|-----|
-| Pixelate | OFF | Preserve fluid motion |
-| Colors | 256 | Full color range |
-| Palette | Auto | Unrestricted color palette |
+**Post-Process:** Non-pixel-art default.
 
 ---
 

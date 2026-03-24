@@ -12,9 +12,12 @@ from diffusers import (
     AnimateDiffPipeline,
     AnimateDiffVideoToVideoPipeline,
     ControlNetModel,
+    EulerDiscreteScheduler,
     MotionAdapter,
 )
 from diffusers.utils.peft_utils import recurse_remove_peft_layers
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from .config import settings
 from .freeu_applicator import apply_freeu
@@ -79,13 +82,22 @@ class AnimateDiffManager:
         if self.motion_adapter is not None and self.pipe is not None:
             return self.pipe
 
-        log.info("Loading AnimateDiff motion adapter: %s", settings.animatediff_model)
         try:
-            self.motion_adapter = MotionAdapter.from_pretrained(
-                settings.animatediff_model,
-                torch_dtype=torch.float16,
-                local_files_only=True,
-            ).to("cuda")
+            if settings.is_animatediff_lightning:
+                step = settings.animatediff_lightning_steps
+                repo = settings.animatediff_model
+                ckpt = f"animatediff_lightning_{step}step_diffusers.safetensors"
+                log.info("Loading AnimateDiff-Lightning %d-step adapter: %s/%s", step, repo, ckpt)
+                self.motion_adapter = MotionAdapter().to("cuda", torch.float16)
+                ckpt_path = hf_hub_download(repo, ckpt, local_files_only=True)
+                self.motion_adapter.load_state_dict(load_file(ckpt_path, device="cuda"))
+            else:
+                log.info("Loading AnimateDiff motion adapter: %s", settings.animatediff_model)
+                self.motion_adapter = MotionAdapter.from_pretrained(
+                    settings.animatediff_model,
+                    torch_dtype=torch.float16,
+                    local_files_only=True,
+                ).to("cuda")
 
             unet = get_uncompiled_unet(base_pipe)
             strip_peft_from_unet(unet)
@@ -100,9 +112,23 @@ class AnimateDiffManager:
                 feature_extractor=None,
             )
             self.pipe.to("cuda")
-            apply_freeu(self.pipe)
+
+            # Lightning scheduler override — must happen AFTER pipeline creation
+            if settings.is_animatediff_lightning:
+                self.pipe.scheduler = EulerDiscreteScheduler.from_config(
+                    self.pipe.scheduler.config,
+                    timestep_spacing="trailing",
+                    beta_schedule="linear",
+                    clip_sample=False,
+                )
+                log.info("Lightning scheduler: EulerDiscreteScheduler (trailing, linear, clip_sample=False)")
+
+            # FreeU — conditional for Lightning
+            if settings.is_animatediff_lightning and not settings.animatediff_lightning_freeu:
+                log.info("FreeU disabled for AnimateDiff-Lightning (animatediff_lightning_freeu=false)")
+            else:
+                apply_freeu(self.pipe)
         except Exception:
-            # Prevent VRAM leak: release adapter if pipeline creation failed
             self.motion_adapter = None
             self.pipe = None
             raise
@@ -114,7 +140,7 @@ class AnimateDiffManager:
         """Lazy-load AnimateDiff vid2vid pipeline for img2img animation.
 
         Shares all heavy components (UNet, VAE, text encoder, motion adapter)
-        with the base AnimateDiff pipeline — no additional VRAM.
+        with the base AnimateDiff pipeline -- no additional VRAM.
         """
         if self.vid2vid_pipe is not None:
             return self.vid2vid_pipe
@@ -135,7 +161,20 @@ class AnimateDiffManager:
                 feature_extractor=None,
             )
             self.vid2vid_pipe.to("cuda")
-            apply_freeu(self.vid2vid_pipe)
+
+            # Lightning scheduler override
+            if settings.is_animatediff_lightning:
+                self.vid2vid_pipe.scheduler = EulerDiscreteScheduler.from_config(
+                    self.vid2vid_pipe.scheduler.config,
+                    timestep_spacing="trailing",
+                    beta_schedule="linear",
+                    clip_sample=False,
+                )
+
+            if settings.is_animatediff_lightning and not settings.animatediff_lightning_freeu:
+                pass  # FreeU disabled for Lightning
+            else:
+                apply_freeu(self.vid2vid_pipe)
         except Exception:
             self.vid2vid_pipe = None
             raise
@@ -183,7 +222,20 @@ class AnimateDiffManager:
                 feature_extractor=None,
             )
             self.controlnet_pipe.to("cuda")
-            apply_freeu(self.controlnet_pipe)
+
+            # Lightning scheduler override
+            if settings.is_animatediff_lightning:
+                self.controlnet_pipe.scheduler = EulerDiscreteScheduler.from_config(
+                    self.controlnet_pipe.scheduler.config,
+                    timestep_spacing="trailing",
+                    beta_schedule="linear",
+                    clip_sample=False,
+                )
+
+            if settings.is_animatediff_lightning and not settings.animatediff_lightning_freeu:
+                pass  # FreeU disabled for Lightning
+            else:
+                apply_freeu(self.controlnet_pipe)
         except Exception:
             self.controlnet_pipe = None
             self.controlnet_mode = None

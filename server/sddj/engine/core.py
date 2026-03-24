@@ -127,6 +127,14 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         log.info("Pipeline loaded in %.1fs", elapsed)
         self._loaded = True
 
+        if settings.is_animatediff_lightning:
+            log.info(
+                "AnimateDiff-Lightning ready: %d-step, CFG=%.1f, FreeU=%s",
+                settings.animatediff_lightning_steps,
+                settings.animatediff_lightning_cfg,
+                "on" if settings.animatediff_lightning_freeu else "OFF",
+            )
+
         # 8. Default style LoRA — fuse BEFORE warmup
         self._load_default_style_lora()
 

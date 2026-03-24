@@ -176,6 +176,17 @@ def fresh_scheduler(base_pipe):
     return type(base_pipe.scheduler).from_config(base_pipe.scheduler.config)
 
 
+def create_lightning_scheduler(base_config):
+    """Create EulerDiscreteScheduler configured for AnimateDiff-Lightning."""
+    from diffusers import EulerDiscreteScheduler
+    return EulerDiscreteScheduler.from_config(
+        base_config,
+        timestep_spacing="trailing",
+        beta_schedule="linear",
+        clip_sample=False,
+    )
+
+
 def create_controlnet_pipeline(
     pipe: StableDiffusionPipeline,
     mode: GenerationMode,

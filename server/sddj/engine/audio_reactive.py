@@ -582,8 +582,23 @@ class AudioReactiveMixin:
         else:
             pipe = self._animatediff.ensure_base(self._pipe)
 
-        # FreeInit only for first chunk (not supported on vid2vid)
-        freeinit_enabled = req.enable_freeinit and not is_img2img
+        # FreeInit only for first chunk (not supported on vid2vid or Lightning)
+        if settings.is_animatediff_lightning:
+            if req.enable_freeinit:
+                log.warning("FreeInit disabled: incompatible with AnimateDiff-Lightning (distilled model)")
+            freeinit_enabled = False
+        else:
+            freeinit_enabled = req.enable_freeinit and not is_img2img
+
+        # Lightning parameter enforcement
+        if settings.is_animatediff_lightning:
+            lightning_steps = settings.animatediff_lightning_steps
+            lightning_cfg = settings.animatediff_lightning_cfg
+            log.info("AnimateDiff-Lightning audio: enforcing steps=%d, cfg=%.1f",
+                     lightning_steps, lightning_cfg)
+        else:
+            lightning_steps = None
+            lightning_cfg = None
 
         base_seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
         base_seed = base_seed % (2**32)
@@ -643,8 +658,9 @@ class AudioReactiveMixin:
 
             num_frames = c_end - c_start
             chunk_params = schedule.get_chunk_params(c_start, c_end)
-            eff_cfg = chunk_params.get("cfg_scale", req.cfg_scale)
+            eff_cfg = lightning_cfg if lightning_cfg is not None else chunk_params.get("cfg_scale", req.cfg_scale)
             eff_denoise = chunk_params.get("denoise_strength", req.denoise_strength)
+            eff_steps = lightning_steps if lightning_steps is not None else req.steps
 
             # Seed: base + chunk midpoint offset for variation
             seed_offset = int(chunk_params.get("seed_offset", c_start))
@@ -681,7 +697,7 @@ class AudioReactiveMixin:
                     raise GenerationCancelled("Audio-reactive AnimateDiff cancelled")
                 if on_progress:
                     on_progress(ProgressResponse(
-                        step=step_idx + 1, total=req.steps,
+                        step=step_idx + 1, total=eff_steps,
                         frame_index=_cs, total_frames=total_frames,
                     ))
                 return callback_kwargs
@@ -697,13 +713,13 @@ class AudioReactiveMixin:
                     # Sub-floor blending: same logic as chain loop — guarantee
                     # ≥2 effective steps, blend toward source for quiet passages.
                     _cap = max(settings.distilled_step_scale_cap, 1)
-                    min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
+                    min_denoise = min(1.0, 2.0 / max(eff_steps * _cap, 1) + 1e-3)
                     if eff_denoise < min_denoise:
                         _ad_sub_floor_alpha = eff_denoise / min_denoise
                         chunk_strength = min_denoise
                     else:
                         chunk_strength = min(1.0, eff_denoise)
-                    chunk_scaled_steps = scale_steps_for_denoise(req.steps, chunk_strength)
+                    chunk_scaled_steps = scale_steps_for_denoise(eff_steps, chunk_strength)
 
                     kwargs = dict(
                         video=[_source_img] * num_frames,
@@ -722,7 +738,7 @@ class AudioReactiveMixin:
                         prompt=chunk_prompt,
                         negative_prompt=effective_neg,
                         num_frames=num_frames,
-                        num_inference_steps=req.steps,
+                        num_inference_steps=eff_steps,
                         guidance_scale=eff_cfg,
                         width=target_w,
                         height=target_h,

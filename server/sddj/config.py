@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import cached_property
 from pathlib import Path
 from typing import Literal
 
@@ -84,6 +85,12 @@ class Settings(BaseSettings):
     animatediff_model: str = "guoyww/animatediff-motion-adapter-v1-5-3"
     enable_freeinit: bool = False
     freeinit_iterations: int = 2
+    # ── AnimateDiff-Lightning (ByteDance distilled, 10× faster) ──
+    # Activated when animatediff_model = "ByteDance/AnimateDiff-Lightning"
+    animatediff_lightning_steps: int = Field(4, ge=1, le=8)
+    animatediff_lightning_cfg: float = Field(2.0, ge=1.0, le=5.0)  # 2.0 preserves negative prompts
+    animatediff_motion_lora_strength: float = Field(0.75, ge=0.0, le=1.0)
+    animatediff_lightning_freeu: bool = True  # False = force-disable FreeU for Lightning pipelines
 
     # ── Audio Reactivity ──────────────────────────────────────
     audio_cache_dir: str = ""  # empty = system temp dir
@@ -127,6 +134,11 @@ class Settings(BaseSettings):
     ffmpeg_path: str = ""  # empty = auto-detect via shutil.which("ffmpeg")
 
     model_config = {"env_prefix": "SDDJ_"}
+
+    @cached_property
+    def is_animatediff_lightning(self) -> bool:
+        """True when the configured AnimateDiff model is Lightning."""
+        return "animatediff-lightning" in self.animatediff_model.lower()
 
     @model_validator(mode='after')
     def _warn_missing_dirs(self):

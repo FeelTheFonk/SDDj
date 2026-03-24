@@ -2,6 +2,8 @@
 
 ![demo1](https://github.com/user-attachments/assets/0ca19204-fdcd-46fb-86d1-23a48226f9ef)
 
+![Version](https://img.shields.io/badge/version-0.9.42-blue) ![Python](https://img.shields.io/badge/python-3.11--3.13-green) ![CUDA](https://img.shields.io/badge/CUDA-12.8-brightgreen) ![License](https://img.shields.io/badge/license-MIT-orange)
+
 ---
 
 Local SOTA generation and animation for Aseprite via Stable Diffusion 1.5 + AnimateDiff.
@@ -118,35 +120,54 @@ sddj/
 
 ## Features
 
-- **txt2img / img2img / inpaint / ControlNet** — OpenPose, Canny, Scribble, Lineart (v1.1)
-- **Sequence Output** (v0.6.1) — Choose per-generation output: new layer (default) or new frame in the timeline — ideal for img2img iteration and loop workflows
-- **Loop Mode** (v0.4.0) — Continuous generation with random seeds for rapid variation exploration
-- **Random Loop** (v0.5.0) — Continuous generation with auto-randomized prompts; lock subject/elements while randomizing the rest
-- **Auto-Prompt Generator** (v0.4.0) — Randomize creative prompts from curated templates with lockable fields
-- **Lock Subject** (v0.5.0) — Keep a fixed subject (character, object) while randomizing style, mood, lighting, etc.
-- **Presets** (v0.4.0) — Save/load generation settings; built-in presets for pixel art, anime, character, landscape, and more
-- **Audio Reactivity** (v0.7.0-v0.7.4) — Synth-style modulation matrix: map audio features (RMS, onset, spectral, beat, per-stem, sub-bass, upper-mid, presence) to inference parameters (denoise, CFG, noise, ControlNet, seed, palette shift, frame cadence, **motion/camera**). BPM detection + auto-calibration recommends best preset. 24 built-in presets (genre/style/complexity/target/motion). Prompt scheduling for per-segment prompts. Deforum-inspired math expressions with BPM variable. Optional CPU stem separation (demucs). AnimateDiff + Audio mode for temporal coherence (16-frame chunked batches with overlap blending). **Frame limit** control (0 = all, or exact count).
-- **Audio-Reactive Motion** (v0.7.4+) — Smooth Deforum-like camera: pan, zoom, rotation, **perspective tilt** (faux 3D pitch/yaw via homography warp) driven by audio features. 2D affine warp + perspective tilt with anti-spaghetti protection (denoise correlation, rate limiting with total motion budget, EMA smoothing, border replication, Lanczos4, warp-before-img2img). 4 dedicated motion presets + 4 advanced camera presets (`cinematic_tilt`, `zoom_breathe`, `parallax_drift`, `full_cinematic`) + 14 existing presets enriched with motion.
-- **Animation** — Dual-method: Frame Chain (img2img chaining) + AnimateDiff (motion module temporal consistency)
-- **AnimateDiff** — Motion adapter v1-5-3, FreeInit support, auto DeepCache disable/re-enable, ControlNet compatible
-- **LoRA stacking** — Hyper-SD (speed) + style LoRA (±2.0 weight range)
-- **Textual Inversion** — EasyNegative for quality (auto-loaded from `server/models/embeddings/`)
-- **CLIP skip 2** — Skips last encoder layer for better stylized output
-- **Fast generation** — Hyper-SD (8 steps) + DeepCache + FreeU v2 + torch.compile (~2-5s on RTX 4060 after warmup)
-- **Post-processing** (optional, primarily for pixel art) — Pixelate, K-Means/Octree/MedianCut quantize, CIELAB palette enforcement (KD-Tree), Floyd-Steinberg (Numba JIT) / Bayer dithering, bg removal (BiRefNet)
-- **Startup warmup** — Pre-compiles torch + Numba JIT on boot (first real generation is fast)
-- **Health check** — `GET /health` for readiness polling
-- **Concurrency safe** — GPU access serialized via asyncio lock
-- **MP4 Export** (v0.7.3) — Export audio-reactive animations as MP4 with nearest-neighbor upscaling and embedded audio. Quality presets: web, high, archive, raw. Requires ffmpeg.
-- **Cancellation** (v0.6.1, v0.7.3 fix) — Robust multi-layered cancel: immediate server ACK, 30s safety timer fallback, GPU cleanup on timeout; concurrent receive loop handles cancel during long-running generations (audio-reactive, AnimateDiff). Works across all modes.
-- **Auto-reconnect** (v0.6.1) — Exponential backoff reconnection (2s → 30s max) with heartbeat pong watchdog (3× interval unresponsive → disconnect + reconnect)
-- **Generation timeout** — Configurable max time per generation (default 10min, auto-scaled for animation); sends cancel to server to free the GPU
-- **Contextual Action Button** (v0.7.7) — Single action button that adapts to the active tab: GENERATE, ANIMATE, AUDIO GEN. Action bar moved to top for instant access.
-- **Universal Randomize** (v0.7.7) — Randomize checkbox works across all pipelines (Generate, Animation, Audio). Generates a random prompt before executing any pipeline action.
-- **Randomness Slider** (v0.7.7) — 0-20 scale controlling prompt diversity: Off (0), Subtle (5), Moderate (10), Wild (15), Chaos (20). Chaos mode combines multiple items per category; Wild mode favors rare items and random templates.
-- **Dedicated Pipeline Sliders** (v0.7.7) — Animation and Audio tabs have their own Steps, CFG, and Strength sliders, independent from the Generate tab. Fixes the shared-slider bug where changing Generate settings silently affected other pipelines.
-- **Audio-Linked Randomness** (v0.7.7) — When randomness > 0 in audio-reactive mode, auto-generates varied prompt segments aligned to musical onset peaks and BPM. Higher randomness = more scene variety synchronized to the music (2-12 segments, capped).
-- **Palette CRUD** (v0.7.9) — Save and delete custom palettes from the UI. Palettes persist as JSON files alongside built-in presets (PICO-8, Game Boy, etc.).
+### Generation
+
+| Feature | Version | Description |
+|---------|---------|-------------|
+| **txt2img / img2img / inpaint** | v0.3.0 | Core generation modes |
+| **[ControlNet](docs/GUIDE.md#controlnet)** | v0.3.0 | OpenPose, Canny, Scribble, Lineart (v1.1) |
+| **Sequence Output** | v0.6.1 | Output as new layer (default) or new frame in the timeline |
+| **[Loop Mode](docs/GUIDE.md#loop-mode)** | v0.4.0 | Continuous generation with random/increment seeds |
+| **[Random Loop](docs/GUIDE.md#random-loop)** | v0.5.0 | Auto-randomized prompts; lock subject while randomizing style |
+| **[Auto-Prompt Generator](docs/GUIDE.md#auto-prompt-generator)** | v0.4.0 | 9-phase composition engine with curated templates |
+| **[Presets](docs/GUIDE.md#presets)** | v0.4.0 | Save/load generation settings; 7 built-in presets |
+| **Randomness Slider** | v0.7.7 | 0-20 scale controlling prompt diversity |
+| **Contextual Action Button** | v0.7.7 | Single button adapts to active tab (GENERATE / ANIMATE / AUDIO GEN) |
+| **Dedicated Pipeline Sliders** | v0.7.7 | Animation and Audio tabs have independent Steps, CFG, Strength |
+| **Palette CRUD** | v0.7.9 | Save/delete custom palettes from the UI |
+
+### Animation
+
+| Feature | Version | Description |
+|---------|---------|-------------|
+| **Frame Chain** | v0.3.0 | img2img chaining for walk cycles, simple loops |
+| **AnimateDiff** | v0.3.0 | Motion module (v1-5-3) for temporal consistency, FreeInit support |
+| **[AnimateDiff-Lightning](docs/GUIDE.md#animatediff-lightning-v0941)** | v0.9.41 | 10× faster animation via adversarial distillation (2/4/8-step) |
+
+### [Audio Reactivity](docs/AUDIO-REACTIVITY.md)
+
+| Feature | Version | Description |
+|---------|---------|-------------|
+| **Modulation Matrix** | v0.7.0 | Synth-style source→target routing with attack/release EMA |
+| **34 Audio Features** | v0.9.35 | 9 bands, 5 spectral timbral, 12 chroma, core features |
+| **[24 Presets](docs/AUDIO-REACTIVITY.md#presets-reference)** | v0.7.1+ | Genre/style/complexity/target/motion, auto-calibration |
+| **[Motion/Camera](docs/AUDIO-REACTIVITY.md#motion--camera-v074)** | v0.7.4 | Deforum-like pan/zoom/rotate + perspective tilt (faux 3D) |
+| **AnimateDiff + Audio** | v0.7.3 | 16-frame temporal batches with overlap blending |
+| **Prompt Scheduling** | v0.7.1 | Per-segment prompts + audio-linked auto-generation |
+| **[MP4 Export](docs/AUDIO-REACTIVITY.md#mp4-export-v073)** | v0.7.3 | Nearest-neighbor upscaling, audio mux, quality presets |
+| **Stem Separation** | v0.7.0 | Optional CPU stem separation via demucs |
+
+### Pipeline & Quality
+
+| Feature | Description |
+|---------|-------------|
+| **LoRA stacking** | Hyper-SD (speed) + style LoRA (±2.0 weight range) |
+| **Textual Inversion** | EasyNegative auto-loaded from `server/models/embeddings/` |
+| **CLIP skip 2** | Better stylized output (configurable 1-12) |
+| **[Post-processing](docs/GUIDE.md#post-processing-pipeline)** | Pixelate, quantize, CIELAB palette, dithering, bg removal |
+| **Cancellation** | Multi-layered cancel with server ACK + 30s safety timer |
+| **Auto-reconnect** | Exponential backoff (2s→30s) + heartbeat watchdog |
+| **Concurrency safe** | GPU access serialized via asyncio lock |
 
 ## Performance Stack
 
@@ -158,6 +179,7 @@ sddj/
 | **CLIP skip 2** | Skip last CLIP layer | Better stylized output |
 | **torch.compile** (default) | UNet Triton codegen | ~20-30% faster inference |
 | **AnimateDiff** (motion adapter v1-5-3) | Temporally consistent animation | Motion module ~97MB |
+| **AnimateDiff-Lightning** (optional) | Adversarial distillation (4-step) | ~10x faster AnimateDiff |
 | **FreeInit** (optional, 2 iters) | Improved AnimateDiff temporal consistency | ~2x AnimateDiff time |
 | **PyTorch SDP** (native, auto-active) | Fused attention kernels (FlashAttention2) | Memory + speed |
 | **VAE slicing + tiling** | Batched VAE decode | Lower VRAM peak |

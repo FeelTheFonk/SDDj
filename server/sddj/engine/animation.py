@@ -405,16 +405,30 @@ class AnimationMixin:
         else:
             pipe = self._animatediff.ensure_base(self._pipe)
 
-        # FreeInit (not supported on vid2vid pipeline)
+        # FreeInit (not supported on vid2vid or Lightning pipelines)
         if req.enable_freeinit and not is_img2img:
-            try:
-                pipe.enable_free_init(
-                    num_iters=req.freeinit_iterations,
-                    use_fast_sampling=True,
-                )
-                log.info("FreeInit enabled (%d iterations)", req.freeinit_iterations)
-            except Exception as e:
-                log.warning("FreeInit unavailable: %s", e)
+            if settings.is_animatediff_lightning:
+                log.warning("FreeInit disabled: incompatible with AnimateDiff-Lightning (distilled model)")
+            else:
+                try:
+                    pipe.enable_free_init(
+                        num_iters=req.freeinit_iterations,
+                        use_fast_sampling=True,
+                    )
+                    log.info("FreeInit enabled (%d iterations)", req.freeinit_iterations)
+                except Exception as e:
+                    log.warning("FreeInit unavailable: %s", e)
+
+        # Lightning parameter enforcement
+        if settings.is_animatediff_lightning:
+            effective_steps = settings.animatediff_lightning_steps
+            effective_cfg = settings.animatediff_lightning_cfg
+            log.info("AnimateDiff-Lightning: enforcing steps=%d, cfg=%.1f "
+                     "(request had steps=%d, cfg=%.1f)",
+                     effective_steps, effective_cfg, req.steps, req.cfg_scale)
+        else:
+            effective_steps = req.steps
+            effective_cfg = req.cfg_scale
 
         seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
         seed = seed % (2**32)  # clamp to valid CUDA generator range
@@ -429,7 +443,7 @@ class AnimationMixin:
                 raise GenerationCancelled("Animation cancelled by client")
             if on_progress:
                 on_progress(ProgressResponse(
-                    step=step_idx + 1, total=req.steps,
+                    step=step_idx + 1, total=effective_steps,
                     frame_index=0, total_frames=req.frame_count,
                 ))
             return callback_kwargs
@@ -447,19 +461,19 @@ class AnimationMixin:
                 video_input = [source] * req.frame_count
 
                 _cap = max(settings.distilled_step_scale_cap, 1)
-                min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
+                min_denoise = min(1.0, 2.0 / max(effective_steps * _cap, 1) + 1e-3)
                 strength = max(req.denoise_strength, min_denoise)
-                scaled_steps = scale_steps_for_denoise(req.steps, strength)
+                scaled_steps = scale_steps_for_denoise(effective_steps, strength)
 
                 log.info("AnimateDiff img2img: %d frames, steps=%d (scaled=%d), strength=%.2f",
-                         req.frame_count, req.steps, scaled_steps, strength)
+                         req.frame_count, effective_steps, scaled_steps, strength)
 
                 kwargs = dict(
                     video=video_input,
                     prompt=req.prompt,
                     negative_prompt=effective_neg,
                     num_inference_steps=scaled_steps,
-                    guidance_scale=req.cfg_scale,
+                    guidance_scale=effective_cfg,
                     strength=strength,
                     generator=generator,
                     clip_skip=req.clip_skip,
@@ -472,8 +486,8 @@ class AnimationMixin:
                     prompt=req.prompt,
                     negative_prompt=effective_neg,
                     num_frames=req.frame_count,
-                    num_inference_steps=req.steps,
-                    guidance_scale=req.cfg_scale,
+                    num_inference_steps=effective_steps,
+                    guidance_scale=effective_cfg,
                     width=target_w,
                     height=target_h,
                     generator=generator,

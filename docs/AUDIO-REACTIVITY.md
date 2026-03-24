@@ -142,7 +142,7 @@ Inference parameters that can be modulated per-frame:
 
 | Target | Range | Effect |
 |--------|-------|--------|
-| `denoise_strength` | 0.05 - 0.95 | How much each frame changes from the previous. Higher = more change. |
+| `denoise_strength` | 0.20 - 0.95 | How much each frame changes from the previous. Higher = more change. |
 | `cfg_scale` | 1.0 - 30.0 | How closely the model follows the prompt. Higher = more prompt adherence. |
 | `noise_amplitude` | 0.0 - 1.0 | Additive noise injected before generation. Creates visual turbulence. |
 | `controlnet_scale` | 0.0 - 2.0 | ControlNet conditioning strength (if using ControlNet mode). |
@@ -442,7 +442,7 @@ Optional CPU-based stem separation via demucs (htdemucs model).
 
 **Performance**: ~20-60 seconds per minute of audio (first run). Results are cached for 24 hours.
 
-**Available stems**: drums, bass, vocals, other — each provides `_rms` and `_onset` features.
+**Available stems**: drums, bass, vocals, other — each gets all 34 features (rms, onset, spectral, chroma, bands).
 
 **When to use**: When you want specific instrument reactivity (e.g., drums driving denoise, vocals driving CFG).
 

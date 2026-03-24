@@ -6,6 +6,8 @@ All environment variables are prefixed with `SDDJ_`. Example: `SDDJ_PORT=8080`.
 
 ---
 
+> **Priority**: environment variable (system) > `server/.env` file > defaults listed below. Copy `server/.env.example` to `server/.env` to customize.
+
 ## Network
 
 | Variable | Default | Description |
@@ -80,6 +82,17 @@ All environment variables are prefixed with `SDDJ_`. Example: `SDDJ_PORT=8080`.
 | `SDDJ_ANIMATEDIFF_MODEL` | `guoyww/animatediff-motion-adapter-v1-5-3` | AnimateDiff motion adapter |
 | `SDDJ_ENABLE_FREEINIT` | `False` | FreeInit for AnimateDiff |
 | `SDDJ_FREEINIT_ITERATIONS` | `2` | FreeInit iteration count |
+
+## AnimateDiff-Lightning
+
+Activated when `SDDJ_ANIMATEDIFF_MODEL` is set to `ByteDance/AnimateDiff-Lightning`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SDDJ_ANIMATEDIFF_LIGHTNING_STEPS` | `4` | Step count aligned to distillation target (1-8) |
+| `SDDJ_ANIMATEDIFF_LIGHTNING_CFG` | `2.0` | CFG scale for Lightning (1.0-5.0, preserves negative prompt) |
+| `SDDJ_ANIMATEDIFF_MOTION_LORA_STRENGTH` | `0.75` | Motion LoRA strength (0.0-1.0) |
+| `SDDJ_ANIMATEDIFF_LIGHTNING_FREEU` | `True` | Enable FreeU for Lightning pipelines |
 
 ## Audio
 
