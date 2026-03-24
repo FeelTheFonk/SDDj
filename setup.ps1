@@ -17,6 +17,9 @@ function Warn($msg) { Write-Host "  ${Y}!${R}  $msg" }
 $Root = $PSScriptRoot
 Set-Location $Root
 
+# Venv Python path (used after step 2 for all subsequent steps — no uv resolve overhead)
+$venvPython = "$Root/server/.venv/Scripts/python.exe"
+
 Write-Host ""
 Write-Host "  ${B}${W}SDDj${R}  ${D}Setup${R}"
 Write-Host "  ${D}$('-' * 36)${R}"
@@ -46,29 +49,23 @@ Ok "torch, diffusers, triton installed"
 # --- 3. Download models -----------------------------------------------------
 Step 3 6 "Checking / downloading models (~10 GB first time)"
 
-# If --skip-models flag was passed, skip download
 $skipModels = $args -contains "--skip-models"
 if ($skipModels) {
     Ok "Skipped (--skip-models)"
 } else {
-    Push-Location "$Root/server"
-    uv run python "$Root/scripts/download_models.py" --all
+    & $venvPython "$Root/scripts/download_models.py" --all
     if ($LASTEXITCODE -ne 0) {
-        Pop-Location
         Warn "Model download had errors — you can retry later or place models manually"
-        Warn "Re-run: uv run python scripts/download_models.py --all"
+        Warn "Re-run: $venvPython scripts/download_models.py --all"
     } else {
-        Pop-Location
         Ok "Models ready"
     }
 }
 
 # --- 4. Build extension ------------------------------------------------------
 Step 4 6 "Building Aseprite extension"
-Push-Location "$Root/server"
-$null = uv run python "$Root/scripts/build_extension.py" 2>&1
-if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "Extension build failed" }
-Pop-Location
+$null = & $venvPython "$Root/scripts/build_extension.py" 2>&1
+if ($LASTEXITCODE -ne 0) { Fail "Extension build failed" }
 Ok "Extension built"
 
 # --- 5. Install extension ----------------------------------------------------
@@ -109,12 +106,10 @@ if (-not (Test-Path "$Root/server/.env")) {
 # --- Verify ------------------------------------------------------------------
 Write-Host ""
 Write-Host "  ${D}Verifying...${R}"
-Push-Location "$Root/server"
 try {
-    $ver = uv run python -c "import sddj; print(sddj.__version__)" 2>$null
+    $ver = & $venvPython -c "import sddj; print(sddj.__version__)" 2>$null
     Ok "SDDj v$ver"
 } catch { Warn "Package import check failed" }
-Pop-Location
 
 # --- Done --------------------------------------------------------------------
 Write-Host ""
