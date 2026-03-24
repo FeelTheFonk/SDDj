@@ -101,6 +101,7 @@ function PT.build_analyze_audio_request()
 end
 
 function PT.build_audio_reactive_request()
+  if not PT.dlg then return nil end
   local d = PT.dlg.data
   local gw, gh = PT.parse_size()
   local tag_name = d.anim_tag or ""
@@ -253,6 +254,7 @@ end
 
 -- Factored from generate button onclick + loop continuation (eliminates duplication).
 function PT.build_generate_request()
+  if not PT.dlg then return nil end
   local gw, gh = PT.parse_size()
   local req = {
     action           = "generate",

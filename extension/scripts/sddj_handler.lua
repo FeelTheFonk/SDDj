@@ -44,7 +44,7 @@ handlers.result = function(resp)
   PT.state.cancel_pending = false
   PT.timers.cancel_safety = PT.stop_timer(PT.timers.cancel_safety)
 
-  if not resp.image then
+  if not resp.image or resp.image == "" then
     PT.loop.mode = false
     PT.loop.random_mode = false
     PT.update_status("Error: missing image in result response")
@@ -96,6 +96,14 @@ handlers.result = function(resp)
 
         -- Standard loop: generate directly
         local req = PT.build_generate_request()
+        if not req then
+          PT.loop.mode = false
+          PT.loop.random_mode = false
+          PT.finalize_sequence()
+          PT.reset_ui_buttons()
+          PT.update_status("Loop stopped (dialog closed)")
+          return
+        end
         if not PT.attach_source_image(req) then
           PT.loop.mode = false
           PT.loop.random_mode = false
@@ -125,7 +133,7 @@ end
 -- ─── Animation Frame ────────────────────────────────────────
 
 handlers.animation_frame = function(resp)
-  if not resp.image then
+  if not resp.image or resp.image == "" then
     PT.update_status("Error: missing image in animation_frame response")
     return
   end
@@ -333,6 +341,14 @@ handlers.prompt_result = function(resp)
   elseif PT.loop.random_mode and PT.loop.mode and PT.dlg and PT.state.connected then
     -- Random loop: auto-trigger generation after prompt is set
     local req = PT.build_generate_request()
+    if not req then
+      PT.loop.mode = false
+      PT.loop.random_mode = false
+      PT.finalize_sequence()
+      PT.reset_ui_buttons()
+      PT.update_status("Random loop stopped (dialog closed)")
+      return
+    end
     if not PT.attach_source_image(req) then
       PT.loop.mode = false
       PT.loop.random_mode = false
@@ -495,7 +511,7 @@ handlers.audio_analysis = function(resp)
 end
 
 handlers.audio_reactive_frame = function(resp)
-  if not resp.image then
+  if not resp.image or resp.image == "" then
     PT.update_status("Error: missing image in audio_reactive_frame")
     return
   end
@@ -627,11 +643,44 @@ handlers.shutdown_ack = function(resp)
   if PT.dlg then PT.update_status("Server shutting down...") end
 end
 
--- ─── Dispatch ───────────────────────────────────────────────
+-- ─── Dispatch (anti-re-entrancy queue) ──────────────────────
+-- app.refresh() / app.transaction() pump Aseprite's event loop,
+-- which can deliver the next WebSocket message while we're still
+-- processing the current one. Without this guard, each re-entrant
+-- call adds C stack frames until the ~200-frame limit is hit
+-- (observed at frame ~80 in audio reactive chain mode).
+-- Fix: queue any response that arrives while we're already inside
+-- a handler, then drain the queue iteratively after the current
+-- handler returns.
+
+local _response_queue = {}
+local _processing = false
 
 function PT.handle_response(resp)
-  local handler = handlers[resp.type]
-  if handler then handler(resp) end
+  if _processing then
+    _response_queue[#_response_queue + 1] = resp
+    return
+  end
+  _processing = true
+  local ok, err = pcall(function()
+    local handler = handlers[resp.type]
+    if handler then handler(resp) end
+  end)
+  if not ok then
+    pcall(PT.update_status, "Handler error: " .. tostring(err))
+  end
+  -- Drain queued messages iteratively (FIFO — no recursion)
+  while #_response_queue > 0 do
+    local queued = table.remove(_response_queue, 1)
+    local qok, qerr = pcall(function()
+      local handler = handlers[queued.type]
+      if handler then handler(queued) end
+    end)
+    if not qok then
+      pcall(PT.update_status, "Handler error: " .. tostring(qerr))
+    end
+  end
+  _processing = false
 end
 
 end

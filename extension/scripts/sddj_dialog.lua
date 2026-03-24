@@ -891,6 +891,7 @@ function PT.trigger_generate()
   end
 
   local req = PT.build_generate_request()
+  if not req then PT.loop.mode = false; PT.loop.random_mode = false; return end
   if not PT.attach_source_image(req) then PT.loop.mode = false; PT.loop.random_mode = false; return end
 
   PT.state.generating = true
@@ -964,6 +965,7 @@ function PT.trigger_audio_generate()
   end
 
   local req = PT.build_audio_reactive_request()
+  if not req then return end
   if not PT.attach_source_image(req) then return end
 
   PT.audio.generating = true

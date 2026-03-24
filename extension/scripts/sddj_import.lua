@@ -155,6 +155,10 @@ function PT.import_animation_frame(resp)
   if resp.frame_index ~= 0 and PT.anim.layer == nil then return end
 
   local img_data = PT.base64_decode(resp.image)
+  if not img_data or #img_data == 0 then
+    PT.update_status("Frame " .. (resp.frame_index + 1) .. " decode failed — skipped")
+    return
+  end
   local tmp = PT.make_tmp_path("anim")
 
   local ok, err = pcall(function()

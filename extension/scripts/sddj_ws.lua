@@ -7,7 +7,9 @@ return function(PT)
 -- ─── Status ─────────────────────────────────────────────────
 
 function PT.update_status(text)
-  if PT.dlg then PT.dlg:modify{ id = "status", text = text } end
+  if PT.dlg then
+    pcall(PT.dlg.modify, PT.dlg, { id = "status", text = text })
+  end
 end
 
 -- ─── Heartbeat ──────────────────────────────────────────────
@@ -18,7 +20,7 @@ end
 
 function PT.start_heartbeat()
   PT.stop_heartbeat()
-  PT.timers.heartbeat = Timer{
+  local ok, t = pcall(Timer, {
     interval = PT.cfg.HEARTBEAT_INTERVAL,
     ontick = function()
       if not PT.state.connected or not PT.ws_handle then return end
@@ -38,8 +40,8 @@ function PT.start_heartbeat()
         pcall(function() PT.ws_handle:sendText('{"action":"ping"}') end)
       end
     end,
-  }
-  PT.timers.heartbeat:start()
+  })
+  if ok and t then PT.timers.heartbeat = t; t:start() end
 end
 
 -- ─── Generation Timeout ─────────────────────────────────────
@@ -50,7 +52,7 @@ end
 
 function PT.start_gen_timeout(override_seconds)
   PT.stop_gen_timeout()
-  PT.timers.gen_timeout = Timer{
+  local ok, t = pcall(Timer, {
     interval = override_seconds or PT.cfg.GEN_TIMEOUT,
     ontick = function()
       PT.stop_gen_timeout()
@@ -75,8 +77,8 @@ function PT.start_gen_timeout(override_seconds)
         end
       end
     end,
-  }
-  PT.timers.gen_timeout:start()
+  })
+  if ok and t then PT.timers.gen_timeout = t; t:start() end
 end
 
 -- ─── Connection State ───────────────────────────────────────

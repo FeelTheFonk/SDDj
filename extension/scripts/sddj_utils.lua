@@ -86,7 +86,7 @@ end
 --   timer = PT.stop_timer(timer)
 function PT.stop_timer(t)
   if t then
-    if t.isRunning then t:stop() end
+    pcall(function() if t.isRunning then t:stop() end end)
   end
   return nil
 end
