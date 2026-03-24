@@ -1,6 +1,6 @@
 [project]
 name = "sddj-server"
-version = "0.9.3"
+version = "0.9.31"
 description = "Local SOTA generation and animation server for Aseprite via Stable Diffusion"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
@@ -57,3 +57,13 @@ packages = ["sddj"]
 # ── uv: force PyTorch CUDA 12.8 builds ──────────────────────
 [tool.uv]
 extra-index-url = ["https://download.pytorch.org/whl/cu128"]
+
+# ── pytest ───────────────────────────────────────────────────
+[tool.pytest.ini_options]
+filterwarnings = [
+    # audioread (librosa transitive dep) imports deprecated aifc/sunau on Python 3.13
+    "ignore::DeprecationWarning:audioread",
+    "ignore::DeprecationWarning:standard_aifc",
+    "ignore::DeprecationWarning:standard_sunau",
+]
+

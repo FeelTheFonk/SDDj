@@ -2,6 +2,20 @@
 
 All notable changes to SDDj are documented here.
 
+## [0.9.31] — 2026-03
+
+### Added
+- Unit tests for `auto_calibrate.py` — 10 test cases covering every decision tree branch (ambient, electronic, hiphop, rock, bass, rhythmic, classical, glitch, default, empty-features safety)
+- Centralized warning suppression in `__init__.py` — 15 filters covering diffusers, transformers, torch, PEFT, and audioread for a spotless console from boot
+
+### Fixed
+- README: clarified palette directory comment (removed ambiguous "7 preset palettes" count)
+- Removed duplicate warning suppression block from `engine/core.py` (now in `__init__.py`)
+- Suppressed Python 3.13 `aifc`/`sunau` deprecation warnings from audioread (librosa transitive dep) in pytest config
+
+### Changed
+- Version scheme: sub-versions within 0.9.3x (dizaines) for polish increments
+
 ## [0.9.3] — 2026-03
 
 ### Fixed

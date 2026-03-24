@@ -19,7 +19,6 @@ import logging
 import random
 import threading
 import time
-import warnings
 from typing import Callable, Optional
 
 import torch
@@ -57,15 +56,6 @@ from ..lora_fuser import LoRAFuser
 from .helpers import GenerationCancelled, scale_steps_for_denoise
 from .animation import AnimationMixin
 from .audio_reactive import AudioReactiveMixin
-
-# Suppress known harmless library warnings
-warnings.filterwarnings("ignore", message=".*safety checker.*")
-warnings.filterwarnings("ignore", message=".*expandable_segments.*")
-warnings.filterwarnings("ignore", message=".*CLIPFeatureExtractor.*")
-warnings.filterwarnings("ignore", message=".*No LoRA keys associated to CLIPTextModel.*")
-warnings.filterwarnings("ignore", message=".*ComplexHalf support is experimental.*")
-warnings.filterwarnings("ignore", message=".*Torchinductor does not support code generation for complex.*")
-warnings.filterwarnings("ignore", message=".*Not enough SMs to use max_autotune_gemm.*")
 
 log = logging.getLogger("sddj.engine")
 

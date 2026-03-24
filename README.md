@@ -77,7 +77,7 @@ sddj/
 ├── server/
 │   ├── pyproject.toml           # Dependencies (torch CUDA 12.8)
 │   ├── run.py                   # Entry point
-│   ├── palettes/                # 7 preset palettes (JSON)
+│   ├── palettes/                # Color palettes (JSON)
 │   ├── presets/                 # Built-in and user-saved generation presets
 │   ├── data/prompts/            # Auto-prompt generator data files
 │   ├── models/                  # Downloaded models (auto-populated)
