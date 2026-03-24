@@ -2,6 +2,7 @@
 -- json.lua — Minimal JSON encoder/decoder for Aseprite Lua
 -- Pure Lua implementation, no dependencies.
 -- Supports: objects, arrays, strings, numbers, booleans, null.
+-- Hardened: depth limits + cycle detection prevent stack overflow.
 --
 
 local json = {}
@@ -11,6 +12,10 @@ local json = {}
 -- Normal empty tables {} still encode as {} (safe for dict-typed fields).
 local _EMPTY_ARRAY_MT = {}
 json.EMPTY_ARRAY = setmetatable({}, _EMPTY_ARRAY_MT)
+
+-- Hard limits — prevent stack overflow on circular or adversarial data.
+local _MAX_ENCODE_DEPTH = 128
+local _MAX_DECODE_DEPTH = 128
 
 -- ─── DECODE ──────────────────────────────────────────────────
 
@@ -88,13 +93,14 @@ end
 
 local decode_value -- forward declaration
 
-local function decode_array(s, i)
+local function decode_array(s, i, depth)
+  if depth > _MAX_DECODE_DEPTH then error("JSON nesting too deep") end
   local arr = {}
   i = skip_ws(s, i + 1)  -- skip [
   if s:sub(i, i) == ']' then return arr, i + 1 end
   while true do
     local val
-    val, i = decode_value(s, i)
+    val, i = decode_value(s, i, depth)
     arr[#arr+1] = val
     i = skip_ws(s, i)
     local c = s:sub(i, i)
@@ -104,7 +110,8 @@ local function decode_array(s, i)
   end
 end
 
-local function decode_object(s, i)
+local function decode_object(s, i, depth)
+  if depth > _MAX_DECODE_DEPTH then error("JSON nesting too deep") end
   local obj = {}
   i = skip_ws(s, i + 1)  -- skip {
   if s:sub(i, i) == '}' then return obj, i + 1 end
@@ -119,7 +126,7 @@ local function decode_object(s, i)
     i = skip_ws(s, i + 1)
     -- value
     local val
-    val, i = decode_value(s, i)
+    val, i = decode_value(s, i, depth)
     obj[key] = val
     i = skip_ws(s, i)
     local c = s:sub(i, i)
@@ -129,12 +136,14 @@ local function decode_object(s, i)
   end
 end
 
-decode_value = function(s, i)
+decode_value = function(s, i, depth)
+  depth = (depth or 0) + 1
+  if depth > _MAX_DECODE_DEPTH then error("JSON nesting too deep") end
   i = skip_ws(s, i)
   local c = s:sub(i, i)
   if c == '"' then return decode_string(s, i)
-  elseif c == '{' then return decode_object(s, i)
-  elseif c == '[' then return decode_array(s, i)
+  elseif c == '{' then return decode_object(s, i, depth)
+  elseif c == '[' then return decode_array(s, i, depth)
   elseif c == 't' then
     assert(s:sub(i, i+3) == "true", "Invalid literal at " .. i)
     return true, i + 4
@@ -161,7 +170,7 @@ decode_value = function(s, i)
 end
 
 function json.decode(s)
-  local val, _ = decode_value(s, 1)
+  local val, _ = decode_value(s, 1, 0)
   return val
 end
 
@@ -191,23 +200,26 @@ local function is_array(t)
   return t[1] ~= nil and t[count] ~= nil
 end
 
-local function encode_array(arr)
+local function encode_array(arr, seen, depth)
   local parts = {}
   for i, v in ipairs(arr) do
-    parts[i] = encode_value(v)
+    parts[i] = encode_value(v, seen, depth)
   end
   return '[' .. table.concat(parts, ',') .. ']'
 end
 
-local function encode_object(obj)
+local function encode_object(obj, seen, depth)
   local parts = {}
   for k, v in pairs(obj) do
-    parts[#parts+1] = encode_string(tostring(k)) .. ':' .. encode_value(v)
+    parts[#parts+1] = encode_string(tostring(k)) .. ':' .. encode_value(v, seen, depth)
   end
   return '{' .. table.concat(parts, ',') .. '}'
 end
 
-encode_value = function(v)
+encode_value = function(v, seen, depth)
+  depth = (depth or 0) + 1
+  if depth > _MAX_ENCODE_DEPTH then return 'null' end
+
   local t = type(v)
   if v == nil then return 'null'
   elseif t == 'boolean' then return v and 'true' or 'false'
@@ -218,17 +230,30 @@ encode_value = function(v)
     return tostring(v)
   elseif t == 'string' then return encode_string(v)
   elseif t == 'table' then
+    -- Cycle detection: if we've already visited this exact table, emit null
+    seen = seen or {}
+    if seen[v] then return 'null' end
+    seen[v] = true
+
+    local result
     -- Explicit empty-array sentinel: always encode as []
-    if getmetatable(v) == _EMPTY_ARRAY_MT then return '[]' end
-    if is_array(v) then return encode_array(v)
-    else return encode_object(v) end
+    if getmetatable(v) == _EMPTY_ARRAY_MT then
+      result = '[]'
+    elseif is_array(v) then
+      result = encode_array(v, seen, depth)
+    else
+      result = encode_object(v, seen, depth)
+    end
+
+    seen[v] = nil  -- allow same table in sibling branches (DAG-safe)
+    return result
   else
     return 'null'
   end
 end
 
 function json.encode(v)
-  return encode_value(v)
+  return encode_value(v, nil, 0)
 end
 
 return json

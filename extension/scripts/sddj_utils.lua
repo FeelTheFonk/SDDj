@@ -53,21 +53,31 @@ end
 -- ─── Deep Copy (metadata tracking) ────────────────────────────
 
 -- Deep-copy a request table, excluding heavy base64 image fields.
+-- Depth-limited (max 32) with cycle detection to prevent stack overflow.
 local _IMAGE_KEYS = { source_image = true, mask_image = true, control_image = true, image = true }
+local _MAX_COPY_DEPTH = 32
 
-function PT.deep_copy_request(src)
+local function _deep_copy(src, depth, seen)
   if type(src) ~= "table" then return src end
+  if depth > _MAX_COPY_DEPTH then return nil end
+  if seen[src] then return nil end
+  seen[src] = true
   local dst = {}
   for k, v in pairs(src) do
     if _IMAGE_KEYS[k] then
       -- skip (don't store multi-MB base64 blobs)
     elseif type(v) == "table" then
-      dst[k] = PT.deep_copy_request(v)
+      dst[k] = _deep_copy(v, depth + 1, seen)
     else
       dst[k] = v
     end
   end
+  seen[src] = nil  -- DAG-safe: allow same table in sibling branches
   return dst
+end
+
+function PT.deep_copy_request(src)
+  return _deep_copy(src, 0, {})
 end
 
 -- ─── Timer Lifecycle ────────────────────────────────────────

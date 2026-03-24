@@ -254,7 +254,13 @@ function PT.send(payload)
     PT.update_status("Not connected")
     return false
   end
-  local ok, err = pcall(function() PT.ws_handle:sendText(PT.json.encode(payload)) end)
+  -- Encode first: catches depth/cycle errors from json.encode separately
+  local enc_ok, encoded = pcall(PT.json.encode, payload)
+  if not enc_ok then
+    PT.update_status("Encode error: " .. tostring(encoded))
+    return false
+  end
+  local ok, err = pcall(function() PT.ws_handle:sendText(encoded) end)
   if not ok then
     PT.update_status("Send failed: " .. tostring(err))
     return false

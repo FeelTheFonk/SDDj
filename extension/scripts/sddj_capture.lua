@@ -46,8 +46,9 @@ function PT.capture_mask()
     return PT.image_to_base64(mask_img)
   end
 
-  -- Strategy B: "Mask" layer (recursive group search)
-  local function find_mask_layer(layers)
+  -- Strategy B: "Mask" layer (recursive group search, depth-limited)
+  local function find_mask_layer(layers, depth)
+    if depth > 16 then return nil end
     for _, layer in ipairs(layers) do
       if layer.name == "Mask" or layer.name == "mask" then
         local cel = layer:cel(app.frame)
@@ -59,13 +60,13 @@ function PT.capture_mask()
         end
       end
       if layer.isGroup and layer.layers then
-        local result = find_mask_layer(layer.layers)
+        local result = find_mask_layer(layer.layers, depth + 1)
         if result then return result end
       end
     end
     return nil
   end
-  local mask_b64 = find_mask_layer(spr.layers)
+  local mask_b64 = find_mask_layer(spr.layers, 0)
   if mask_b64 then return mask_b64 end
 
   -- Strategy C: auto from active layer alpha

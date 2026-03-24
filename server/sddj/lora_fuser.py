@@ -68,8 +68,10 @@ class LoRAFuser:
 
         try:
             pipe.load_lora_weights(
-                str(path),
+                str(path.parent),
+                weight_name=path.name,
                 adapter_name=adapter_name,
+                local_files_only=True,
             )
             pipe.fuse_lora(lora_scale=weight)
         except Exception:
