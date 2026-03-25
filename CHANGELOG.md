@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.51] — 2026-03
+### Fixed
+- **Cancel race condition → `_generic_mt_newindex` crash** — Clicking Cancel during audio-reactive or animation generation left pending frames in the response queue, which continued processing via `_drain_next` and attempted `app.transaction` on destroyed Aseprite objects (sprite/layer/cel). 8-point defense-in-depth fix:
+  - **F1** `sddj_dialog.lua` — Immediate `clear_response_queue()` + `stop_refresh_timer()` on cancel click (root cause).
+  - **F2** `sddj_handler.lua` — `cancel_pending` guard on `audio_reactive_frame` handler.
+  - **F3** `sddj_handler.lua` — `cancel_pending` guard on `animation_frame` handler.
+  - **F4** `sddj_handler.lua` — `_drain_next` flushes queue if cancel was requested between timer ticks.
+  - **F5** `sddj_import.lua` — `cancel_pending` guard + unconditional sprite nil bail in `import_animation_frame`.
+  - **F6** `sddj_import.lua` — Sprite re-validation in `finalize_sequence` before `app.transaction` (prevents crash if sprite closed during async yield).
+  - **F7** `sddj_output.lua` — `cancel_pending` guard on `save_animation_frame` (prevents zombie frame file I/O).
+  - **F8** `sddj_ws.lua` — Added `clear_response_queue()` + `stop_refresh_timer()` to `gen_timeout` handler (consistency with `error` handler).
+- **Version drift** — Lua extension version was 0.9.49 while server was 0.9.50; harmonized to 0.9.51.
+
 ## [0.9.50] — 2026-03
 ### Changed
 - **DRY: Unified generation helpers** — `compute_effective_denoise()` and `make_step_callback()` (previously dead code in `helpers.py`) now wired into `animation.py` and `audio_reactive.py`, replacing 8 inline duplications.

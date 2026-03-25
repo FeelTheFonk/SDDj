@@ -70,6 +70,8 @@ function PT.start_gen_timeout(override_seconds)
         PT.loop.random_mode = false
         PT.timers.loop = PT.stop_timer(PT.timers.loop)
         PT.state.gen_step_start = nil
+        PT.stop_refresh_timer()
+        PT.clear_response_queue()
         PT.reset_sequence()
         -- Reset anim tracking fields
         PT.anim.last_frame_index = -1

@@ -75,6 +75,11 @@ function PT.finalize_sequence()
   local spr = app.sprite
   if spr and PT.seq.frame_count > 0 then
     pcall(function()
+      -- Re-validate sprite before transaction (may have been closed)
+      if not app.sprite or app.sprite ~= spr then
+        PT.reset_sequence()
+        return
+      end
       app.transaction("SDDj Sequence Finalize", function()
         local dur = 0.1  -- 100ms default
         for i = 0, PT.seq.frame_count - 1 do
@@ -157,6 +162,7 @@ end
 
 function PT.import_animation_frame(resp)
   if not PT.state.animating then return end
+  if PT.state.cancel_pending then return end
   if resp.frame_index ~= 0 and PT.anim.layer == nil then return end
 
   -- Decode once — store for save_animation_frame to reuse (B3 fix)
@@ -173,11 +179,12 @@ function PT.import_animation_frame(resp)
   local ok, err = pcall(function()
     local spr = app.sprite
     local created_sprite = false
-    if spr == nil then
+    if spr == nil and not PT.state.cancel_pending then
       spr = Sprite(resp.width or 512, resp.height or 512, ColorMode.RGB)
       app.activeSprite = spr
       created_sprite = true
     end
+    if spr == nil then return end  -- no sprite and cancel pending: bail
 
     app.transaction("SDDj Frame", function()
       -- First frame: create layer and anchor position

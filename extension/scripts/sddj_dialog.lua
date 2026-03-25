@@ -1162,6 +1162,9 @@ local function build_actions_panel()
         PT.state.cancel_pending = true
         dlg:modify{ id = "action_btn", enabled = false }
         PT.update_status("Cancelling...")
+        -- Immediate: kill pending frames to prevent zombie imports
+        PT.clear_response_queue()
+        PT.stop_refresh_timer()
         if PT.audio.generating or PT.audio.analyzing then
           dlg:modify{ id = "audio_analyze_btn", enabled = PT.state.connected }
         end

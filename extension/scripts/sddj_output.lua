@@ -99,6 +99,7 @@ end
 
 function PT.save_animation_frame(resp)
   if not PT.output.enabled then return end
+  if PT.state.cancel_pending then return end
   if not PT.dlg or not PT.dlg.data.save_output then return end
   if not resp.image or resp.frame_index == nil then return end
 

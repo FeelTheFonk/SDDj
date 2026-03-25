@@ -146,6 +146,7 @@ end
 -- ─── Animation Frame ────────────────────────────────────────
 
 handlers.animation_frame = function(resp)
+  if PT.state.cancel_pending then return end
   if not resp.image or resp.image == "" then
     PT.update_status("Error: missing image in animation_frame response")
     return
@@ -208,9 +209,15 @@ local function chunked_finalize_durations(target_fps, resp, on_complete)
       end
     end)
     app.refresh()
-    local t = Timer{ interval = 0.01 }
-    t.ontick = function() t:stop() process_chunk(e_idx, elapsed_ms) end
-    t:start()
+    local t_ref = {}
+    local ok_t, t = pcall(Timer, {
+      interval = 0.01,
+      ontick = function()
+        if t_ref[1] then pcall(function() t_ref[1]:stop() end) end
+        process_chunk(e_idx, elapsed_ms)
+      end,
+    })
+    if ok_t and t then t_ref[1] = t; t:start() end
   end
   process_chunk(0, 0)
 end
@@ -602,6 +609,7 @@ handlers.audio_analysis = function(resp)
 end
 
 handlers.audio_reactive_frame = function(resp)
+  if PT.state.cancel_pending then return end
   if not resp.image or resp.image == "" then
     PT.update_status("Error: missing image in audio_reactive_frame")
     return
@@ -908,6 +916,11 @@ end
 
 local function _drain_next()
   if #_response_queue == 0 then return end
+  -- If cancel was requested between ticks, flush remaining queue
+  if PT.state.cancel_pending then
+    PT.clear_response_queue()
+    return
+  end
   -- Process up to 4 messages per tick to clear backlog faster (B6 fix)
   local batch = math.min(#_response_queue, 4)
   for _ = 1, batch do
