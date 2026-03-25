@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.47] — 2026-03
+### Changed
+- **AnimateDiff-Lightning Default Migration** — Elevated ByteDance's AnimateDiff-Lightning to be the out-of-the-box default model, replacing the classic v1.5.3 adapter.
+- Achieved ultimate SOTA out-of-the-box performance with optimized 4-step generation and EulerDiscrete scheduler auto-engagement.
+- Conducted an exhaustive cross-module audit guaranteeing zero edge-case overrides between frontend UI payloads and backend enforcement.
+
 ## [0.9.46] — 2026-03
 ### Added
 - Complete Codebase Hardening: 100% test passing, Ruff compliant.
