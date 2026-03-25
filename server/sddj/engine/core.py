@@ -23,7 +23,6 @@ from typing import Callable, Optional
 
 import torch
 import torch.compiler
-from PIL import Image
 
 from diffusers import StableDiffusionPipeline
 

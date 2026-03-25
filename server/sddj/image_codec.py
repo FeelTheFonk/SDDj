@@ -306,7 +306,7 @@ def match_color_lab(
         img_std = img_lab[:, :, ch].std()
         ref_mean = ref_lab[:, :, ch].mean()
         ref_std = ref_lab[:, :, ch].std()
-        if img_std < 1e-6:
+        if img_std < 1e-6 or ref_std < 1e-6:
             continue
         img_lab[:, :, ch] = (
             (img_lab[:, :, ch] - img_mean) * (ref_std / img_std) + ref_mean

@@ -64,7 +64,7 @@ class StemSeparator:
             )
             log.info("Stem separator loaded")
 
-    def separate(self, audio_path: str, target_sr: int = 22050) -> dict[str, np.ndarray]:
+    def separate(self, audio_path: str, target_sr: int = 44100) -> dict[str, np.ndarray]:
         """Separate audio file into stems.
 
         Args:
@@ -82,7 +82,6 @@ class StemSeparator:
 
         log.info("Separating stems: %s", path.name)
 
-        import torch
 
         # Run separation
         _, stems_tensor = self._separator.separate_audio_file(str(path))

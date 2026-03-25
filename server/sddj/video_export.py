@@ -195,9 +195,13 @@ def export_mp4(
     # Fast start for web streaming
     cmd.extend(["-movflags", "+faststart"])
 
-    # Metadata
+    # Metadata (keys validated against allowlist to prevent CLI injection)
+    _ALLOWED_META_KEYS = {"comment", "tool", "title", "artist", "album", "description"}
     if metadata:
         for key, value in metadata.items():
+            if key not in _ALLOWED_META_KEYS:
+                log.warning("Skipping disallowed metadata key: %s", key)
+                continue
             safe_value = _SAFE_METADATA_RE.sub("", str(value))[:256]
             if safe_value:
                 cmd.extend(["-metadata", f"{key}={safe_value}"])

@@ -553,3 +553,22 @@ class TestValidateExpressions:
             [],
         )
         assert "nonexistent_param" in errors
+
+
+class TestFrameCadenceCoercion:
+    """frame_cadence must be integer-coerced in schedule output."""
+
+    def test_frame_cadence_is_integer_valued(self):
+        engine = ModulationEngine()
+        analysis = _make_analysis(n_frames=10)
+        slots = [ModulationSlot(
+            source="global_rms", target="frame_cadence",
+            min_val=1.0, max_val=4.0, attack=1, release=1, enabled=True,
+        )]
+        schedule = engine.compute_schedule(analysis, slots)
+        for params in schedule.frame_params:
+            val = params.get("frame_cadence")
+            if val is not None:
+                assert val == float(int(val)), f"frame_cadence {val} not integer-valued"
+                assert val >= 1.0, f"frame_cadence {val} < 1"
+

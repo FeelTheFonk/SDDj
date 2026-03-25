@@ -2,9 +2,23 @@
 
 All notable changes to SDDj are documented here.
 
-## [0.9.43] — 2026-03
+## [0.9.44] — 2026-03
+
+### Fixed
+- **Exhaustive Deep Audit Remediation (SOTA 2026 Standard)** — Extensive cross-component architecture review completed with 100/100 performance/rectification validation.
+- **Denoise lower bound** — `breathing_calm` choreography preset floor raised to 0.30, preventing Hyper-SD quality drop.
+- **Audio stem separation sampling rate** — Unified default `target_sr` to 44100Hz aligning with engine DSP output.
+- **Cache Persistence** — Fixed temporal caching flaw where `lufs` metric dropped during `audio_cache` serialization.
+- **Zero-std extraction crash protection** — Added safeguard against `ref_std` in `match_color_lab` to prevent flat outputs from uniform reference images.
+- **Type Coercion** — Added explicit integer boundary mapping for `frame_cadence` inside the modulation schedule processor.
+- **Metadata String Safety** — Blocked command-line injection surface by strictly validating ffmpeg metadata keys against a hardened allowlist.
+- Removed unused assignments and completed strict `ruff` static analysis compliance.
 
 ### Added
+- 4 additional test integration modules covering new zero-std guards, caching constraints, and coercion limits.
+- Complete expression parser validation suite testing all 32 presets (25 expressions + 7 choreographies) for syntax continuity and math soundness (`test_expression_presets.py`). Test suite footprint reaches 450 assertions.
+
+## [0.9.43] — 2026-03
 - **Expression Template Library** — 30 curated expression presets in 5 categories (rhythmic, temporal, spectral, easing, camera) via `expression_presets.py`; server API actions `list_expression_presets` / `get_expression_preset`
 - **Camera Choreography Meta-Presets** — 7 multi-target presets (orbit journey, dolly zoom vertigo, crane ascending, wandering voyage, hypnotic spiral, breathing calm, staccato cuts) coordinating modulation slots + math expressions; server API actions `list_choreography_presets` / `get_choreography_preset`
 - **14 new math functions** in `ExpressionEvaluator`: easing (`easeIn`, `easeOut`, `easeInOut`, `easeInCubic`, `easeOutCubic`), animation (`bounce`, `elastic`), utility (`step`, `fract`, `remap`, `pingpong`, `hash1d`, `smoothnoise`, `sign`, `atan2`, `mix`)

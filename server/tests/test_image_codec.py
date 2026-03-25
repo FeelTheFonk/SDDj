@@ -299,3 +299,24 @@ class TestApplyPerspectiveTilt:
         img = self._make_image(mode="RGBA")
         result = apply_perspective_tilt(img, tilt_x=2.0, denoise_strength=0.5)
         assert result.mode == "RGBA"
+
+
+class TestMatchColorLabZeroStd:
+    """match_color_lab must handle uniform-color references gracefully."""
+
+    def test_uniform_reference_no_crash(self):
+        from sddj.image_codec import match_color_lab
+        import numpy as np
+
+        # Normal image with varied colors
+        img = Image.fromarray(np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8))
+        # Uniform reference (single color — zero std in LAB)
+        ref = Image.fromarray(np.full((64, 64, 3), 128, dtype=np.uint8))
+
+        result = match_color_lab(img, ref, strength=1.0)
+        assert isinstance(result, Image.Image)
+        assert result.size == img.size
+        # Result should NOT be completely uniform (channels with zero ref_std are skipped)
+        arr = np.array(result)
+        assert arr.std() > 0, "Output collapsed to uniform — zero-std guard failed"
+

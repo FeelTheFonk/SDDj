@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 
 from .config import settings
 from .validation import validate_resource_name as _validate_name

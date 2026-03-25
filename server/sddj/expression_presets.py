@@ -232,7 +232,7 @@ CHOREOGRAPHY_PRESETS: dict[str, dict] = {
         "description": "Ultra-gentle breathing camera — stops below energy threshold",
         "slots": [
             {"source": "global_rms", "target": "denoise_strength",
-             "min_val": 0.25, "max_val": 0.40, "attack": 6, "release": 25, "enabled": True},
+             "min_val": 0.30, "max_val": 0.40, "attack": 6, "release": 25, "enabled": True},
         ],
         "expressions": {
             "motion_zoom": "where(global_rms > 0.1, 1.0 + 0.005 * sin(s * 0.3), 1.0)",

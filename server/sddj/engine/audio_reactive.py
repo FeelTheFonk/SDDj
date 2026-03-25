@@ -788,8 +788,6 @@ class AudioReactiveMixin:
             if self._cancel_event.is_set():
                 raise GenerationCancelled("AnimateDiff audio cancelled during post-processing")
 
-            t0_frame = time.perf_counter()
-
             # Motion warp for AnimateDiff: cumulative per-frame warp
             frame_params = schedule.get_params(frame_idx)
 

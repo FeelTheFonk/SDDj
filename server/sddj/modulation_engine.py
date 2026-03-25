@@ -11,7 +11,6 @@ import logging
 import math
 from dataclasses import dataclass, field
 
-import numpy as np
 
 from .audio_analyzer import AudioAnalysis
 
@@ -704,9 +703,11 @@ class ModulationEngine:
                                    frame_idx, target, e)
                         # Keep slot value if expression fails
 
-            # Convert seed_offset to integer
+            # Convert integer-semantic params
             if "seed_offset" in params:
                 params["seed_offset"] = float(int(params["seed_offset"]))
+            if "frame_cadence" in params:
+                params["frame_cadence"] = float(max(1, int(params["frame_cadence"])))
 
             schedule.frame_params.append(params)
 

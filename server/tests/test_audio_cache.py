@@ -124,3 +124,17 @@ class TestAudioCache:
 
         assert "drums_rms" not in r1.features
         assert "drums_rms" in r2.features
+
+    def test_lufs_round_trip(self, tmp_path):
+        """LUFS value must survive cache put/get cycle."""
+        cache = AudioCache(cache_dir=str(tmp_path / "cache"))
+        wav = _make_test_wav(tmp_path)
+        analysis = _make_analysis(wav)
+        analysis.lufs = -14.5
+
+        cache.put(wav, 24.0, analysis)
+        result = cache.get(wav, 24.0)
+
+        assert result is not None
+        assert result.lufs == pytest.approx(-14.5)
+

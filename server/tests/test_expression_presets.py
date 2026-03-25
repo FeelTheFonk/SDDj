@@ -423,3 +423,69 @@ class TestRegressionExistingExpressions:
         for expr in exprs:
             result = ev.evaluate(expr, variables)
             assert isinstance(result, float), f"Expression {expr!r} failed"
+
+
+# ─── New Validation Tests ─────────────────────────────────
+
+class TestPresetValidation:
+    """Validate all expression presets parse and evaluate without error."""
+
+    @pytest.fixture()
+    def evaluator(self) -> ExpressionEvaluator:
+        return ExpressionEvaluator()
+
+    @pytest.fixture()
+    def dummy_vars(self) -> list[str]:
+        return [
+            "global_rms", "global_onset", "global_beat", "global_low",
+            "global_mid", "global_high", "global_centroid",
+            "global_spectral_flux", "global_spectral_contrast",
+            "global_chroma_energy", "bpm",
+        ]
+
+    def test_all_presets_parse(self, evaluator, dummy_vars):
+        """Every expression in every preset must parse without error."""
+        for name, preset in EXPRESSION_PRESETS.items():
+            for target, expr in preset["targets"].items():
+                err = evaluator.validate(expr, dummy_vars)
+                assert err is None, f"Preset '{name}' target '{target}' failed: {err}"
+
+    def test_all_presets_evaluate(self, evaluator):
+        """Every expression must evaluate to a finite float."""
+        variables = {
+            "global_rms": 0.5, "global_onset": 0.3, "global_beat": 0.7,
+            "global_low": 0.4, "global_mid": 0.5, "global_high": 0.6,
+            "global_centroid": 0.5, "global_spectral_flux": 0.3,
+            "global_spectral_contrast": 0.4, "global_chroma_energy": 0.5,
+            "t": 50, "max_f": 100, "fps": 24.0, "s": 2.0, "bpm": 120.0,
+        }
+        for name, preset in EXPRESSION_PRESETS.items():
+            for target, expr in preset["targets"].items():
+                val = evaluator.evaluate(expr, variables)
+                assert isinstance(val, float), f"Preset '{name}' target '{target}' returned {type(val)}"
+                assert val == val, f"Preset '{name}' target '{target}' returned NaN"
+
+    def test_easing_functions_resolve(self, evaluator):
+        """Easing functions used in presets must be registered in the evaluator."""
+        variables = {"t": 50, "max_f": 100, "fps": 24.0, "s": 2.0}
+        easing_expressions = [
+            ("easeIn", "easeIn(0.5)"),
+            ("easeOut", "easeOut(0.5)"),
+            ("easeInOut", "easeInOut(0.5)"),
+            ("bounce", "bounce(0.5)"),
+            ("elastic", "elastic(0.5)"),
+        ]
+        for name, expr in easing_expressions:
+            val = evaluator.evaluate(expr, variables)
+            assert isinstance(val, float), f"Easing '{name}' failed"
+            assert val == val, f"Easing '{name}' returned NaN"
+
+    def test_all_denoise_min_val_above_floor(self):
+        """All denoise_strength slots must have min_val >= 0.30 (Hyper-SD quality floor)."""
+        for name, choreo in CHOREOGRAPHY_PRESETS.items():
+            for slot in choreo.get("slots", []):
+                if slot["target"] == "denoise_strength":
+                    assert slot["min_val"] >= 0.30, (
+                        f"Choreography '{name}' denoise min_val={slot['min_val']} < 0.30"
+                    )
+
