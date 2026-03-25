@@ -1,7 +1,5 @@
 # SDDj
 
----
-
 Local SOTA generation and animation for Aseprite via Stable Diffusion + AnimateDiff.
 
 ---
