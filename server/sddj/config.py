@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     max_animation_frames: int = 120
 
     # ── AnimateDiff ──────────────────────────────────────────
-    animatediff_model: str = "guoyww/animatediff-motion-adapter-v1-5-3"
+    animatediff_model: str = "ByteDance/AnimateDiff-Lightning"
     enable_freeinit: bool = False
     freeinit_iterations: int = 2
     # ── AnimateDiff-Lightning (ByteDance distilled, 10× faster) ──

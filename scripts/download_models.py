@@ -111,7 +111,7 @@ def download_animatediff() -> None:
     from huggingface_hub import snapshot_download
     print("[6/7] Downloading AnimateDiff motion adapter ...")
     snapshot_download(
-        "guoyww/animatediff-motion-adapter-v1-5-3",
+        "ByteDance/AnimateDiff-Lightning",
         ignore_patterns=["*.bin"],
     )
     print("  [OK] AnimateDiff motion adapter cached.")

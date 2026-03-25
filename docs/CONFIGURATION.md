@@ -79,7 +79,7 @@ All environment variables are prefixed with `SDDJ_`. Example: `SDDJ_PORT=8080`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SDDJ_MAX_ANIMATION_FRAMES` | `120` | Max frames per animation |
-| `SDDJ_ANIMATEDIFF_MODEL` | `guoyww/animatediff-motion-adapter-v1-5-3` | AnimateDiff motion adapter |
+| `SDDJ_ANIMATEDIFF_MODEL` | `ByteDance/AnimateDiff-Lightning` | AnimateDiff motion adapter |
 | `SDDJ_ENABLE_FREEINIT` | `False` | FreeInit for AnimateDiff |
 | `SDDJ_FREEINIT_ITERATIONS` | `2` | FreeInit iteration count |
 
