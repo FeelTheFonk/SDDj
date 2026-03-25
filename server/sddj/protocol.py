@@ -365,7 +365,7 @@ class AudioReactiveRequest(BaseModel):
     prompt_segments: list[dict] = Field(default_factory=list)
     randomness: int = Field(0, ge=0, le=20)
     locked_fields: Optional[dict[str, str]] = None
-    max_frames: Optional[int] = Field(None, ge=1, le=3600)
+    max_frames: Optional[int] = Field(None, ge=1, le=10800)
     # Animation method: chain (default) or animatediff_audio
     method: AnimationMethod = AnimationMethod.CHAIN
     # AnimateDiff-specific

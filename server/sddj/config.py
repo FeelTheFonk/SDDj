@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     # ── Audio Reactivity ──────────────────────────────────────
     audio_cache_dir: str = ""  # empty = system temp dir
     audio_max_file_size_mb: int = 500
-    audio_max_frames: int = 3600  # ~2.5 min at 24fps
+    audio_max_frames: int = 10800  # ~7.5 min at 24fps
     audio_default_attack: int = 2
     audio_default_release: int = 8
     stem_model: str = "htdemucs"

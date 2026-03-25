@@ -100,7 +100,7 @@ Activated when `SDDJ_ANIMATEDIFF_MODEL` is set to `ByteDance/AnimateDiff-Lightni
 |----------|---------|-------------|
 | `SDDJ_AUDIO_CACHE_DIR` | `""` (temp dir) | Cache directory for audio analysis |
 | `SDDJ_AUDIO_MAX_FILE_SIZE_MB` | `500` | Max audio file size (MB) |
-| `SDDJ_AUDIO_MAX_FRAMES` | `3600` | Max frames per audio animation |
+| `SDDJ_AUDIO_MAX_FRAMES` | `10800` | Max frames per audio animation |
 | `SDDJ_AUDIO_DEFAULT_ATTACK` | `2` | Default EMA attack frames |
 | `SDDJ_AUDIO_DEFAULT_RELEASE` | `8` | Default EMA release frames |
 | `SDDJ_STEM_MODEL` | `htdemucs` | Demucs model for stem separation |

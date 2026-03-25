@@ -109,7 +109,7 @@ class TestSettingsDefaults:
     def test_audio_defaults(self):
         s = self._make_settings()
         assert s.audio_max_file_size_mb == 500
-        assert s.audio_max_frames == 3600
+        assert s.audio_max_frames == 10800
         assert s.audio_default_attack == 2
         assert s.audio_default_release == 8
         assert s.stem_model == "htdemucs"

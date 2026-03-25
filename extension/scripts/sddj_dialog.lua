@@ -610,7 +610,7 @@ local function build_tab_audio()
   dlg:slider{
     id = "audio_max_frames",
     label = "Max Frames (0=all)",
-    min = 0, max = 3600, value = 0,
+    min = 0, max = 10800, value = 0,
     onchange = function()
       local v = dlg.data.audio_max_frames
       dlg:modify{ id = "audio_max_frames",

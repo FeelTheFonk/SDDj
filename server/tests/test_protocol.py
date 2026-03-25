@@ -400,11 +400,11 @@ class TestRandomnessField:
         assert "randomness" not in dumped
 
     def test_audio_reactive_max_frames_valid(self):
-        """v0.7.4: max_frames accepts valid range 1-3600."""
+        """v0.7.4: max_frames accepts valid range 1-10800."""
         req = AudioReactiveRequest(audio_path="/test.wav", max_frames=100)
         assert req.max_frames == 100
-        req2 = AudioReactiveRequest(audio_path="/test.wav", max_frames=3600)
-        assert req2.max_frames == 3600
+        req2 = AudioReactiveRequest(audio_path="/test.wav", max_frames=10800)
+        assert req2.max_frames == 10800
 
     def test_audio_reactive_max_frames_bounds(self):
         """v0.7.4: max_frames rejects out-of-range values."""
