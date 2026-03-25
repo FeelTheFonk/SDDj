@@ -2,13 +2,13 @@
 
 WebSocket protocol specification for SDDj.
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+
 
 ---
 
 ## Connection
 
-Connect to `ws://127.0.0.1:9876/ws`. All messages are JSON. Maximum 5 concurrent connections.
+Connect to `ws://{SDDJ_HOST}:{SDDJ_PORT}/ws` (default: `ws://127.0.0.1:9876/ws`). All messages are JSON. Maximum 5 concurrent connections.
 
 ## Actions
 
@@ -58,7 +58,7 @@ Connect to `ws://127.0.0.1:9876/ws`. All messages are JSON. Maximum 5 concurrent
 | `prompt_template` | `string` | `null` | Custom template with `{category}` placeholders |
 | `randomness` | `int 0-20` | `0` | Diversity level: 0=standard, 5=subtle, 10=moderate, 15=wild (rare items + random template), 20=chaos (combines multiple items per category) |
 | `subject_type` | `string` | `null` | Subject classification hint (humanoid/animal/landscape/object/concept) |
-| `prompt_mode` | `string` | `null` | Generation mode: standard, art_focus, character, chaos |
+| `prompt_mode` | `string` | `null` | Generation mode: `standard` (balanced), `art_focus` (style keywords), `character` (subject focus), `chaos` (bizarre combinations). |
 | `exclude_terms` | `string[]` | `null` | Terms to exclude from generated prompt |
 
 **Response**: `prompt_result` with `prompt`, `negative_prompt`, and `components` dict.
@@ -147,6 +147,8 @@ For inpainting, set `mode` to `"inpaint"` and include `source_image` (base64 PNG
 | `enable_freeinit`   | boolean                              | `false`       |
 | `freeinit_iterations` | 1 - 3                              | `2`           |
 
+> **Note**: `animatediff` and `animatediff_audio` are functionally identical aliases in the backend.
+
 ## Audio-Reactive Request
 
 Analyze audio first, then generate animation with per-frame parameter modulation:
@@ -200,6 +202,8 @@ Analyze audio first, then generate animation with per-frame parameter modulation
   "post_process": { "..." }
 }
 ```
+
+> **Modulation Priority**: If you provide multiple logic sources for the same target, they are evaluated in this order (highest overrides lowest): `expressions` > `modulation_preset` > `modulation_slots`.
 
 ### Modulation Sources
 
@@ -300,6 +304,31 @@ Requires ffmpeg in PATH. Export animation frames + audio to a single MP4 file.
 | `scale_factor`  | 1 - 8                            | `4`      |
 | `quality`       | `web`, `high`, `archive`, `raw`   | `high`   |
 
+## Resource Management Requests
+
+List requests require only the action name:
+```json
+{ "action": "list_presets" }
+```
+*(Applies to `list_loras`, `list_palettes`, `list_controlnets`, `list_embeddings`, `list_modulation_presets`, `list_expression_presets`, `list_choreography_presets`)*
+
+Get detailed info for a specific item:
+```json
+{
+  "action": "get_preset",
+  "name": "my_preset_name"
+}
+```
+*(Applies to `get_modulation_preset`, `get_expression_preset`, `get_choreography_preset`)*
+
+Save/Delete a preset:
+```json
+{ "action": "save_preset", "preset_save_name": "my_preset" }
+```
+```json
+{ "action": "delete_preset", "preset_save_name": "my_preset" }
+```
+
 ## Response Types
 
 | Type                 | Fields                                                              |
@@ -367,4 +396,4 @@ Requires ffmpeg in PATH. Export animation frames + audio to a single MP4 file.
 
 ---
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+

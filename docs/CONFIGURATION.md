@@ -2,7 +2,7 @@
 
 All environment variables are prefixed with `SDDJ_`. Example: `SDDJ_PORT=8080`.
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+
 
 ---
 
@@ -127,4 +127,4 @@ Activated when `SDDJ_ANIMATEDIFF_MODEL` is set to `ByteDance/AnimateDiff-Lightni
 
 ---
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+

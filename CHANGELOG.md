@@ -1,11 +1,24 @@
 # Changelog
 
+## [0.9.46] — 2026-03
+### Added
+- Complete Codebase Hardening: 100% test passing, Ruff compliant.
+- Documentation Refactor: Complete structural purge, edge-cases coverage, and API payload synchronization.
+- `AUDIO-REFERENCE.md` split for reading clarity.
+- Interactive Table of Contents in `COOKBOOK.md`.
+
+### Fixed
+- Harmonized versioning between Lua extension (0.9.39) and Python Engine (0.9.45) to unified 0.9.46.
+- Resolved WebSocket URL hardcoding in documentation.
+- Clarified `animatediff` vs `animatediff_audio` backend aliases.
+
+
 All notable changes to SDDj are documented here.
 
 ## [0.9.45] — 2026-03
 
 ### Changed
-- **Pre-Release Pinnacle Audit** — Eradicated hidden edge cases before 0.9.45 deployment.
+- **Pre-Release Audit** — Eradicated hidden edge cases before 0.9.45 deployment.
 - **Portability Hardening** — Removed absolute `C:\` paths from all data processing scripts (`classify_subjects.py`, `build_prompt_data.py`, `build_artist_tags.py`, `audit_data.py`), ensuring cross-platform stability.
 - **Model Preflight Safety** — `start.ps1` now explicitly verifies local model weights exist before launching in `HF_HUB_OFFLINE` mode, intercepting cryptic HuggingFace offline crashes if `setup.ps1` was skipped or aborted.
 - **CI/CD Stabilization** — Added `ruff` to explicit dev dependencies in `pyproject.toml` to prevent static analysis failures on fresh installs.
@@ -13,7 +26,7 @@ All notable changes to SDDj are documented here.
 ## [0.9.44] — 2026-03
 
 ### Fixed
-- **Exhaustive Deep Audit Remediation (SOTA 2026 Standard)** — Extensive cross-component architecture review completed with 100/100 performance/rectification validation.
+- **Exhaustive Deep Audit Remediation ** — Extensive cross-component architecture review completed with 100/100 performance/rectification validation.
 - **Denoise lower bound** — `breathing_calm` choreography preset floor raised to 0.30, preventing Hyper-SD quality drop.
 - **Audio stem separation sampling rate** — Unified default `target_sr` to 44100Hz aligning with engine DSP output.
 - **Cache Persistence** — Fixed temporal caching flaw where `lufs` metric dropped during `audio_cache` serialization.
@@ -52,7 +65,7 @@ All notable changes to SDDj are documented here.
 ## [0.9.42] — 2026-03
 
 ### Changed
-- **SOTA Documentation Overhaul** — Massive, multi-level audit of the entire SDDj documentation suite to ensure SOTA 2026 pinnacle of clarity, optimization, and completeness.
+- **Documentation Overhaul** — Massive, multi-level audit of the entire SDDj documentation suite to ensure clarity, optimization, and completeness.
   - **API-REFERENCE**: added missing `motion_tilt_x`/`motion_tilt_y` targets, `get_modulation_preset` action, `modulation_preset_detail` response, `encoding` field on frames; corrected `motion_zoom` and `frame_duration_ms` numeric ranges; aligned Modulation Sources with full 34-feature list; added `subject_type`/`prompt_mode`/`exclude_terms` to generate_prompt docs.
   - **CONFIGURATION**: documented all 4 AnimateDiff-Lightning environment variables (`SDDJ_ANIMATEDIFF_LIGHTNING_STEPS`, `SDDJ_ANIMATEDIFF_LIGHTNING_CFG`, `SDDJ_ANIMATEDIFF_MOTION_LORA_STRENGTH`, `SDDJ_ANIMATEDIFF_LIGHTNING_FREEU`); added `.env` priority explanation.
   - **GUIDE**: added AnimateDiff-Lightning documentation; added Quick Reference Card for top 5 workflows; replaced redundant built-in palette list with cross-reference to Cookbook.

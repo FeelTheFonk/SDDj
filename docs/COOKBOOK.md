@@ -2,7 +2,7 @@
 
 > Tested recipes by creative intention. No theory — just settings that work.
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+
 
 ---
 
@@ -45,7 +45,13 @@ Default settings (if not overridden in a recipe): steps=8, CFG=5.0, clip_skip=2,
 
 ## Characters
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### RPG Hero Sprite
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 A classic top-down or side-view character sprite for a 2D RPG.
 
@@ -77,6 +83,9 @@ fantasy armor, game sprite, front view, sharp pixels, clean outline
 
 ### Chibi / Small Character
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Tiny characters for overworld maps or UI elements.
 
 **Prompt:**
@@ -102,6 +111,9 @@ front view, sharp pixels, clean outline, tiny
 ---
 
 ### Enemy / Monster
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Creatures with more freedom in shape and color.
 
@@ -130,6 +142,9 @@ side view, pixel art style, sharp pixels, flat colors
 
 ### NPC Variations
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Generate multiple similar-but-different NPCs from the same base.
 
 **Technique:** Use a fixed seed, then change one detail in the prompt each time.
@@ -146,6 +161,9 @@ The first three share the same composition but differ in details. The last one (
 ---
 
 ### Anime Character
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 A clean anime-style character with vibrant colors and soft shading.
 
@@ -172,6 +190,9 @@ detailed eyes, soft shading, clean linework
 
 ### Illustration Character
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 A richly detailed illustration-style character with complex lighting.
 
 **Prompt:**
@@ -195,6 +216,9 @@ intricate details, dramatic pose, high quality
 ---
 
 ### Concept Art Character
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Quick concept art for character design exploration.
 
@@ -220,7 +244,13 @@ clean design, technical illustration, cool lighting
 
 ## Environments
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Side-Scroller Background
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Parallax-ready background layers.
 
@@ -248,6 +278,9 @@ trees, grass, path, vibrant colors, game scenery, flat colors
 ---
 
 ### Top-Down Tilemap Chunk
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 A section of a top-down game world.
 
@@ -279,6 +312,9 @@ small rocks, game tilemap, orthographic, flat lighting
 
 ### Interior / Room
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Dungeon rooms, houses, shops.
 
 **Prompt:**
@@ -306,6 +342,9 @@ fireplace, warm lighting, top down view, game scene
 
 ### Anime Background
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 A lush anime-style landscape suitable for visual novel or game backgrounds.
 
 **Prompt:**
@@ -328,6 +367,9 @@ beautiful sky, detailed clouds, vibrant scenery
 
 ### Concept Art Environment
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Sci-fi or fantasy environment concept for pre-production work.
 
 **Prompt:**
@@ -349,6 +391,9 @@ atmospheric perspective, dramatic lighting, detailed environment
 ---
 
 ### Painterly Landscape
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 An impressionist-style landscape with visible brushwork and dramatic atmosphere.
 
@@ -378,7 +423,13 @@ thick brushstrokes, vibrant colors, atmospheric, fine art
 
 ## Items and Icons
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Inventory Item
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Small icons for RPG inventories.
 
@@ -407,6 +458,9 @@ simple background, centered, sharp pixels, clean outline
 
 ### UI Element
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Buttons, frames, health bars.
 
 **Prompt:**
@@ -434,6 +488,9 @@ beveled edge, fantasy style, clean flat design
 
 ### Modern UI Icon
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Clean, flat-design icons for apps or modern interfaces.
 
 **Prompt:**
@@ -455,6 +512,9 @@ clean shapes, modern, centered, simple
 ---
 
 ### Illustrated Item
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Detailed hand-drawn style items for RPG inventories or game marketing.
 
@@ -478,7 +538,13 @@ intricate details, dramatic lighting, centered, high quality
 
 ## Portraits
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Character Portrait from Sketch
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Transform a rough Aseprite sketch into a polished pixel art portrait.
 
@@ -514,6 +580,9 @@ pointed ears, green eyes, pixel art style, sharp pixels
 
 ### Anime Portrait
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Expressive anime-style portrait with detailed eyes and soft coloring.
 
 **Prompt:**
@@ -537,6 +606,9 @@ beautiful face, clean linework, high quality
 ---
 
 ### Realistic Portrait
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 A cinematic, photorealistic portrait with dramatic lighting.
 
@@ -564,6 +636,9 @@ sharp focus, professional photography, high quality
 
 ### Painterly Portrait
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 An expressive digital painting portrait with visible brushwork.
 
 **Prompt:**
@@ -587,7 +662,13 @@ artistic, dramatic lighting, bold colors
 
 ## Inpaint
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Fix a Face
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Generated sprite has a bad face? Inpaint just that region.
 
@@ -614,6 +695,9 @@ sharp pixels, clean
 
 ### Add Missing Detail
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Sprite is missing a weapon, accessory, or background element.
 
 1. Select the empty area where you want the new element
@@ -636,7 +720,13 @@ sharp pixels, flat colors
 
 ## Animation
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Walk Cycle (Chain)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 4-8 frame walk animation using frame chaining.
 
@@ -663,6 +753,9 @@ walking animation, sharp pixels, consistent style
 
 ### Idle Animation (AnimateDiff)
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Subtle breathing/shifting idle animation.
 
 **Prompt:**
@@ -685,6 +778,9 @@ breathing, game sprite, pixel art style
 
 ### Effect Animation (Fire, Water, Sparkle)
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Elemental effects with more motion freedom.
 
 **Prompt:**
@@ -705,6 +801,9 @@ orange yellow, game effect, pixel art style
 ---
 
 ### Anime Walk Cycle (Chain)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Smooth anime-style walk animation without pixel art processing.
 
@@ -731,6 +830,9 @@ consistent style, clean linework, detailed
 
 ### Abstract Motion (AnimateDiff)
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Psychedelic, flowing abstract animation — great for backgrounds or VJ content.
 
 **Prompt:**
@@ -754,6 +856,9 @@ smooth motion, vibrant, trippy, fluid
 ---
 
 ### Illustration Morph (Chain)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Watercolor landscape transitioning between states — great for seasonal or time-of-day changes.
 
@@ -785,7 +890,13 @@ soft brushstrokes, atmospheric, painted, beautiful scenery
 
 ## Output Mode: Sequence
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Img2Img Iteration Timeline
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Generate multiple img2img passes and review them as timeline frames.
 
@@ -805,6 +916,9 @@ Generate multiple img2img passes and review them as timeline frames.
 
 ### Txt2Img Reference Sheet
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Generate many variations of a prompt and browse them as an animation.
 
 1. Set mode to **txt2img**
@@ -817,7 +931,13 @@ Generate many variations of a prompt and browse them as an animation.
 
 ## Loop and Random Loop
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Rapid Variation Exploration (Loop Mode)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Generate 20+ variations of the same prompt to find the perfect one.
 
@@ -835,6 +955,9 @@ Generate 20+ variations of the same prompt to find the perfect one.
 ---
 
 ### Automated Creative Discovery (Random Loop)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Let the model surprise you with fully randomized prompts and images.
 
@@ -860,7 +983,13 @@ Result: endless dragon variations — pixel art dragon, chibi dragon, dragon bos
 
 ## ControlNet Recipes
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Line Art to Pixel Art (Canny)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Convert clean line drawings into pixel art.
 
@@ -884,6 +1013,9 @@ flat colors, (matching your subject description)
 ---
 
 ### Rough Sketch to Sprite (Scribble)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 The most forgiving mode — rough drawings become detailed sprites.
 
@@ -909,6 +1041,9 @@ sharp pixels, flat shading
 ---
 
 ### Pose to Character (OpenPose)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Draw a stick figure skeleton, get a posed character.
 
@@ -939,6 +1074,9 @@ game sprite, sharp pixels
 
 ### Coloring Line Art (Lineart)
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 You have clean line art, want pixel art coloring.
 
 1. Draw your line art (or use existing)
@@ -961,7 +1099,13 @@ pixel art, colored version, vibrant colors, flat shading,
 
 ## Color Control
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Using Built-in Palettes
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 > [!NOTE]
 > For non-pixel-art styles, **palette_mode=Auto** lets the model choose colors freely. Palette presets are primarily useful for retro-gaming aesthetics.
@@ -983,6 +1127,9 @@ Set **Palette** to **Preset** in the Post-Process tab. Available palettes:
 
 ### Custom Palette from Aseprite
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 If you have a carefully crafted palette in Aseprite:
 
 1. Export your palette colors as hex codes
@@ -990,6 +1137,9 @@ If you have a carefully crafted palette in Aseprite:
 3. Paste hex codes: `#1a1c2c #5d275d #b13e53 #ef7d57 #ffcd75 ...`
 
 ### Saving & Deleting Palettes
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 You can save custom palettes for reuse across sessions:
 
@@ -1002,6 +1152,9 @@ Saved palettes are stored as JSON files in the server's `palettes/` directory.
 
 ### When Palette Enforcement Shifts Colors Too Much
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Palette enforcement maps each pixel to the nearest perceptual match (CIELAB color space). If results feel "off":
 
 - **Increase color count first** (quantize to 48+ colors), then enforce palette
@@ -1011,6 +1164,9 @@ Palette enforcement maps each pixel to the nearest perceptual match (CIELAB colo
 ---
 
 ## Parameter Matrix
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 Quick reference: recommended settings by creative intention.
 
@@ -1039,7 +1195,13 @@ Quick reference: recommended settings by creative intention.
 
 ## Presets
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 ### Using Built-in Presets
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 SDDj ships with built-in presets for common use cases. Select one from the dropdown to instantly load tuned settings.
 
@@ -1055,6 +1217,9 @@ SDDj ships with built-in presets for common use cases. Select one from the dropd
 
 ### Saving Your Own Presets
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Found a combination of settings that works? Save it:
 
 1. Configure all parameters (prompt, steps, CFG, post-process, etc.)
@@ -1069,9 +1234,15 @@ Found a combination of settings that works? Save it:
 
 ## Anti-Patterns
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 Things that don't work well — and what to do instead.
 
 ### CFG too high (>10)
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 **Symptom:** Over-saturated colors, artifacts, "deep-fried" look.
 
@@ -1081,6 +1252,9 @@ Things that don't work well — and what to do instead.
 
 ### Steps too low without Hyper-SD
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 **Symptom:** Blurry, unformed images.
 
 This shouldn't happen with the default configuration (Hyper-SD is always active), but if you disabled it: use 20-25 steps minimum.
@@ -1088,6 +1262,9 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 ---
 
 ### High strength on img2img when you want to preserve detail
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 **Symptom:** Your carefully drawn sketch is completely overwritten.
 
@@ -1097,6 +1274,9 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 
 ### Generating above 768x768
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 **Symptom:** Duplicated faces, repeated patterns, incoherent composition.
 
 **Fix:** SD 1.5 was trained on 512x512. Generate at 512x512, then upscale manually in Aseprite if needed.
@@ -1104,6 +1284,9 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 ---
 
 ### Too many colors + palette enforcement
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 **Symptom:** Palette enforcement makes everything muddy because there are too many close colors mapping to the same palette entry.
 
@@ -1113,6 +1296,9 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 
 ### Dithering without palette
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 **Symptom:** Dithering creates patterns between colors that are too similar, resulting in visual noise rather than smooth gradients.
 
 **Fix:** Always set a palette (preset or custom) or at least reduce colors significantly (8-32) before enabling dithering.
@@ -1120,6 +1306,9 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 ---
 
 ### Animation strength too high
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 **Symptom:** Each frame looks completely different — no visual continuity.
 
@@ -1129,6 +1318,9 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 
 ### Negative prompt is empty
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 **Symptom:** Smooth gradients, anti-aliased edges, photorealistic elements leaking into pixel art.
 
 **Fix:** Always keep the default negative prompt. It specifically blocks anti-aliasing, smooth gradients, and photorealism — the three biggest enemies of pixel art generation.
@@ -1136,6 +1328,9 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 ---
 
 ### Image looks too stylized / cartoonish
+
+[⬆️ Retour au sommaire](#table-of-contents)
+
 
 **Symptom:** You wanted a realistic or semi-realistic image, but it looks like a cartoon or anime.
 
@@ -1145,6 +1340,9 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 
 ### Colors look washed out
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 **Symptom:** Non-pixel-art output appears desaturated, flat, or lacking vibrancy.
 
 **Fix:** Increase CFG slightly (try 6.0-7.0) to push the model toward the prompt's color descriptors. Add explicit color language to the prompt (e.g., "vibrant colors", "rich tones", "saturated"). Try a different style keyword — some styles inherently produce muted palettes.
@@ -1153,10 +1351,13 @@ This shouldn't happen with the default configuration (Hyper-SD is always active)
 
 ### Anime features look distorted
 
+[⬆️ Retour au sommaire](#table-of-contents)
+
+
 **Symptom:** Anime-style faces have misshapen eyes, inconsistent proportions, or broken features.
 
 **Fix:** Use clip_skip=2 (the default), which works better for anime aesthetics. Ensure proper anime keywords in the prompt ("anime style", "detailed eyes", "clean linework"). Keep CFG at 5.0-6.0 — going too high causes distortion. If using img2img, lower strength to 0.4-0.5 to preserve structure.
 
 ---
 
-**[README](../README.md)** | **[Guide](GUIDE.md)** | **[Cookbook](COOKBOOK.md)** | **[Audio Reactivity](AUDIO-REACTIVITY.md)** | **[API Reference](API-REFERENCE.md)** | **[Configuration](CONFIGURATION.md)** | **[Troubleshooting](TROUBLESHOOTING.md)**
+
