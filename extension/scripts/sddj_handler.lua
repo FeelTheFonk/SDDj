@@ -533,7 +533,7 @@ handlers.audio_analysis = function(resp)
       src_opts[#src_opts + 1] = f
     end
     if #src_opts > 0 then
-      for i = 1, 4 do
+      for i = 1, 6 do
         local prev_src = PT.dlg.data["mod" .. i .. "_source"]
         PT.dlg:modify{ id = "mod" .. i .. "_source", options = src_opts }
         -- Restore previous selection if it exists in new feature list
@@ -690,7 +690,7 @@ end
 handlers.modulation_preset_detail = function(resp)
   if not PT.dlg or not resp.slots then return end
   local slots = resp.slots
-  local count = math.min(#slots, 4)  -- UI supports max 4 slots
+  local count = math.min(#slots, 6)  -- UI supports max 6 slots
 
   -- Inverse scaling: convert actual parameter values to slider % (0-100)
   local function to_pct(target, val)
@@ -714,11 +714,12 @@ handlers.modulation_preset_detail = function(resp)
   PT.dlg:modify{ id = "mod_slot_count", label = "Slots (" .. count .. ")" }
 
   -- Populate each slot
-  for i = 1, 4 do
+  for i = 1, 6 do
     local prefix = "mod" .. i .. "_"
     if i <= count then
       local s = slots[i]
       PT.dlg:modify{ id = prefix .. "enable", selected = s.enabled ~= false }
+      PT.dlg:modify{ id = prefix .. "invert", selected = s.invert == true }
       PT.dlg:modify{ id = prefix .. "source", option = s.source }
       PT.dlg:modify{ id = prefix .. "target", option = s.target }
       local mn = math.floor(to_pct(s.target, s.min_val) + 0.5)
@@ -737,6 +738,75 @@ handlers.modulation_preset_detail = function(resp)
 
   PT.audio._hydrating_preset = false
   PT.update_status("Preset '" .. (resp.name or "?") .. "' loaded (" .. count .. " slots)")
+end
+
+handlers.expression_presets_list = function(resp)
+  if not PT.dlg or not resp.presets then return end
+  PT.audio.expression_presets = resp.presets
+  -- Build flat options list: (manual) + all presets grouped by category
+  local opts = { "(manual)" }
+  for cat, presets in pairs(resp.presets) do
+    for _, p in ipairs(presets) do
+      opts[#opts + 1] = p.name
+    end
+  end
+  PT.dlg:modify{ id = "audio_expr_preset", options = opts }
+end
+
+handlers.expression_preset_detail = function(resp)
+  if not PT.dlg or not resp.targets then return end
+  -- Map target names to expression field IDs
+  local target_to_field = {
+    denoise_strength = "expr_denoise",
+    cfg_scale = "expr_cfg",
+    noise_amplitude = "expr_noise",
+    controlnet_scale = "expr_controlnet",
+    seed_offset = "expr_seed",
+    palette_shift = "expr_palette",
+    frame_cadence = "expr_cadence",
+    motion_x = "expr_motion_x",
+    motion_y = "expr_motion_y",
+    motion_zoom = "expr_motion_zoom",
+    motion_rotation = "expr_motion_rot",
+    motion_tilt_x = "expr_motion_tilt_x",
+    motion_tilt_y = "expr_motion_tilt_y",
+  }
+  -- Enable expressions and fill fields
+  PT.dlg:modify{ id = "audio_use_expressions", selected = true }
+  for target, expr in pairs(resp.targets) do
+    local field = target_to_field[target]
+    if field then
+      PT.dlg:modify{ id = field, text = expr }
+    end
+  end
+  PT.update_status("Expression preset '" .. (resp.name or "?") .. "' loaded")
+end
+
+handlers.choreography_preset_detail = function(resp)
+  if not PT.dlg then return end
+  -- Hydrate slots (reuse modulation_preset_detail logic)
+  if resp.slots and #resp.slots > 0 then
+    handlers.modulation_preset_detail({
+      name = resp.name, slots = resp.slots,
+    })
+  end
+  -- Hydrate expressions
+  if resp.expressions then
+    handlers.expression_preset_detail({
+      name = resp.name, targets = resp.expressions,
+    })
+  end
+  PT.update_status("Choreography '" .. (resp.name or "?") .. "' loaded")
+end
+
+handlers.choreography_presets_list = function(resp)
+  -- Populate choreography combobox if presets were received
+  if not PT.dlg or not resp.presets then return end
+  local opts = { "(none)" }
+  for _, p in ipairs(resp.presets) do
+    opts[#opts + 1] = p.name
+  end
+  PT.dlg:modify{ id = "audio_choreography", options = opts }
 end
 
 -- ─── MP4 Export ──────────────────────────────────────────────

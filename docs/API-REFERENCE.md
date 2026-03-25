@@ -35,6 +35,10 @@ Connect to `ws://127.0.0.1:9876/ws`. All messages are JSON. Maximum 5 concurrent
 | `check_stems`        | Check if stem separation (demucs) is available |
 | `list_modulation_presets` | List built-in modulation presets    |
 | `get_modulation_preset`   | Get modulation preset slot details      |
+| `list_expression_presets` | List categorized expression presets |
+| `get_expression_preset`   | Get expression preset details       |
+| `list_choreography_presets` | List camera choreography meta-presets |
+| `get_choreography_preset`   | Get choreography slots + expressions  |
 | `export_mp4`            | Export frames + audio to MP4 (requires ffmpeg) |
 | `shutdown`              | Graceful server shutdown              |
 
@@ -174,7 +178,8 @@ Analyze audio first, then generate animation with per-frame parameter modulation
       "max_val": 0.7,
       "attack": 2,
       "release": 8,
-      "enabled": true
+      "enabled": true,
+      "invert": false
     }
   ],
   "expressions": null,
@@ -318,7 +323,11 @@ Requires ffmpeg in PATH. Export animation frames + audio to a single MP4 file.
 | `audio_reactive_complete` | `total_frames`, `total_time_ms`, `tag_name` (opt)               |
 | `stems_available`    | `available`, `message`                                              |
 | `modulation_presets` | `presets` (list of names)                                           |
-| `modulation_preset_detail` | `name`, `slots`                                                |
+| `modulation_preset_detail` | `name`, `slots` (including `invert` per slot)                  |
+| `expression_presets_list` | `presets` (dict: category → list of {name, targets, description}) |
+| `expression_preset_detail` | `name`, `targets`, `description`, `category`                    |
+| `choreography_presets_list` | `presets` (list of {name, description, slot_count, expression_targets}) |
+| `choreography_preset_detail` | `name`, `description`, `slots`, `expressions`                   |
 | `export_mp4_complete`| `path`, `size_mb`, `duration_s`                                     |
 | `export_mp4_error`   | `message`                                                           |
 | `shutdown_ack`       | `message`                                                           |

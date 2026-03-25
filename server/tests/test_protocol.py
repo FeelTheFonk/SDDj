@@ -51,6 +51,8 @@ class TestAction:
             "cleanup",
             "analyze_audio", "generate_audio_reactive", "check_stems",
             "list_modulation_presets", "get_modulation_preset",
+            "list_expression_presets", "get_expression_preset",
+            "list_choreography_presets", "get_choreography_preset",
             "export_mp4",
             "shutdown",
         }
@@ -307,6 +309,14 @@ class TestAudioRequestModels:
         assert slot.attack == 2
         assert slot.release == 8
         assert slot.enabled is True
+        assert slot.invert is False
+
+    def test_modulation_slot_spec_invert(self):
+        slot = ModulationSlotSpec(
+            source="global_rms", target="denoise_strength",
+            invert=True,
+        )
+        assert slot.invert is True
 
     def test_modulation_slot_bounds(self):
         with pytest.raises(ValidationError):

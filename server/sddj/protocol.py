@@ -38,6 +38,10 @@ class Action(str, Enum):
     CHECK_STEMS = "check_stems"
     LIST_MODULATION_PRESETS = "list_modulation_presets"
     GET_MODULATION_PRESET = "get_modulation_preset"
+    LIST_EXPRESSION_PRESETS = "list_expression_presets"
+    GET_EXPRESSION_PRESET = "get_expression_preset"
+    LIST_CHOREOGRAPHY_PRESETS = "list_choreography_presets"
+    GET_CHOREOGRAPHY_PRESET = "get_choreography_preset"
     # Video export
     EXPORT_MP4 = "export_mp4"
     # Server lifecycle
@@ -340,6 +344,7 @@ class ModulationSlotSpec(BaseModel):
     attack: int = Field(2, ge=1, le=30)
     release: int = Field(8, ge=1, le=60)
     enabled: bool = True
+    invert: bool = False
 
 
 class AnalyzeAudioRequest(BaseModel):
@@ -547,6 +552,32 @@ class ModulationPresetDetailResponse(BaseModel):
     type: Literal["modulation_preset_detail"] = "modulation_preset_detail"
     name: str
     slots: list[dict]
+
+
+class ExpressionPresetsListResponse(BaseModel):
+    type: Literal["expression_presets_list"] = "expression_presets_list"
+    presets: dict  # category -> list of {name, targets, description}
+
+
+class ExpressionPresetDetailResponse(BaseModel):
+    type: Literal["expression_preset_detail"] = "expression_preset_detail"
+    name: str
+    targets: dict  # target -> expression string
+    description: str
+    category: str
+
+
+class ChoreographyPresetsListResponse(BaseModel):
+    type: Literal["choreography_presets_list"] = "choreography_presets_list"
+    presets: list[dict]  # [{name, description, slot_count, expression_targets}]
+
+
+class ChoreographyPresetDetailResponse(BaseModel):
+    type: Literal["choreography_preset_detail"] = "choreography_preset_detail"
+    name: str
+    description: str
+    slots: list[dict]
+    expressions: dict
 
 
 # ─────────────────────────────────────────────────────────────

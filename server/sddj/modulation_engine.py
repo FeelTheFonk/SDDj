@@ -349,6 +349,78 @@ PRESETS: dict[str, list[dict]] = {
         {"source": "global_spectral_flux", "target": "cfg_scale",
          "min_val": 3.0, "max_val": 8.0, "attack": 1, "release": 5, "enabled": True},
     ],
+    # ─── Voyage / Journey ────────────────────────────────────────
+    "voyage_serene": [
+        {"source": "global_rms", "target": "denoise_strength",
+         "min_val": 0.30, "max_val": 0.45, "attack": 6, "release": 25, "enabled": True},
+        {"source": "global_mid", "target": "motion_x",
+         "min_val": -1.5, "max_val": 1.5, "attack": 6, "release": 25, "enabled": True},
+        {"source": "global_rms", "target": "motion_zoom",
+         "min_val": 0.99, "max_val": 1.01, "attack": 8, "release": 30, "enabled": True},
+        {"source": "global_centroid", "target": "palette_shift",
+         "min_val": 0.0, "max_val": 0.15, "attack": 6, "release": 25, "enabled": True},
+    ],
+    "voyage_exploratory": [
+        {"source": "global_rms", "target": "denoise_strength",
+         "min_val": 0.30, "max_val": 0.50, "attack": 4, "release": 18, "enabled": True},
+        {"source": "global_low", "target": "motion_x",
+         "min_val": -2.0, "max_val": 2.0, "attack": 5, "release": 20, "enabled": True},
+        {"source": "global_mid", "target": "motion_y",
+         "min_val": -1.0, "max_val": 1.0, "attack": 5, "release": 20, "enabled": True},
+        {"source": "global_centroid", "target": "motion_rotation",
+         "min_val": -0.5, "max_val": 0.5, "attack": 6, "release": 25, "enabled": True},
+        {"source": "global_spectral_rolloff", "target": "palette_shift",
+         "min_val": 0.0, "max_val": 0.2, "attack": 5, "release": 20, "enabled": True},
+    ],
+    "voyage_dramatic": [
+        {"source": "global_beat", "target": "denoise_strength",
+         "min_val": 0.30, "max_val": 0.60, "attack": 1, "release": 10, "enabled": True},
+        {"source": "global_onset", "target": "cfg_scale",
+         "min_val": 3.0, "max_val": 8.0, "attack": 1, "release": 6, "enabled": True},
+        {"source": "global_low", "target": "motion_x",
+         "min_val": -2.5, "max_val": 2.5, "attack": 2, "release": 12, "enabled": True},
+        {"source": "global_beat", "target": "motion_zoom",
+         "min_val": 0.98, "max_val": 1.02, "attack": 1, "release": 12, "enabled": True},
+        {"source": "global_rms", "target": "motion_rotation",
+         "min_val": -0.8, "max_val": 0.8, "attack": 3, "release": 15, "enabled": True},
+    ],
+    "voyage_psychedelic": [
+        {"source": "global_rms", "target": "denoise_strength",
+         "min_val": 0.30, "max_val": 0.55, "attack": 3, "release": 15, "enabled": True},
+        {"source": "global_spectral_contrast", "target": "cfg_scale",
+         "min_val": 2.0, "max_val": 7.0, "attack": 3, "release": 12, "enabled": True},
+        {"source": "global_low", "target": "motion_x",
+         "min_val": -2.0, "max_val": 2.0, "attack": 4, "release": 18, "enabled": True},
+        {"source": "global_mid", "target": "motion_y",
+         "min_val": -1.5, "max_val": 1.5, "attack": 4, "release": 18, "enabled": True},
+        {"source": "global_rms", "target": "motion_zoom",
+         "min_val": 0.98, "max_val": 1.02, "attack": 5, "release": 20, "enabled": True},
+        {"source": "global_centroid", "target": "motion_rotation",
+         "min_val": -1.0, "max_val": 1.0, "attack": 4, "release": 20, "enabled": True},
+        {"source": "global_low", "target": "motion_tilt_x",
+         "min_val": -1.0, "max_val": 1.0, "attack": 5, "release": 20, "enabled": True},
+        {"source": "global_chroma_energy", "target": "palette_shift",
+         "min_val": 0.0, "max_val": 0.3, "attack": 4, "release": 18, "enabled": True},
+    ],
+    # ─── Rest-Aware (energy-gated motion) ────────────────────────
+    "intelligent_drift": [
+        {"source": "global_rms", "target": "denoise_strength",
+         "min_val": 0.30, "max_val": 0.50, "attack": 3, "release": 15, "enabled": True},
+        {"source": "global_rms", "target": "motion_x",
+         "min_val": -1.0, "max_val": 1.0, "attack": 5, "release": 25, "enabled": True},
+        {"source": "global_rms", "target": "motion_y",
+         "min_val": -0.5, "max_val": 0.5, "attack": 5, "release": 25, "enabled": True},
+        {"source": "global_rms", "target": "motion_zoom",
+         "min_val": 1.0, "max_val": 1.01, "attack": 6, "release": 30, "enabled": True},
+    ],
+    "reactive_pause": [
+        {"source": "global_beat", "target": "denoise_strength",
+         "min_val": 0.30, "max_val": 0.55, "attack": 1, "release": 15, "enabled": True},
+        {"source": "global_beat", "target": "motion_zoom",
+         "min_val": 1.0, "max_val": 1.015, "attack": 1, "release": 20, "enabled": True},
+        {"source": "global_beat", "target": "motion_rotation",
+         "min_val": 0.0, "max_val": 0.3, "attack": 1, "release": 20, "enabled": True},
+    ],
 }
 
 
@@ -362,6 +434,7 @@ class ModulationSlot:
     attack: int = 2
     release: int = 8
     enabled: bool = True
+    invert: bool = False   # invert source: 0→max, 1→min
 
 
 @dataclass
@@ -425,6 +498,7 @@ class ExpressionEvaluator:
         self._evaluator = SimpleEval()
         # Add math functions
         self._evaluator.functions = {
+            # Core math
             "sin": math.sin,
             "cos": math.cos,
             "tan": math.tan,
@@ -435,14 +509,41 @@ class ExpressionEvaluator:
             "exp": math.exp,
             "log": math.log,
             "pow": pow,
+            "floor": math.floor,
+            "ceil": math.ceil,
+            "sign": lambda x: (1.0 if x > 0 else (-1.0 if x < 0 else 0.0)),
+            "atan2": math.atan2,
+            # Interpolation & mapping
             "clamp": lambda x, lo, hi: max(lo, min(hi, x)),
             "lerp": lambda a, b, t: a + (b - a) * t,
+            "mix": lambda a, b, t: a + (b - a) * t,  # GLSL alias for lerp
             "smoothstep": lambda edge0, edge1, x: (
                 lambda t: t * t * (3 - 2 * t)
             )(max(0.0, min(1.0, (x - edge0) / (edge1 - edge0) if edge1 != edge0 else 0.0))),
+            "remap": lambda x, a, b, c, d: c + (d - c) * max(0.0, min(1.0,
+                (x - a) / (b - a) if b != a else 0.0)),
+            # Conditionals
             "where": lambda cond, a, b: a if cond else b,
-            "floor": math.floor,
-            "ceil": math.ceil,
+            # Easing functions (input x is typically t/max_f in [0,1])
+            "easeIn": lambda x: x * x,
+            "easeOut": lambda x: 1.0 - (1.0 - x) * (1.0 - x),
+            "easeInOut": lambda x: (2.0 * x * x if x < 0.5
+                                    else 1.0 - (-2.0 * x + 2.0) ** 2 / 2.0),
+            "easeInCubic": lambda x: x * x * x,
+            "easeOutCubic": lambda x: 1.0 - (1.0 - x) ** 3,
+            # Animation easing
+            "bounce": lambda x: abs(math.sin(x * math.pi * 3)) * max(0.0, 1.0 - x),
+            "elastic": lambda x: (0.0 if x <= 0.0 else (1.0 if x >= 1.0 else
+                2.0 ** (-10.0 * x) * math.sin((x * 10.0 - 0.75) * 2.0 * math.pi / 3.0) + 1.0)),
+            # Utility / procedural
+            "step": lambda x, n: math.floor(x * n) / n if n > 0 else x,
+            "fract": lambda x: x - math.floor(x),
+            "pingpong": lambda x, length: (
+                length - abs((x % (2.0 * length)) - length) if length > 0 else 0.0),
+            "hash1d": lambda x: (math.sin(x * 127.1) * 43758.5453) % 1.0,
+            "smoothnoise": lambda x: (
+                (math.sin(math.floor(x) * 127.1) * 43758.5453) % 1.0 * (1.0 - (x - math.floor(x)))
+                + (math.sin((math.floor(x) + 1) * 127.1) * 43758.5453) % 1.0 * (x - math.floor(x))),
         }
         self._evaluator.operators = DEFAULT_OPERATORS
 
@@ -565,8 +666,11 @@ class ModulationEngine:
                         smoothed = prev + a_rel * (raw_val - prev)
                 slot_ema[slot_idx] = smoothed
 
+                # Invert source if requested (0→1, 1→0)
+                mapped = (1.0 - smoothed) if slot.invert else smoothed
+
                 # Map [0, 1] smoothed feature to [min_val, max_val]
-                output = slot.min_val + (slot.max_val - slot.min_val) * smoothed
+                output = slot.min_val + (slot.max_val - slot.min_val) * mapped
                 target_values.setdefault(slot.target, []).append(output)
 
             # Aggregate multi-slot targets (average)

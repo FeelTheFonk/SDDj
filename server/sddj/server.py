@@ -26,8 +26,12 @@ from .protocol import (
     AnimationCompleteResponse,
     AudioAnalysisResponse,
     AudioReactiveCompleteResponse,
+    ChoreographyPresetDetailResponse,
+    ChoreographyPresetsListResponse,
     CleanupResponse,
     ErrorResponse,
+    ExpressionPresetDetailResponse,
+    ExpressionPresetsListResponse,
     ListResponse,
     ModulationPresetsResponse,
     ModulationPresetDetailResponse,
@@ -409,6 +413,18 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
         elif req.action == Action.GET_MODULATION_PRESET:
             await _handle_get_modulation_preset(websocket, req)
 
+        elif req.action == Action.LIST_EXPRESSION_PRESETS:
+            await _handle_list_expression_presets(websocket)
+
+        elif req.action == Action.GET_EXPRESSION_PRESET:
+            await _handle_get_expression_preset(websocket, req)
+
+        elif req.action == Action.LIST_CHOREOGRAPHY_PRESETS:
+            await _handle_list_choreography_presets(websocket)
+
+        elif req.action == Action.GET_CHOREOGRAPHY_PRESET:
+            await _handle_get_choreography_preset(websocket, req)
+
         elif req.action == Action.GENERATE_AUDIO_REACTIVE:
             await _handle_generate_audio_reactive(websocket, req, ws_id)
 
@@ -740,6 +756,7 @@ async def _handle_get_modulation_preset(websocket: WebSocket, req: Request) -> N
                 "min_val": s.min_val, "max_val": s.max_val,
                 "attack": s.attack, "release": s.release,
                 "enabled": s.enabled,
+                "invert": s.invert,
             }
             for s in slots
         ]
@@ -748,6 +765,58 @@ async def _handle_get_modulation_preset(websocket: WebSocket, req: Request) -> N
     except ValueError as e:
         await _send(websocket, ErrorResponse(
             code="INVALID_REQUEST", message=str(e)))
+
+
+async def _handle_list_expression_presets(websocket: WebSocket) -> None:
+    from .expression_presets import list_expression_presets
+    presets = list_expression_presets()
+    await _send(websocket, ExpressionPresetsListResponse(presets=presets))
+
+
+async def _handle_get_expression_preset(websocket: WebSocket, req: Request) -> None:
+    name = req.preset_name
+    if not name:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message="preset_name required"))
+        return
+    from .expression_presets import get_expression_preset
+    preset = get_expression_preset(name)
+    if not preset:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message=f"Unknown expression preset: {name}"))
+        return
+    await _send(websocket, ExpressionPresetDetailResponse(
+        name=name,
+        targets=preset["targets"],
+        description=preset["description"],
+        category=preset["category"],
+    ))
+
+
+async def _handle_list_choreography_presets(websocket: WebSocket) -> None:
+    from .expression_presets import list_choreography_presets
+    presets = list_choreography_presets()
+    await _send(websocket, ChoreographyPresetsListResponse(presets=presets))
+
+
+async def _handle_get_choreography_preset(websocket: WebSocket, req: Request) -> None:
+    name = req.preset_name
+    if not name:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message="preset_name required"))
+        return
+    from .expression_presets import get_choreography_preset
+    choreo = get_choreography_preset(name)
+    if not choreo:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message=f"Unknown choreography preset: {name}"))
+        return
+    await _send(websocket, ChoreographyPresetDetailResponse(
+        name=name,
+        description=choreo["description"],
+        slots=choreo.get("slots", []),
+        expressions=choreo.get("expressions", {}),
+    ))
 
 
 async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:

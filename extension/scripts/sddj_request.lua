@@ -130,7 +130,7 @@ function PT.build_audio_reactive_request()
     end
   end
 
-  -- Build modulation slots from UI (4 slots)
+  -- Build modulation slots from UI (6 slots)
   local slots = {}
   local slot_count = d.mod_slot_count or 2
   for i = 1, slot_count do
@@ -173,6 +173,7 @@ function PT.build_audio_reactive_request()
         attack  = d[prefix .. "attack"],
         release = d[prefix .. "release"],
         enabled = true,
+        invert  = d[prefix .. "invert"] or false,
       }
     end
   end

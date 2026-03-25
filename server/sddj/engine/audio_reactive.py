@@ -151,7 +151,7 @@ class AudioReactiveMixin:
                         source=s.source, target=s.target,
                         min_val=s.min_val, max_val=s.max_val,
                         attack=s.attack, release=s.release,
-                        enabled=s.enabled,
+                        enabled=s.enabled, invert=s.invert,
                     )
                     for s in req.modulation_slots
                 ]

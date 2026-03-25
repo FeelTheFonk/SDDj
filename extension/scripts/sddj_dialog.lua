@@ -634,6 +634,28 @@ local function build_tab_audio()
     min = 1, max = 3, value = 2,
   }
 
+  -- Choreography
+  dlg:separator{ text = "Choreography" }
+  dlg:combobox{
+    id = "audio_choreography",
+    label = "Camera Journey",
+    options = {
+      "(none)",
+      "orbit_journey", "dolly_zoom_vertigo", "crane_ascending",
+      "wandering_voyage", "hypnotic_spiral",
+      "breathing_calm", "staccato_cuts",
+    },
+    option = "(none)",
+    onchange = function()
+      local sel = dlg.data.audio_choreography
+      if sel == "(none)" then return end
+      if PT.state.connected then
+        PT.send({ action = "get_choreography_preset", preset_name = sel })
+      end
+      PT.update_status("Choreography '" .. sel .. "' selected")
+    end,
+  }
+
   -- Modulation
   dlg:separator{ text = "Modulation" }
   dlg:combobox{
@@ -655,6 +677,10 @@ local function build_tab_audio()
       -- Motion / camera
       "gentle_drift", "pulse_zoom", "slow_rotate", "cinematic_sweep",
       "cinematic_tilt", "zoom_breathe", "parallax_drift", "full_cinematic",
+      -- Voyage / Journey
+      "voyage_serene", "voyage_exploratory", "voyage_dramatic", "voyage_psychedelic",
+      -- Rest-aware
+      "intelligent_drift", "reactive_pause",
       -- Spectral / pinnacle quality
       "spectral_sculptor", "tonal_drift", "ultra_precision", "micro_reactive",
       -- Legacy
@@ -674,8 +700,8 @@ local function build_tab_audio()
 
   dlg:slider{
     id = "mod_slot_count",
-    label = "Slots (1)",
-    min = 1, max = 4, value = 1,
+    label = "Slots (2)",
+    min = 1, max = 6, value = 2,
     onchange = function()
       dlg:modify{ id = "mod_slot_count", label = "Slots (" .. dlg.data.mod_slot_count .. ")" }
     end,
@@ -696,6 +722,8 @@ local function build_tab_audio()
     { "global_onset",  "cfg_scale",         30, 80, 2, 8 },
     { "global_low",    "noise_amplitude",    0, 30, 2, 8 },
     { "global_high",   "seed_offset",        0, 50, 2, 8 },
+    { "global_mid",    "motion_x",          30, 70, 3, 12 },
+    { "global_rms",    "motion_zoom",       40, 60, 4, 15 },
   }
 
   for i, def in ipairs(slot_defaults) do
@@ -704,7 +732,13 @@ local function build_tab_audio()
     dlg:check{
       id = prefix .. "enable",
       text = "Slot " .. i,
-      selected = true,
+      selected = (i <= 2),
+      onchange = mod_slot_changed,
+    }
+    dlg:check{
+      id = prefix .. "invert",
+      text = "Invert",
+      selected = false,
       onchange = mod_slot_changed,
     }
     dlg:combobox{
@@ -757,6 +791,19 @@ local function build_tab_audio()
     id = "audio_use_expressions",
     text = "Custom Expressions",
     selected = false,
+  }
+  dlg:combobox{
+    id = "audio_expr_preset",
+    label = "Expr Preset",
+    options = { "(manual)" },
+    option = "(manual)",
+    onchange = function()
+      local sel = dlg.data.audio_expr_preset
+      if sel == "(manual)" then return end
+      if PT.state.connected then
+        PT.send({ action = "get_expression_preset", preset_name = sel })
+      end
+    end,
   }
   dlg:entry{
     id = "expr_denoise",

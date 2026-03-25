@@ -262,7 +262,17 @@ Expressions override slot values with mathematical formulas. Enable via **Advanc
 
 ### Available Functions
 
-`sin`, `cos`, `tan`, `abs`, `min`, `max`, `sqrt`, `exp`, `log`, `pow`, `floor`, `ceil`, `clamp(x, lo, hi)`, `lerp(a, b, t)`, `smoothstep(edge0, edge1, x)`, `where(cond, a, b)`
+**Core math:** `sin`, `cos`, `tan`, `abs`, `min`, `max`, `sqrt`, `exp`, `log`, `pow`, `floor`, `ceil`, `sign(x)`, `atan2(y, x)`
+
+**Interpolation:** `clamp(x, lo, hi)`, `lerp(a, b, t)`, `mix(a, b, t)`, `smoothstep(edge0, edge1, x)`, `remap(x, a, b, c, d)`
+
+**Conditionals:** `where(cond, a, b)`
+
+**Easing:** `easeIn(x)`, `easeOut(x)`, `easeInOut(x)`, `easeInCubic(x)`, `easeOutCubic(x)`
+
+**Animation:** `bounce(x)`, `elastic(x)`
+
+**Utility:** `step(x, n)`, `fract(x)`, `pingpong(x, length)`, `hash1d(x)`, `smoothnoise(x)`
 
 ### Available Variables
 
@@ -278,8 +288,23 @@ Expressions override slot values with mathematical formulas. Enable via **Advanc
 | `global_centroid` | Current frame's centroid value |
 | `global_low` / `mid` / `high` | Band energies |
 | `global_sub_bass` / `upper_mid` / `presence` | Extended band energies |
+| `global_spectral_contrast` / `spectral_flatness` | Spectral timbral features |
+| `global_spectral_flux` / `spectral_rolloff` / `spectral_bandwidth` | Spectral change features |
+| `global_chroma_energy` | Aggregate chromagram energy |
 | `global_beat` | Beat signal |
 | *(per-stem vars)* | Available if stems enabled |
+
+### Slot Inversion
+
+Each modulation slot has an **Invert** checkbox. When enabled, the source feature value is inverted (1−x) before mapping to the min/max range. This means 0→max and 1→min, useful for "ducking" effects (e.g., reduce denoise on beats) or inverse-coupling.
+
+### Expression Preset Library
+
+Select from 30 curated expression presets via the **Expr Preset** dropdown. Presets span 5 categories: rhythmic (BPM-synced), temporal (time evolution), spectral (frequency-driven), easing (motion curves), and camera (single-target motion). Selecting a preset auto-fills the expression fields.
+
+### Camera Choreography
+
+Select from 7 multi-target **Camera Journey** presets that coordinate motion + slot parameters for immersive camera work: orbit, dolly zoom (vertigo), crane, wandering voyage, hypnotic spiral, breathing calm, and staccato cuts. Each choreography hydrates both modulation slots and expression fields simultaneously.
 
 ### Expression Examples
 

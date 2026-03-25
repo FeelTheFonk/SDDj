@@ -2,6 +2,31 @@
 
 All notable changes to SDDj are documented here.
 
+## [0.9.43] — 2026-03
+
+### Added
+- **Expression Template Library** — 30 curated expression presets in 5 categories (rhythmic, temporal, spectral, easing, camera) via `expression_presets.py`; server API actions `list_expression_presets` / `get_expression_preset`
+- **Camera Choreography Meta-Presets** — 7 multi-target presets (orbit journey, dolly zoom vertigo, crane ascending, wandering voyage, hypnotic spiral, breathing calm, staccato cuts) coordinating modulation slots + math expressions; server API actions `list_choreography_presets` / `get_choreography_preset`
+- **14 new math functions** in `ExpressionEvaluator`: easing (`easeIn`, `easeOut`, `easeInOut`, `easeInCubic`, `easeOutCubic`), animation (`bounce`, `elastic`), utility (`step`, `fract`, `remap`, `pingpong`, `hash1d`, `smoothnoise`, `sign`, `atan2`, `mix`)
+- **Slot inversion** — `invert` boolean on `ModulationSlot` / `ModulationSlotSpec`; when enabled, source feature is inverted (1−x) before min/max mapping — enables ducking effects and inverse-coupling
+- **6 new modulation presets**: 4 voyage journeys (`voyage_serene`, `voyage_exploratory`, `voyage_dramatic`, `voyage_psychedelic`) and 2 rest-aware presets (`intelligent_drift`, `reactive_pause`)
+- **6 modulation slots** — expanded from 4; default slot count set to 2 with motion-oriented defaults for slots 5-6
+- **Choreography combobox** ("Camera Journey") in Lua UI — selects and hydrates both modulation slots and expression fields simultaneously
+- **Expression preset combobox** — dynamically populated from server; auto-fills expression fields on selection
+- **Invert checkbox** per modulation slot in Lua UI
+- 4 new protocol actions, 4 new response models (`ExpressionPresetsListResponse`, `ExpressionPresetDetailResponse`, `ChoreographyPresetsListResponse`, `ChoreographyPresetDetailResponse`)
+- 5 new Lua response handlers (`expression_presets_list`, `expression_preset_detail`, `choreography_preset_detail`, `choreography_presets_list`, updated `modulation_preset_detail`)
+- ~50 new tests in `test_expression_presets.py` + `test_protocol.py` invert tests
+
+### Fixed
+- **Invert field not forwarded** — `audio_reactive.py` `ModulationSlot` construction from `ModulationSlotSpec` was missing `invert=s.invert`, causing slot inversion to silently fail during audio-reactive generation
+
+### Changed
+- **AUDIO-REACTIVITY.md** updated: Available Functions expanded from 16 to 30, added spectral variable rows, new sections for Slot Inversion / Expression Library / Choreography
+- **API-REFERENCE.md** updated: 4 new actions, `invert` field on modulation slot, 5 new response types
+- Frontend source dropdown hydration expanded to cover 6 slots (was 4)
+- Slot default enable state: only slots 1-2 enabled by default (was all 4)
+
 ## [0.9.42] — 2026-03
 
 ### Changed
