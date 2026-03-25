@@ -12,43 +12,22 @@ Audio reactivity maps characteristics of an audio file (energy, beats, spectral 
 
 **Architecture:**
 
-```
-Audio File (.wav/.mp3/.flac/.ogg)
-    |
-    v
-Audio Analyzer (librosa, 44100 Hz)
-    |  - RMS energy (K-weighted), onset strength (SuperFlux)
-    |  - Spectral centroid, contrast, flatness, bandwidth, rolloff, flux
-    |  - 9-band mel energy (sub_bass through ultrasonic) + backward-compat aliases
-    |  - 12-bin CQT chromagram (individual pitch classes)
-    |  - BPM detection (librosa + optional madmom RNN) + beat signal
-    |  - Integrated LUFS (pyloudnorm)
-    |  - Waveform preview (100-point RMS)
-    |  - Optional: per-stem features with full feature set (demucs)
-    v
-Modulation Engine (synth-style matrix)
-    |  - Source -> Target routing with min/max range
-    |  - Attack/Release EMA smoothing
-    |  - Custom math expressions (simpleeval)
-    v
-Parameter Schedule (per-frame or per-chunk values)
-    |
-    +--- Frame Chain (img2img from previous frame)
-    |      - Frame 0: txt2img / img2img / inpaint / ControlNet
-    |      - Frame 1+: motion warp (pan/zoom/rotate/tilt) -> img2img chain with modulated params
-    |
-    +--- AnimateDiff + Audio (v0.7.3+)
-    |      - 16-frame temporal batches with 4-frame overlap
-    |      - Per-chunk averaged parameters
-    |      - Alpha-blended inter-batch transitions
-    |      - Per-frame motion warp (pan/zoom/rotate/tilt) applied post-generation
-    |      - FreeInit on first chunk (optional)
-    |
-    v
-Post-Processing Pipeline (+ palette shift) -> Aseprite Timeline
-    |
-    v  (optional)
-MP4 Export (ffmpeg, nearest-neighbor scaling, audio mux)
+```mermaid
+graph TD
+    Audio[Audio File] --> Analyzer["Audio Analyzer<br>(librosa, 44100 Hz)"]
+    Analyzer -->|"34 Global+Stem Features,<br>BPM, SuperFlux, CQT"| Modulation["Modulation Engine<br>(synth matrix + math expressions)"]
+    Modulation -->|"EMA Smoothing,<br>Min/Max Mapping"| Schedule[Parameter Schedule]
+    
+    Schedule --> Split{Animation Method}
+    
+    Split -->|Method: chain| Chain["Frame Chain<br>Frame 0: base generation<br>Frame 1+: motion warp -> img2img"]
+    Split -->|Method: animatediff| AD["AnimateDiff + Audio<br>16-frame batches, alpha blending,<br>post-generation motion warp"]
+    
+    Chain --> PP[Post-Processing Pipeline]
+    AD --> PP
+    
+    PP -->|Import| Aseprite[Aseprite Timeline]
+    PP -.->|Optional| MP4[MP4 Export via ffmpeg]
 ```
 
 ## Quick Start

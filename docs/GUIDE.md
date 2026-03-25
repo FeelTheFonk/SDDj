@@ -33,7 +33,7 @@
 Before using SDDj, make sure you have:
 
 - **Aseprite** (v1.3+) — compiled or purchased
-- **NVIDIA GPU** with at least 8 GB VRAM (10 GB for AnimateDiff + ControlNet)
+- **NVIDIA GPU** with at least **4 GB VRAM** (txt2img/img2img/audio at 512x512). 8GB+ required for AnimateDiff/ControlNet
 - **`setup.ps1` already run** — this installs all dependencies and downloads models (~10 GB)
 
 > [!NOTE]
@@ -45,6 +45,8 @@ Before using SDDj, make sure you have:
 ---
 
 ## First Launch
+
+> **Privacy First**: `start.ps1` enforces `HF_HUB_OFFLINE=1`, completely disabling cloud telemetry and network requests to HuggingFace during runtime for 100% offline privacy.
 
 1. **Run `start.ps1`** at the project root
 2. A terminal opens — the server loads the SD model (~30s first time)
@@ -605,9 +607,9 @@ To reproduce: enter that seed number in the Seed field, keep all other parameter
 
 | Operation | Approximate VRAM |
 |-----------|-----------------|
-| Idle (model loaded) | ~4 GB |
-| Generate 512x512 | ~6 GB |
-| Generate 768x768 | ~8 GB |
+| Idle (model loaded) | ~3-4 GB |
+| Generate 512x512 | ~4-5 GB |
+| Generate 768x768 | ~6 GB |
 | AnimateDiff 8 frames | ~8-10 GB |
 | AnimateDiff + ControlNet | ~10+ GB |
 

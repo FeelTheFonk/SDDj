@@ -18,7 +18,7 @@ SDDj uses `uv` for lightning-fast Python dependency management and builds.
    ```
 3. **Run the server in dev mode**
    ```bash
-   uv run sddj-server --reload
+   uv run python run.py
    ```
 
 ## Repository Structure

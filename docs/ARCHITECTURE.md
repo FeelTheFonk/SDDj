@@ -57,6 +57,15 @@ The core engine uses `diffusers` optimized to the absolute limit:
 3. **Frequency Enhancement**: `FreeU v2` manipulates skip connections to enhance structural fidelity without training.
 4. **Distillation**: `AnimateDiff-Lightning` and `Hyper-SD` LoRAs compress the required step count from 20 to 4-8.
 
+#### Attention Mechanism
+
+PyTorch ≥ 2.0 uses `scaled_dot_product_attention` (SDP) **by default** in diffusers — no configuration needed. SDP auto-dispatches to the best available kernel:
+
+- **FlashAttention2** kernels (integrated in PyTorch ≥ 2.2) — fused, memory-efficient
+- **Math fallback** — for unsupported head dimensions
+
+A separate `flash-attn` package is **not required** — PyTorch ≥ 2.1 includes FA2 natively via SDP. xformers is superseded by native SDP and provides no benefit on PyTorch ≥ 2.0.
+
 ### Audio DSP Pipeline
 
 The audio reactivity engine (`audio_analyzer.py` and `modulation_engine.py`) transforms audio streams into visual parameters in real-time.
@@ -86,3 +95,16 @@ Aseprite users will routinely cancel generations or trigger rapid parameter chan
 
 1. **Cancellation**: A global `asyncio.Event` (`stop_event`) is passed down to the diffusion callback loop. If signaled via the WebSocket `CANCEL` command, the `callback_on_step_end` hook raises a custom interrupt exception, freeing the GPU instantly.
 2. **Watchdog**: The WebSocket maintains a ping/pong heartbeat. If the client disconnects (e.g., Aseprite crashes), the server intercepts the disconnect, signals the `stop_event`, and resets internal state within seconds.
+
+## File Structure Hierarchy
+
+The project avoids bloated deep trees by centralizing logic into clear domain boundaries:
+
+- `sddj/server/` — Python 3.11+ backend.
+  - `engine/` — SOTA diffusion orchestrators (`core.py`, `animation.py`, `audio_reactive.py`).
+  - `pipeline_factory.py` — Dynamic model routing, torch.compile tracing, scheduler swaps.
+  - `audio_analyzer.py` / `modulation_engine.py` — DSP and param scheduling.
+  - `postprocess.py` — Pixel art rendering stages.
+  - `models/` — Local weight storage (no runtime downloads).
+- `sddj/extension/` — Lua UI for Aseprite.
+  - `scripts/` — Subdivided modules (`sddj_ws.lua` for transport, `sddj_dialog.lua` for UI).
