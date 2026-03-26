@@ -306,4 +306,47 @@ function PT.build_generate_request()
   return req
 end
 
+-- Factored from animate button onclick (consistent with build_generate_request).
+function PT.build_animation_request()
+  if not PT.dlg then return nil end
+  local d = PT.dlg.data
+  local gw, gh = PT.parse_size()
+  local tag_name = d.anim_tag or ""
+  if tag_name == "" then tag_name = nil end
+
+  -- Lock Subject: inject fixed subject into animation prompt
+  local locked = PT.build_locked_fields()
+  local effective_prompt = d.prompt
+  if locked.subject then
+    if not effective_prompt:find(locked.subject, 1, true) then
+      effective_prompt = locked.subject .. ", " .. effective_prompt
+    end
+  end
+
+  local req = {
+    action = "generate_animation",
+    method = d.anim_method,
+    prompt = effective_prompt,
+    negative_prompt = d.negative_prompt,
+    mode = d.mode,
+    width = gw, height = gh,
+    seed = PT.parse_seed(),
+    steps = d.anim_steps,
+    cfg_scale = d.anim_cfg / 10.0,
+    clip_skip = d.clip_skip,
+    denoise_strength = d.anim_denoise / 100.0,
+    frame_count = d.anim_frames,
+    frame_duration_ms = d.anim_duration,
+    seed_strategy = d.anim_seed_strategy,
+    tag_name = tag_name,
+    enable_freeinit = d.anim_freeinit,
+    freeinit_iterations = d.anim_freeinit_iters,
+    post_process = PT.build_post_process(),
+  }
+  PT.attach_lora(req)
+  PT.attach_neg_ti(req)
+  PT.last_request = PT.deep_copy_request(req)
+  return req
+end
+
 end

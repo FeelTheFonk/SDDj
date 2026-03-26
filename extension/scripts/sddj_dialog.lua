@@ -967,6 +967,10 @@ function PT.trigger_generate()
     PT.loop.seed_mode = d.loop_seed_combo or "random"
     PT.loop.random_mode = d.random_loop_check or false
     PT.loop.locked_fields = PT.build_locked_fields()
+    -- Reset seed to -1 for first iteration when random mode
+    if PT.loop.seed_mode == "random" then
+      dlg:modify{ id = "seed", text = "-1" }
+    end
   end
 
   -- Random loop: first generate a random prompt, then generate image
@@ -1000,43 +1004,9 @@ end
 function PT.trigger_animate()
   if PT.state.animating or PT.state.generating then return end
   local dlg = PT.dlg
-  local d = dlg.data
-  local gw, gh = PT.parse_size()
-  local tag_name = d.anim_tag or ""
-  if tag_name == "" then tag_name = nil end
 
-  -- Lock Subject: inject fixed subject into animation prompt
-  local locked = PT.build_locked_fields()
-  local effective_prompt = d.prompt
-  if locked.subject then
-    if not effective_prompt:find(locked.subject, 1, true) then
-      effective_prompt = locked.subject .. ", " .. effective_prompt
-    end
-  end
-
-  local req = {
-    action = "generate_animation",
-    method = d.anim_method,
-    prompt = effective_prompt,
-    negative_prompt = d.negative_prompt,
-    mode = d.mode,
-    width = gw, height = gh,
-    seed = PT.parse_seed(),
-    steps = d.anim_steps,
-    cfg_scale = d.anim_cfg / 10.0,
-    clip_skip = d.clip_skip,
-    denoise_strength = d.anim_denoise / 100.0,
-    frame_count = d.anim_frames,
-    frame_duration_ms = d.anim_duration,
-    seed_strategy = d.anim_seed_strategy,
-    tag_name = tag_name,
-    enable_freeinit = d.anim_freeinit,
-    freeinit_iterations = d.anim_freeinit_iters,
-    post_process = PT.build_post_process(),
-  }
-  PT.attach_lora(req)
-  PT.attach_neg_ti(req)
-  PT.last_request = PT.deep_copy_request(req)
+  local req = PT.build_animation_request()
+  if not req then return end
   if not PT.attach_source_image(req) then return end
 
   PT.state.animating = true
@@ -1131,6 +1101,7 @@ local function build_actions_panel()
         })
         dlg:modify{ id = "action_btn", enabled = false }
         dlg:modify{ id = "cancel_btn", enabled = true }
+        PT.start_gen_timeout(30)  -- Timeout protection for prompt randomization
         PT.update_status("Randomizing prompt...")
         return
       end

@@ -291,6 +291,8 @@ function PT.request_resources()
   PT.send({ action = "list_embeddings" })
   PT.send({ action = "list_presets" })
   PT.send({ action = "list_modulation_presets" })
+  PT.send({ action = "list_expression_presets" })
+  PT.send({ action = "list_choreography_presets" })
 end
 
 end

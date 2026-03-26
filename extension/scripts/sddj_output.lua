@@ -69,12 +69,18 @@ function PT.save_to_output(resp, meta)
     local img_data = PT.base64_decode(resp.image)
     if not img_data or #img_data == 0 then return end
 
-    -- Save PNG
+    -- Save PNG (encoding-aware: handles both PNG and raw_rgba)
     local png_path = app.fs.joinPath(date_dir, base_name .. ".png")
-    local f = io.open(png_path, "wb")
-    if f then
-      f:write(img_data)
-      f:close()
+    if resp.encoding == "raw_rgba" and resp.width and resp.height then
+      local img = Image(resp.width, resp.height, ColorMode.RGB)
+      img.bytes = img_data
+      img:saveAs(png_path)
+    else
+      local f = io.open(png_path, "wb")
+      if f then
+        f:write(img_data)
+        f:close()
+      end
     end
 
     -- Save metadata JSON
@@ -282,6 +288,7 @@ function PT.apply_metadata(meta)
         end
       end
     end
+    if pp.quantize_enabled ~= nil then PT.dlg:modify{ id = "quantize_enabled", selected = pp.quantize_enabled } end
     if pp.quantize_colors then PT.dlg:modify{ id = "colors", value = pp.quantize_colors } end
     if pp.quantize_method then PT.dlg:modify{ id = "quantize_method", option = pp.quantize_method } end
     if pp.dither then PT.dlg:modify{ id = "dither", option = pp.dither } end

@@ -506,7 +506,7 @@ handlers.preset = function(resp)
     if d.lora.weight then
       local w = math.floor(d.lora.weight * 100)
       PT.dlg:modify{ id = "lora_weight", value = w }
-      PT.dlg:modify{ id = "lora_weight", label = string.format("Weight (%.2f)", w / 100.0) }
+      PT.dlg:modify{ id = "lora_weight", label = string.format("LoRA (%.2f)", w / 100.0) }
     end
   end
   PT.update_status("Preset '" .. tostring(resp.name or "?") .. "' loaded")

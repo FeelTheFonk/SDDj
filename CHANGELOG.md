@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.53] — 2026-03
+### Fixed
+- **Settings persistence: 23 missing fields** — modulation slots 5-6 (14 fields), invert toggles for all 6 slots (6 fields), `quantize_enabled`, `audio_choreography`, and `audio_expr_preset` were not saved/loaded, causing data loss on restart.
+- **Resource requests on connect** — expression and choreography preset lists were never requested on connect, leaving those dropdowns unpopulated until manual refresh.
+- **Loop seed initialization** — first iteration of "random" loop mode used the stale seed from the text field instead of `-1`.
+- **Prompt randomization timeout** — `generate_prompt` with `pending_action` had no timeout; if the server never responded, the UI remained locked indefinitely. Now protected by a 30-second timeout.
+- **LoRA label mismatch** — preset hydration set the LoRA weight label to `"Weight (X.XX)"` instead of `"LoRA (X.XX)"`, inconsistent with the dialog definition.
+- **Metadata `quantize_enabled` not restored** — loading generation metadata did not restore the quantize checkbox state.
+- **`save_to_output` not encoding-aware** — single-result output save assumed PNG encoding; now handles `raw_rgba` correctly (parity with `save_animation_frame`).
+- **Version drift** — Lua extension version was `0.9.51` while all other manifests were `0.9.52`; harmonized.
+
+### Changed
+- **Factored `build_animation_request()`** — extracted inline animation request construction from `trigger_animate()` into `sddj_request.lua`, consistent with `build_generate_request()` and `build_audio_reactive_request()`.
+
 ## [0.9.52] — 2026-03
 ### Added
 - **Pinnacle Documentation Overhaul** — Complete rewrite and restructuring of the entire documentation suite (reduction from 8 files / 122 KB to 5 files / 50 KB). 
