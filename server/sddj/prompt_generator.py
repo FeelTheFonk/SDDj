@@ -367,17 +367,26 @@ class PromptGenerator:
 
     @staticmethod
     def _pick_from_pool(pool: list[str], randomness: int) -> str:
-        """Pick from a pool using randomness-influenced selection."""
+        """Pick from a pool using randomness-influenced selection.
+
+        Gradient: 0=uniform, 1-5=favor front 2/3, 6-10=full uniform,
+        11-15=favor latter half (rarer), 16-20=combine 2 items (chaos).
+        """
         if not pool:
             return ""
         if randomness >= 16 and len(pool) > 1:
-            # Chaos: combine 2 subjects
+            # Chaos: combine 2 items
             picks = random.sample(pool, min(2, len(pool)))
             return ", ".join(picks)
         if randomness >= 11 and len(pool) > 2:
             # Wild: favor latter half (rarer items)
             half = len(pool) // 2
             return random.choice(pool[half:])
+        if 1 <= randomness <= 5 and len(pool) > 3:
+            # Low: favor front 2/3 (common items) — subtly narrower than full uniform
+            window = max(2, len(pool) * 2 // 3)
+            return random.choice(pool[:window])
+        # 0 or 6-10: full uniform
         return random.choice(pool)
 
     @staticmethod
@@ -447,13 +456,21 @@ class PromptGenerator:
             if category not in eligible and category in _TYPE_ELIGIBLE.get(SubjectType.ANY, frozenset()):
                 continue  # type-specific category not eligible
 
-            # Mode probability check
-            if gen_mode != Mode.CHAOS and mode_probs:
-                prob = mode_probs.get(category, 0.5)
-                if prob <= 0.0:
-                    continue
-                if prob < 1.0 and random.random() > prob:
-                    continue
+            # Mode probability check — randomness boosts inclusion in standard mode
+            if gen_mode != Mode.CHAOS:
+                if mode_probs:
+                    prob = mode_probs.get(category, 0.5)
+                    if prob <= 0.0:
+                        continue
+                    if prob < 1.0 and random.random() > prob:
+                        continue
+                elif randomness > 0:
+                    # Standard mode with randomness: base 0.55, scaled up
+                    # 1→0.575, 5→0.675, 10→0.80, 15→0.925, 20→1.0 (always)
+                    prob = 0.55 + randomness * 0.025
+                    if prob < 1.0 and random.random() > prob:
+                        continue
+                # else: standard mode, randomness=0 → include all (original behavior)
 
             # Randomness-based selection
             components[category] = self._pick_from_pool(items, randomness)
@@ -496,11 +513,14 @@ class PromptGenerator:
         gen_mode: Mode,
     ) -> str:
         """Pick a single artist with tag-based coherence."""
-        # Low randomness: prefer popular artists
+        # Low randomness: prefer popular artists, with gradual broadening
         if randomness <= 5 and "popular" in self._artist_buckets:
             pool = self._artist_buckets["popular"]
             if pool:
-                return random.choice(pool)
+                # At 0: always popular. At 1-5: increasing chance to skip popular
+                # and fall through to style-match or fully random below.
+                if randomness == 0 or random.random() > randomness * 0.1:
+                    return random.choice(pool)
 
         # Medium randomness: try to match style/mood tags
         if randomness <= 15 and self._artist_buckets:
@@ -538,8 +558,13 @@ class PromptGenerator:
                 template = self._templates["character"]
             elif gen_mode == Mode.ART_FOCUS and "surrealist" in self._templates:
                 template = self._templates["surrealist"]
-            elif randomness >= 11 and self._templates:
-                template = self._templates[random.choice(list(self._templates.keys()))]
+            elif randomness >= 8 and self._templates:
+                # 8-10: occasional random template (~15-45% chance)
+                # 11+: always random template
+                if randomness >= 11 or random.random() < (randomness - 7) * 0.15:
+                    template = self._templates[random.choice(list(self._templates.keys()))]
+                else:
+                    template = self._default_template
             else:
                 template = self._default_template
 

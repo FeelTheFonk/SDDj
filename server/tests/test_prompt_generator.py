@@ -211,3 +211,47 @@ class TestRandomness:
         # Rich template should use colors and details
         assert "colors" in components
         assert "details" in components
+
+
+class TestRandomnessGranularity:
+    """Verify the slider produces observable changes at every 5-step increment."""
+
+    def test_each_level_produces_valid_output(self, tmp_prompts_dir: Path):
+        """Every randomness level 0-20 produces a valid non-empty prompt."""
+        gen = PromptGenerator(tmp_prompts_dir)
+        for r in range(21):
+            prompt, neg, comp = gen.generate(randomness=r)
+            assert isinstance(prompt, str) and len(prompt) > 0, f"Failed at randomness={r}"
+            assert isinstance(comp, dict) and len(comp) > 0, f"Empty components at randomness={r}"
+
+    def test_high_randomness_includes_more_categories(self, tmp_prompts_dir: Path):
+        """Randomness 15 should include more categories on average than randomness 1."""
+        gen = PromptGenerator(tmp_prompts_dir)
+        counts_1 = []
+        counts_15 = []
+        for _ in range(80):
+            _, _, c1 = gen.generate(randomness=1)
+            counts_1.append(len(c1))
+            _, _, c15 = gen.generate(randomness=15)
+            counts_15.append(len(c15))
+        avg_1 = sum(counts_1) / len(counts_1)
+        avg_15 = sum(counts_15) / len(counts_15)
+        # At randomness=15, probability is ~0.925 vs ~0.575 at randomness=1
+        assert avg_15 > avg_1, f"Expected more categories at r=15 ({avg_15:.1f}) vs r=1 ({avg_1:.1f})"
+
+    def test_moderate_randomness_broader_artists(self, tmp_prompts_dir: Path):
+        """Randomness 8 should pick from a wider artist pool than randomness 0."""
+        gen = PromptGenerator(tmp_prompts_dir)
+        artists_0 = set()
+        artists_8 = set()
+        for _ in range(60):
+            _, _, c0 = gen.generate(randomness=0)
+            if "artist" in c0:
+                artists_0.add(c0["artist"])
+            _, _, c8 = gen.generate(randomness=8)
+            if "artist" in c8:
+                artists_8.add(c8["artist"])
+        # Randomness 8 uses style-match + full random; 0 uses only popular bucket
+        assert len(artists_8) >= len(artists_0), \
+            f"Expected broader artists at r=8 ({len(artists_8)}) vs r=0 ({len(artists_0)})"
+
