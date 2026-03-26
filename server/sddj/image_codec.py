@@ -64,8 +64,9 @@ def encode_image_raw_b64(image: Image.Image) -> str:
 
     Payload size: width × height × 4 bytes (before base64).
     """
-    rgba = image.convert("RGBA")
-    raw = rgba.tobytes()
+    if image.mode != "RGBA":
+        image = image.convert("RGBA")
+    raw = image.tobytes()
     return b64encode(raw).decode("ascii")
 
 

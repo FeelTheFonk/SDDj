@@ -75,7 +75,10 @@ def apply(image: Image.Image, spec: PostProcessSpec) -> Image.Image:
     if spec.palette.mode != PaletteMode.AUTO:
         palette_rgb = _resolve_palette(spec.palette)
         if palette_rgb:
-            img = _enforce_palette(img, palette_rgb)
+            # Skip explicit enforcement if dithering will handle it —
+            # Bayer dither calls _enforce_palette internally.
+            if spec.dither == DitherMode.NONE:
+                img = _enforce_palette(img, palette_rgb)
 
     # 5. Dithering (palette-aware — uses resolved palette or extracts from quantized image)
     if spec.dither != DitherMode.NONE:

@@ -44,9 +44,14 @@ class LoRAFuser:
             log.info("UNet weight snapshot captured (CPU)")
 
     def _restore_weights(self, pipe) -> None:
-        """Restore UNet to exact original weights from CPU snapshot."""
+        """Restore UNet to exact original weights from CPU snapshot.
+
+        Uses assign=True to avoid ~1.7GB temporary VRAM spike — tensors are
+        swapped in-place rather than copied through an intermediate buffer.
+        Requires torch>=2.4.
+        """
         if self._original_unet_state is not None:
-            pipe.unet.load_state_dict(self._original_unet_state, assign=False)
+            pipe.unet.load_state_dict(self._original_unet_state, assign=True)
 
     def _needs_dynamo_reset(self) -> bool:
         """Return True if dynamo.reset() is needed after LoRA change."""

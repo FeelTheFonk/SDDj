@@ -290,9 +290,11 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         move_to_cpu(self._pipe)
         move_to_cpu(self._img2img_pipe)
         move_to_cpu(self._controlnet_pipe)
+        move_to_cpu(self._controlnet_img2img_pipe)
         self._pipe = None
         self._img2img_pipe = None
         self._controlnet_pipe = None
+        self._controlnet_img2img_pipe = None
         self._controlnet_mode = None
         self._deepcache_helper = None
         self._lora_fuser = LoRAFuser()
@@ -300,7 +302,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         self._loaded = False
         self._animatediff.unload()
         rembg_wrapper.unload()
-        vram_cleanup()
+        vram_cleanup(force=True)
         vram_log("post-unload")
         log.info("Pipeline unloaded")
 
@@ -322,6 +324,9 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         if self._controlnet_pipe is not None:
             move_to_cpu(self._controlnet_pipe)
             self._controlnet_pipe = None
+            if self._controlnet_img2img_pipe is not None:
+                move_to_cpu(self._controlnet_img2img_pipe)
+                self._controlnet_img2img_pipe = None
             self._controlnet_mode = None
             cleaned.append("ControlNet")
 
@@ -335,7 +340,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             self._stem_separator.unload()
             cleaned.append("StemSeparator")
 
-        vram_cleanup()
+        vram_cleanup(force=True)
 
         try:
             if torch.cuda.is_available():
@@ -364,8 +369,8 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         if self._controlnet_mode == mode and self._controlnet_pipe is not None:
             return
 
-        # Smart transition: free AnimateDiff if loaded (reclaim VRAM)
-        if self._animatediff.pipe is not None:
+        # Smart transition: free AnimateDiff if actively loaded (reclaim VRAM)
+        if self._animatediff is not None and self._animatediff.pipe is not None:
             log.info("Smart transition: unloading AnimateDiff before ControlNet load")
             self._animatediff.unload()
 
@@ -438,10 +443,12 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
 
                 effective_neg = self._build_effective_negative(req.negative_prompt, req.negative_ti)
 
-                # Progress callback adapter with cancellation support
+                # Progress callback adapter with cancellation + timeout support
                 def step_callback(pipe, step_idx, timestep, callback_kwargs):
                     if self._cancel_event.is_set():
                         raise GenerationCancelled("Generation cancelled by client")
+                    if time.perf_counter() - t0 > settings.generation_timeout:
+                        raise GenerationCancelled("Generation timeout exceeded")
                     if on_progress:
                         on_progress(ProgressResponse(step=step_idx + 1, total=req.steps))
                     return callback_kwargs
@@ -484,7 +491,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
 
         except torch.cuda.OutOfMemoryError:
             log.error("CUDA OOM — clearing VRAM cache")
-            vram_cleanup()
+            vram_cleanup(force=True)
             raise
         finally:
             self._cancel_event.clear()

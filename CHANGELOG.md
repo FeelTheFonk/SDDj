@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.9.58] — 2026-03
+### Pipeline Performance Audit
+Exhaustive 30+ module audit (weighted avg 66/100 → target 90/100) with 15 fixes across 13 source files.
+
+#### Performance
+- **AnimateDiff chunked processing** — replaced single-batch inference (O(n²) temporal attention, VRAM explosion on large frame counts) with 16-frame chunks + 4-frame overlap alpha blending. Solves "infinite inference" on >16 frames.
+- **PEFT strip guard** — skip full UNet module traversal when no PEFT artifacts exist; flag prevents redundant strip on re-entry.
+- **Lightning scheduler cache** — `EulerDiscreteScheduler` config cached on first call; subsequent pipeline constructors reuse cached config.
+- **Scheduler `from_config`** — all 3 `copy.deepcopy(scheduler)` replaced with `type(sched).from_config(sched.config)` (eliminates deep-copy of scheduler internal state).
+- **DeepCacheState** — mode-aware class avoids redundant disable/enable cycles (100-300ms per toggle) when staying in the same incompatible mode.
+- **Double `dynamo.reset` removed** — `eager_pipeline` no longer resets dynamo on enter AND exit (forced cold recompilation on every chain frame).
+- **GC throttle** — `vram_cleanup()` throttles `gc.collect()` to 2s cooldown; `force=True` parameter for genuine cleanup (model unload, OOM).
+- **LoRA `assign=True`** — `load_state_dict(assign=True)` avoids ~1.7GB temporary VRAM spike during weight restore (tensors swapped in-place vs copied).
+- **Image codec RGBA guard** — skip redundant `image.convert("RGBA")` when image is already RGBA (saves one full-image copy per frame).
+- **Postprocess double palette** — skip explicit `_enforce_palette()` when Bayer dithering is about to run (dithering calls it internally).
+- **Rembg CPU guard** — skip `vram_cleanup()` on unload when rembg runs on CPU (no GPU memory to reclaim).
+- **Generation timeout** — step callback now checks `time.perf_counter()` against `settings.generation_timeout` per step (previously only enforced at WebSocket level).
+
+#### Robustness
+- **VRAM leak fixed** — `_controlnet_img2img_pipe` now cleaned in `unload()` and `cleanup_resources()` (was leaking ControlNet img2img pipeline).
+- **AnimateDiff null guard** — `_ensure_controlnet` checks `self._animatediff is not None` before accessing `.pipe`.
+- **Audio cache hardened** — hash chunk increased from 1MB to 4MB (collision resistance); writes use `tempfile.mkstemp()` + `os.replace()` for cross-platform atomic persistence.
+- **Config checkpoint validation** — `model_validator` warns if `default_checkpoint` path doesn't exist at settings construction time.
+
+#### Cleanup
+- Removed unused `import copy` from `animatediff_manager.py`.
+- Removed unused `import torch` from `compile_utils.py`.
+- Updated 4 `test_compile_utils.py` tests (removed stale `torch._dynamo.reset` mock patches).
+
 ## [0.9.57] — 2026-03
 ### Changed
 - **Dialog Architectural Refactoring** — `sddj_dialog.lua` restructured from 1441 to 1316 lines via data-driven patterns and DRY infrastructure:

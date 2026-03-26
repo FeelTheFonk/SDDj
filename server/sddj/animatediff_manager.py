@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import logging
 from typing import Optional
 
@@ -51,6 +50,10 @@ def strip_peft_from_unet(unet) -> None:
     Operates on the raw uncompiled UNet to guarantee a clean state dict
     for UNetMotionModel.from_unet2d().
     """
+    # Fast path: skip full module traversal if no PEFT artifacts exist
+    if not hasattr(unet, "peft_config") and not hasattr(unet, "_hf_peft_config_loaded"):
+        return
+
     try:
         from peft.tuners.tuners_utils import BaseTunerLayer
         has_peft = any(isinstance(m, BaseTunerLayer) for m in unet.modules())
@@ -76,18 +79,27 @@ class AnimateDiffManager:
         self.vid2vid_pipe: Optional[AnimateDiffVideoToVideoPipeline] = None
         self.controlnet_pipe: Optional[AnimateDiffControlNetPipeline] = None
         self.controlnet_mode: Optional[GenerationMode] = None
+        self._peft_stripped: bool = False
+        self._lightning_sched_config: Optional[dict] = None
 
     def _apply_lightning_scheduler(self, pipe) -> None:
-        """Apply EulerDiscreteScheduler override for AnimateDiff-Lightning."""
+        """Apply EulerDiscreteScheduler override for AnimateDiff-Lightning.
+
+        Caches the scheduler config on first call to avoid redundant
+        from_config() parsing on subsequent ensure_*() calls.
+        """
         if not settings.is_animatediff_lightning:
             return
-        pipe.scheduler = EulerDiscreteScheduler.from_config(
-            pipe.scheduler.config,
-            timestep_spacing="trailing",
-            beta_schedule="linear",
-            clip_sample=False,
-        )
-        log.info("Lightning scheduler: EulerDiscreteScheduler (trailing, linear, clip_sample=False)")
+        if self._lightning_sched_config is None:
+            sched = EulerDiscreteScheduler.from_config(
+                pipe.scheduler.config,
+                timestep_spacing="trailing",
+                beta_schedule="linear",
+                clip_sample=False,
+            )
+            self._lightning_sched_config = dict(sched.config)
+            log.info("Lightning scheduler config cached")
+        pipe.scheduler = EulerDiscreteScheduler.from_config(self._lightning_sched_config)
 
     def _apply_freeu_if_enabled(self, pipe) -> None:
         """Apply FreeU unless explicitly disabled for Lightning."""
@@ -119,7 +131,9 @@ class AnimateDiffManager:
                 ).to("cuda")
 
             unet = get_uncompiled_unet(base_pipe)
-            strip_peft_from_unet(unet)
+            if not self._peft_stripped:
+                strip_peft_from_unet(unet)
+                self._peft_stripped = True
 
             self.pipe = AnimateDiffPipeline(
                 vae=base_pipe.vae,
@@ -127,7 +141,7 @@ class AnimateDiffManager:
                 tokenizer=base_pipe.tokenizer,
                 unet=unet,
                 motion_adapter=self.motion_adapter,
-                scheduler=copy.deepcopy(base_pipe.scheduler),
+                scheduler=type(base_pipe.scheduler).from_config(base_pipe.scheduler.config),
                 feature_extractor=None,
             )
             self.pipe.to("cuda")
@@ -163,7 +177,7 @@ class AnimateDiffManager:
                 tokenizer=base_pipe.tokenizer,
                 unet=unet,
                 motion_adapter=self.motion_adapter,
-                scheduler=copy.deepcopy(base_pipe.scheduler),
+                scheduler=type(base_pipe.scheduler).from_config(base_pipe.scheduler.config),
                 feature_extractor=None,
             )
             self.vid2vid_pipe.to("cuda")
@@ -216,7 +230,7 @@ class AnimateDiffManager:
                 unet=unet,
                 motion_adapter=self.motion_adapter,
                 controlnet=controlnet,
-                scheduler=copy.deepcopy(base_pipe.scheduler),
+                scheduler=type(base_pipe.scheduler).from_config(base_pipe.scheduler.config),
                 feature_extractor=None,
             )
             self.controlnet_pipe.to("cuda")
@@ -244,4 +258,6 @@ class AnimateDiffManager:
         self.vid2vid_pipe = None
         self.controlnet_pipe = None
         self.controlnet_mode = None
+        self._peft_stripped = False
+        self._lightning_sched_config = None
         vram_cleanup()

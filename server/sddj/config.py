@@ -157,6 +157,12 @@ class Settings(BaseSettings):
             d = getattr(self, name)
             if not d.is_dir():
                 log.warning("Directory does not exist: %s=%s", name, d)
+        # Validate checkpoint path exists (warning, not exception)
+        ckpt = Path(self.default_checkpoint)
+        if not ckpt.is_absolute():
+            ckpt = _SERVER_ROOT / ckpt
+        if not ckpt.exists():
+            log.warning("CRITICAL: default_checkpoint not found: %s", ckpt)
         return self
 
 

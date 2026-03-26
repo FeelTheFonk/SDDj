@@ -15,8 +15,8 @@ from .audio_analyzer import AudioAnalysis
 
 log = logging.getLogger("sddj.audio_cache")
 
-# Bytes to read for hashing (first 1 MB + file size = fast unique key)
-_HASH_CHUNK = 1024 * 1024
+# Bytes to read for hashing (first 4 MB + file size = robust unique key)
+_HASH_CHUNK = 4 * 1024 * 1024
 
 
 def _cache_key(audio_path: str, fps: float, enable_stems: bool) -> str:
@@ -116,8 +116,16 @@ class AudioCache:
             save_dict = dict(analysis.features)
             for name, arr in analysis.raw_features.items():
                 save_dict[f"raw_{name}"] = arr
-            np.savez_compressed(str(npz_path), **save_dict)
-            meta_path.write_text(json.dumps({
+            # Atomic write: save to temp file then os.replace (cross-platform atomic)
+            import os
+            fd, tmp_npz = tempfile.mkstemp(suffix=".npz", dir=str(self._dir))
+            os.close(fd)
+            np.savez_compressed(tmp_npz, **save_dict)
+            os.replace(tmp_npz, str(npz_path))
+
+            fd, tmp_meta = tempfile.mkstemp(suffix=".meta", dir=str(self._dir))
+            os.close(fd)
+            Path(tmp_meta).write_text(json.dumps({
                 "fps": analysis.fps,
                 "duration": analysis.duration,
                 "total_frames": analysis.total_frames,
@@ -126,6 +134,7 @@ class AudioCache:
                 "bpm": analysis.bpm,
                 "lufs": analysis.lufs,
             }))
+            os.replace(tmp_meta, str(meta_path))
             log.info("Cached analysis for %s (%d features)", Path(audio_path).name, len(analysis.features))
         except Exception as e:
             log.warning("Cache write failed: %s", e)

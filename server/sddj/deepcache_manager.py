@@ -1,9 +1,10 @@
-"""DeepCache lifecycle management — setup and context manager for toggle."""
+"""DeepCache lifecycle management — setup, context manager, and mode-aware state."""
 
 from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+from typing import Optional
 
 from .config import settings
 
@@ -80,3 +81,53 @@ def suspended(helper):
                 log.info("DeepCache re-enabled")
             except Exception as e:
                 log.warning("Failed to re-enable DeepCache: %s", e)
+
+
+class DeepCacheState:
+    """Mode-aware DeepCache state — avoids redundant disable/enable cycles.
+
+    Instead of suspending DeepCache per-call (100-300ms each toggle),
+    tracks which mode suppressed it and only toggles on actual mode transitions.
+    """
+
+    __slots__ = ("helper", "is_active", "_suppressed_mode")
+
+    def __init__(self, helper) -> None:
+        self.helper = helper
+        self.is_active = helper is not None
+        self._suppressed_mode: Optional[str] = None
+
+    def suppress_for(self, mode: str) -> bool:
+        """Disable DeepCache for an incompatible mode.
+
+        Returns True if state actually changed (disable was called).
+        No-op if already suppressed for the same mode.
+        """
+        if self._suppressed_mode == mode:
+            return False  # Already suppressed for this mode — zero overhead
+        if self.helper is not None and self.is_active:
+            try:
+                self.helper.disable()
+                self.is_active = False
+                log.debug("DeepCache suppressed for mode=%s", mode)
+            except Exception as e:
+                log.warning("Failed to suppress DeepCache: %s", e)
+        self._suppressed_mode = mode
+        return True
+
+    def restore(self) -> bool:
+        """Re-enable DeepCache (e.g., returning to txt2img).
+
+        Returns True if state actually changed (enable was called).
+        """
+        if not self.is_active and self.helper is not None:
+            try:
+                self.helper.enable()
+                self.is_active = True
+                self._suppressed_mode = None
+                log.debug("DeepCache restored (txt2img mode)")
+                return True
+            except Exception as e:
+                log.warning("Failed to restore DeepCache: %s", e)
+        return False
+

@@ -1,4 +1,4 @@
-"""Tests for eager_pipeline context manager — UNet swap + DeepCache suspend + dynamo reset."""
+"""Tests for eager_pipeline context manager — UNet swap + DeepCache suspend."""
 
 from __future__ import annotations
 
@@ -29,10 +29,7 @@ def test_eager_pipeline_swaps_unet(mock_components):
     pipe, img2img, cn, dc, raw_unet, compiled_unet = mock_components
 
     from sddj.engine.compile_utils import eager_pipeline
-    with (
-        patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended,
-        patch("sddj.engine.compile_utils.torch._dynamo.reset"),
-    ):
+    with patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended:
         mock_suspended.return_value.__enter__ = MagicMock()
         mock_suspended.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -47,10 +44,7 @@ def test_eager_pipeline_restores_on_exit(mock_components):
     pipe, img2img, cn, dc, raw_unet, compiled_unet = mock_components
 
     from sddj.engine.compile_utils import eager_pipeline
-    with (
-        patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended,
-        patch("sddj.engine.compile_utils.torch._dynamo.reset"),
-    ):
+    with patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended:
         mock_suspended.return_value.__enter__ = MagicMock()
         mock_suspended.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -67,10 +61,7 @@ def test_eager_pipeline_restores_on_exception(mock_components):
     pipe, img2img, cn, dc, raw_unet, compiled_unet = mock_components
 
     from sddj.engine.compile_utils import eager_pipeline
-    with (
-        patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended,
-        patch("sddj.engine.compile_utils.torch._dynamo.reset"),
-    ):
+    with patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended:
         mock_suspended.return_value.__enter__ = MagicMock()
         mock_suspended.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -86,12 +77,10 @@ def test_eager_pipeline_none_controlnet(mock_components):
     pipe, img2img, _, dc, raw_unet, compiled_unet = mock_components
 
     from sddj.engine.compile_utils import eager_pipeline
-    with (
-        patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended,
-        patch("sddj.engine.compile_utils.torch._dynamo.reset"),
-    ):
+    with patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended:
         mock_suspended.return_value.__enter__ = MagicMock()
         mock_suspended.return_value.__exit__ = MagicMock(return_value=False)
 
         with eager_pipeline(pipe, img2img, None, dc):
             assert pipe.unet is raw_unet
+
