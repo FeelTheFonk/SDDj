@@ -6,7 +6,7 @@ return function(PT)
 
 -- ─── Constants ──────────────────────────────────────────────
 
-PT.VERSION = "0.9.54"
+PT.VERSION = "0.9.55"
 
 PT.cfg = {
   DEFAULT_SERVER_URL      = "ws://127.0.0.1:9876/ws",
@@ -37,7 +37,7 @@ PT.state = {
   file_counter   = 0,
   session_id     = tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999)),
   last_pong      = nil,
-  pending_action = nil,  -- "generate" | "animate" | "audio" | nil
+  pending_action = nil,  -- "generate" | "animate" | "qr_generate" | "audio" | nil
 }
 
 PT.anim = {

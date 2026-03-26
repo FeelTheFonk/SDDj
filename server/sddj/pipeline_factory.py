@@ -9,9 +9,11 @@ from typing import Optional
 
 import torch
 from diffusers import (
+    AutoencoderKL,
     ControlNetModel,
     DDIMScheduler,
     StableDiffusionControlNetPipeline,
+    StableDiffusionControlNetImg2ImgPipeline,
     StableDiffusionImg2ImgPipeline,
     StableDiffusionPipeline,
 )
@@ -30,6 +32,7 @@ CONTROLNET_IDS: dict[GenerationMode, str] = {
     GenerationMode.CONTROLNET_CANNY: "lllyasviel/control_v11p_sd15_canny",
     GenerationMode.CONTROLNET_SCRIBBLE: "lllyasviel/control_v11p_sd15_scribble",
     GenerationMode.CONTROLNET_LINEART: "lllyasviel/control_v11p_sd15_lineart",
+    GenerationMode.CONTROLNET_QRCODE: "monster-labs/control_v1p_sd15_qrcode_monster",
 }
 
 
@@ -222,10 +225,12 @@ def create_controlnet_pipeline(
         raise ValueError(f"No ControlNet for mode: {mode}")
 
     log.info("Loading ControlNet: %s", model_id)
+    load_kwargs: dict = dict(torch_dtype=torch.float16, local_files_only=True)
+    # QR Code Monster v2: model weights in v2/ subfolder
+    if mode == GenerationMode.CONTROLNET_QRCODE:
+        load_kwargs["subfolder"] = "v2"
     controlnet = ControlNetModel.from_pretrained(
-        model_id,
-        torch_dtype=torch.float16,
-        local_files_only=True,
+        model_id, **load_kwargs,
     ).to("cuda")
 
     cn_pipe = StableDiffusionControlNetPipeline(
@@ -239,9 +244,24 @@ def create_controlnet_pipeline(
         feature_extractor=None,
     )
 
+    # Img2Img ControlNet pipeline — shared ControlNet model, no extra VRAM
+    # Used for QR illusion art: source image + QR conditioning + denoise
+    cn_img2img_pipe = StableDiffusionControlNetImg2ImgPipeline(
+        vae=pipe.vae,
+        text_encoder=pipe.text_encoder,
+        tokenizer=pipe.tokenizer,
+        unet=pipe.unet,
+        controlnet=controlnet,
+        scheduler=type(pipe.scheduler).from_config(pipe.scheduler.config),
+        safety_checker=None,
+        feature_extractor=None,
+    )
+
     apply_freeu(cn_pipe)
+    apply_freeu(cn_img2img_pipe)
     setup_vae(cn_pipe)
-    return cn_pipe
+    setup_vae(cn_img2img_pipe)
+    return cn_pipe, cn_img2img_pipe
 
 
 def get_controlnet_from_pipe(

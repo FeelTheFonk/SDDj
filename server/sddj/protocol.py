@@ -56,6 +56,7 @@ class GenerationMode(str, Enum):
     CONTROLNET_CANNY = "controlnet_canny"
     CONTROLNET_SCRIBBLE = "controlnet_scribble"
     CONTROLNET_LINEART = "controlnet_lineart"
+    CONTROLNET_QRCODE = "controlnet_qrcode"
 
 
 class QuantizeMethod(str, Enum):
@@ -143,6 +144,10 @@ def _check_generation_mode_images(model: BaseModel, context: str = "") -> BaseMo
     if model.mode == GenerationMode.INPAINT:
         if model.source_image is None or model.mask_image is None:
             raise ValueError(f"{pfx}inpaint mode requires source_image and mask_image")
+    if model.mode == GenerationMode.CONTROLNET_QRCODE:
+        if not getattr(model, 'qr_content', None):
+            raise ValueError(f"{pfx}controlnet_qrcode requires qr_content")
+        return model
     if model.mode.value.startswith("controlnet_") and model.control_image is None:
         raise ValueError(f"{pfx}{model.mode.value} requires control_image")
     return model
@@ -171,6 +176,13 @@ class BaseGenerationParams(BaseModel):
 class GenerateRequest(BaseGenerationParams):
     action: Action = Action.GENERATE
     denoise_strength: float = Field(1.0, ge=0.0, le=1.0)
+    # ── QR Code Monster fields (controlnet_qrcode only) ─────────
+    qr_content: Optional[str] = Field(None, max_length=1273)
+    qr_error_correction: str = Field("H", pattern=r"^[LMQH]$")
+    qr_module_size: int = Field(16, ge=4, le=32)
+    controlnet_conditioning_scale: float = Field(1.5, ge=0.0, le=3.0)
+    control_guidance_start: float = Field(0.0, ge=0.0, le=1.0)
+    control_guidance_end: float = Field(1.0, ge=0.0, le=1.0)
 
     @model_validator(mode='after')
     def _check_mode_images(self):
@@ -247,6 +259,13 @@ class Request(BaseModel):
     # Video export fields
     output_dir: Optional[str] = None
     scale_factor: Optional[int] = None
+    # QR Code Monster fields
+    qr_content: Optional[str] = None
+    qr_error_correction: Optional[str] = None
+    qr_module_size: Optional[int] = None
+    controlnet_conditioning_scale: Optional[float] = None
+    control_guidance_start: Optional[float] = None
+    control_guidance_end: Optional[float] = None
     quality: Optional[str] = None
 
     @field_validator("modulation_slots", "prompt_segments", "palette_save_colors", mode="before")
@@ -297,6 +316,9 @@ class Request(BaseModel):
             # Resource / export fields
             "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
             "max_frames", "output_dir", "scale_factor", "quality",
+            # QR Code Monster fields (generate-only)
+            "qr_content", "qr_error_correction", "qr_module_size",
+            "controlnet_conditioning_scale", "control_guidance_start", "control_guidance_end",
         }
         data = self.model_dump(exclude_none=True, exclude=_exclude)
         return AnimationRequest(**data)
@@ -316,6 +338,9 @@ class Request(BaseModel):
             # Resource / export fields
             "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
             "output_dir", "scale_factor", "quality",
+            # QR Code Monster fields (generate-only)
+            "qr_content", "qr_error_correction", "qr_module_size",
+            "controlnet_conditioning_scale", "control_guidance_start", "control_guidance_end",
         }
         data = self.model_dump(exclude_none=True, exclude=_exclude)
         return AudioReactiveRequest(**data)

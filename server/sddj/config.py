@@ -78,6 +78,15 @@ class Settings(BaseSettings):
     freeu_b1: float = Field(1.5, ge=0.0, le=3.0)
     freeu_b2: float = Field(1.6, ge=0.0, le=3.0)
 
+    # ── ControlNet QR Code Monster ───────────────────────────
+    qr_controlnet_conditioning_scale: float = Field(1.5, ge=0.0, le=3.0)
+    qr_control_guidance_start: float = Field(0.0, ge=0.0, le=1.0)
+    qr_control_guidance_end: float = Field(0.8, ge=0.0, le=1.0)
+    qr_default_steps: int = Field(20, ge=4, le=50)
+    qr_validate_scan: bool = True
+    qr_retry_scale_increment: float = Field(0.3, ge=0.0, le=1.0)
+    qr_max_retries: int = Field(2, ge=0, le=5)
+
     # ── Timeouts ─────────────────────────────────────────────
     generation_timeout: float = Field(600.0, gt=0.0)  # 10 minutes max per generation
 

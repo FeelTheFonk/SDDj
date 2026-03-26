@@ -166,6 +166,7 @@ local function build_tab_generate()
       "txt2img", "img2img", "inpaint",
       "controlnet_openpose", "controlnet_canny",
       "controlnet_scribble", "controlnet_lineart",
+      "controlnet_qrcode",
     },
     option = "txt2img",
     onchange = function()
@@ -173,6 +174,8 @@ local function build_tab_generate()
       -- Show hint about required inputs
       if m == "inpaint" then
         dlg:modify{ id = "mode", label = "Mode (needs mask)" }
+      elseif m == "controlnet_qrcode" then
+        dlg:modify{ id = "mode", label = "Mode (QR)" }
       elseif m == "img2img" or m:find("controlnet_") then
         dlg:modify{ id = "mode", label = "Mode (needs layer)" }
       else
@@ -944,6 +947,95 @@ local function build_tab_audio()
   }
 end
 
+-- ─── Tab: QR Code ───────────────────────────────────────────
+
+local function build_tab_qrcode()
+  local dlg = PT.dlg
+
+  dlg:entry{
+    id = "qr_content",
+    label = "URL / Text",
+    text = "",
+    hexpand = true,
+  }
+
+  -- Source image: capture active layer for img2img QR illusion blending
+  dlg:check{
+    id = "qr_use_source",
+    text = "Use Layer (Illusion Art)",
+    selected = false,
+  }
+
+  dlg:slider{
+    id = "qr_denoise",
+    label = "Denoise (0.75)",
+    min = 5, max = 100, value = 75,
+    onchange = slider_label("qr_denoise", "Denoise (%.2f)", 100.0),
+  }
+
+  dlg:combobox{
+    id = "qr_error_correction",
+    label = "Error Corr.",
+    options = { "H", "Q", "M", "L" },
+    option = "H",
+  }
+
+  dlg:slider{
+    id = "qr_module_size",
+    label = "Module (16px)",
+    min = 4, max = 32, value = 16,
+    onchange = function()
+      dlg:modify{ id = "qr_module_size",
+        label = "Module (" .. dlg.data.qr_module_size .. "px)" }
+    end,
+  }
+
+  dlg:slider{
+    id = "qr_conditioning_scale",
+    label = "CN Scale (1.50)",
+    min = 0, max = 300, value = 150,
+    onchange = slider_label("qr_conditioning_scale", "CN Scale (%.2f)", 100.0),
+  }
+
+  dlg:slider{
+    id = "qr_guidance_start",
+    label = "Guide Start (0.00)",
+    min = 0, max = 100, value = 0,
+    onchange = slider_label("qr_guidance_start", "Guide Start (%.2f)", 100.0),
+  }
+
+  dlg:slider{
+    id = "qr_guidance_end",
+    label = "Guide End (0.80)",
+    min = 0, max = 100, value = 80,
+    onchange = slider_label("qr_guidance_end", "Guide End (%.2f)", 100.0),
+  }
+
+  dlg:combobox{
+    id = "qr_size",
+    label = "Output Size",
+    options = { "768x768", "512x512", "1024x1024" },
+    option = "768x768",
+  }
+
+  dlg:slider{
+    id = "qr_steps",
+    label = "Steps (20)",
+    min = 4, max = 50, value = 20,
+    onchange = function()
+      dlg:modify{ id = "qr_steps",
+        label = "Steps (" .. dlg.data.qr_steps .. ")" }
+    end,
+  }
+
+  dlg:slider{
+    id = "qr_cfg",
+    label = "CFG (7.5)",
+    min = 10, max = 200, value = 75,
+    onchange = slider_label("qr_cfg", "CFG (%.1f)", 10.0),
+  }
+end
+
 -- ─── Actions Panel ──────────────────────────────────────────
 
 -- ─── Trigger Functions (extracted for contextual button dispatch) ──────
@@ -1047,17 +1139,70 @@ function PT.trigger_audio_generate()
   PT.send(req)
 end
 
+function PT.trigger_qr_generate()
+  if PT.state.generating or PT.state.animating then return end
+  local dlg = PT.dlg
+  local d = dlg.data
+  local content = d.qr_content or ""
+  if content == "" then
+    app.alert("Enter a URL or text to encode.")
+    return
+  end
+  local qr_w, qr_h = (d.qr_size or "768x768"):match("(%d+)x(%d+)")
+  local use_source = d.qr_use_source or false
+  local req = {
+    action                        = "generate",
+    mode                          = "controlnet_qrcode",
+    prompt                        = d.prompt,
+    negative_prompt               = d.negative_prompt,
+    width                         = tonumber(qr_w) or 768,
+    height                        = tonumber(qr_h) or 768,
+    seed                          = PT.parse_seed(),
+    steps                         = d.qr_steps or 20,
+    cfg_scale                     = d.qr_cfg / 10.0,
+    clip_skip                     = d.clip_skip,
+    denoise_strength              = use_source and (d.qr_denoise / 100.0) or 1.0,
+    qr_content                    = content,
+    qr_error_correction           = d.qr_error_correction or "H",
+    qr_module_size                = d.qr_module_size or 16,
+    controlnet_conditioning_scale = d.qr_conditioning_scale / 100.0,
+    control_guidance_start        = d.qr_guidance_start / 100.0,
+    control_guidance_end          = d.qr_guidance_end / 100.0,
+    post_process                  = PT.build_post_process(),
+  }
+  -- Illusion art: capture active layer as source image
+  if use_source then
+    local b64 = PT.capture_active_layer()
+    if not b64 then
+      app.alert("No active layer to use as source for QR illusion.")
+      return
+    end
+    req.source_image = b64
+  end
+  PT.attach_lora(req)
+  PT.attach_neg_ti(req)
+  PT.last_request = PT.deep_copy_request(req)
+  PT.state.generating = true
+  PT.state.gen_step_start = os.clock()
+  PT.start_gen_timeout()
+  dlg:modify{ id = "action_btn", text = "QR GENERATING...", enabled = false }
+  dlg:modify{ id = "cancel_btn", enabled = true }
+  PT.update_status("Generating QR Code...")
+  PT.send(req)
+end
+
 function PT.update_action_button(tab)
   if not PT.dlg then return end
   local texts = {
     tab_gen   = "GENERATE",
     tab_pp    = "GENERATE (PP)",
     tab_anim  = "ANIMATE",
+    tab_qr    = "QR GENERATE",
     tab_audio = "AUDIO GEN",
   }
   PT.dlg:modify{ id = "action_btn", text = texts[tab] or "GENERATE" }
-  -- Loop controls: not supported in audio mode (no loop logic in audio handler)
-  local loop_enabled = (tab ~= "tab_audio")
+  -- Loop controls: not supported in audio/QR mode
+  local loop_enabled = (tab ~= "tab_audio" and tab ~= "tab_qr")
   PT.dlg:modify{ id = "loop_check", enabled = loop_enabled }
   PT.dlg:modify{ id = "random_loop_check", enabled = loop_enabled }
 end
@@ -1086,6 +1231,8 @@ local function build_actions_panel()
           PT.state.pending_action = "generate"
         elseif tab == "tab_anim" then
           PT.state.pending_action = "animate"
+        elseif tab == "tab_qr" then
+          PT.state.pending_action = "qr_generate"
         elseif tab == "tab_audio" then
           if not PT.audio.analyzed then
             app.alert("Analyze the audio file first.")
@@ -1112,6 +1259,8 @@ local function build_actions_panel()
         PT.trigger_generate()
       elseif tab == "tab_anim" then
         PT.trigger_animate()
+      elseif tab == "tab_qr" then
+        PT.trigger_qr_generate()
       elseif tab == "tab_audio" then
         PT.trigger_audio_generate()
       end
@@ -1232,6 +1381,9 @@ function PT.build_dialog()
 
   PT.dlg:tab{ id = "tab_anim", text = "Animation" }
   build_tab_animation()
+
+  PT.dlg:tab{ id = "tab_qr", text = "QR Code" }
+  build_tab_qrcode()
 
   PT.dlg:tab{ id = "tab_audio", text = "Audio" }
   build_tab_audio()

@@ -413,6 +413,8 @@ handlers.prompt_result = function(resp)
     PT.trigger_generate()
   elseif action == "animate" then
     PT.trigger_animate()
+  elseif action == "qr_generate" then
+    PT.trigger_qr_generate()
   elseif action == "audio" then
     PT.trigger_audio_generate()
   elseif PT.loop.random_mode and PT.loop.mode and PT.dlg and PT.state.connected then

@@ -66,6 +66,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         self._pipe: Optional[StableDiffusionPipeline] = None
         self._img2img_pipe = None
         self._controlnet_pipe = None
+        self._controlnet_img2img_pipe = None
         self._controlnet_mode: Optional[GenerationMode] = None
         self._deepcache_helper = None
         self._lora_fuser = LoRAFuser()
@@ -376,11 +377,13 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
 
         # Unload previous
         move_to_cpu(self._controlnet_pipe)
+        move_to_cpu(self._controlnet_img2img_pipe)
         self._controlnet_pipe = None
+        self._controlnet_img2img_pipe = None
         vram_cleanup()
 
-        self._controlnet_pipe = pipeline_factory.create_controlnet_pipeline(
-            self._pipe, mode,
+        self._controlnet_pipe, self._controlnet_img2img_pipe = (
+            pipeline_factory.create_controlnet_pipeline(self._pipe, mode)
         )
         self._controlnet_mode = mode
 
@@ -574,21 +577,40 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         return composite_with_mask(source, inpainted, mask)
 
     def _controlnet_generate(self, req, generator, callback, effective_neg):
-        if req.control_image is None:
-            raise ValueError("ControlNet requires control_image")
-
         self._ensure_controlnet(req.mode)
-        control = decode_b64_image(req.control_image)
-        control = control.convert("RGB")
         width = round8(req.width)
         height = round8(req.height)
-        control = resize_to_target(control, width, height)
 
-        torch.compiler.cudagraph_mark_step_begin()
-        return self._controlnet_pipe(
+        # QR Code mode: generate control image server-side
+        if req.mode == GenerationMode.CONTROLNET_QRCODE:
+            if not req.qr_content:
+                raise ValueError("controlnet_qrcode requires qr_content")
+            from .qrcode_generator import generate_qr_image
+            control = generate_qr_image(
+                content=req.qr_content,
+                target_width=width,
+                target_height=height,
+                error_correction=getattr(req, 'qr_error_correction', 'H') or 'H',
+                module_size=getattr(req, 'qr_module_size', 16) or 16,
+            )
+            # Detect img2img QR mode: source_image present = illusion art workflow
+            use_img2img = req.source_image is not None
+            source = None
+            if use_img2img:
+                source = decode_b64_image(req.source_image).convert("RGB")
+                source = resize_to_target(source, width, height)
+        else:
+            if req.control_image is None:
+                raise ValueError("ControlNet requires control_image")
+            control = decode_b64_image(req.control_image)
+            control = control.convert("RGB")
+            control = resize_to_target(control, width, height)
+            use_img2img = False
+            source = None
+
+        call_kwargs = dict(
             prompt=req.prompt,
             negative_prompt=effective_neg,
-            image=control,
             num_inference_steps=req.steps,
             guidance_scale=req.cfg_scale,
             width=width,
@@ -597,4 +619,69 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             clip_skip=req.clip_skip,
             callback_on_step_end=callback,
             output_type="pil",
-        ).images[0]
+        )
+
+        # img2img+ControlNet: source image + control_image (QR) + strength
+        if use_img2img:
+            call_kwargs["image"] = source
+            call_kwargs["control_image"] = control
+            call_kwargs["strength"] = req.denoise_strength
+        else:
+            call_kwargs["image"] = control
+
+        # QR-specific: inject conditioning params + step override
+        cn_scale = None
+        if req.mode == GenerationMode.CONTROLNET_QRCODE:
+            cn_scale = getattr(
+                req, 'controlnet_conditioning_scale',
+                settings.qr_controlnet_conditioning_scale,
+            )
+            call_kwargs["controlnet_conditioning_scale"] = cn_scale
+            call_kwargs["control_guidance_start"] = getattr(
+                req, 'control_guidance_start',
+                settings.qr_control_guidance_start,
+            )
+            call_kwargs["control_guidance_end"] = getattr(
+                req, 'control_guidance_end',
+                settings.qr_control_guidance_end,
+            )
+            # Override steps if too low for QR scannability
+            if req.steps <= 8:
+                call_kwargs["num_inference_steps"] = settings.qr_default_steps
+                log.info("QR mode: steps %d → %d for scannability",
+                         req.steps, settings.qr_default_steps)
+
+        torch.compiler.cudagraph_mark_step_begin()
+        # DeepCache suspended for ALL ControlNet modes:
+        # Cached steps skip UNet blocks where ControlNet injects residuals,
+        # causing conditioning to be partially dropped on those steps.
+        active_pipe = self._controlnet_img2img_pipe if use_img2img else self._controlnet_pipe
+        with deepcache_manager.suspended(self._deepcache_helper):
+            result = active_pipe(**call_kwargs).images[0]
+
+        # QR post-gen: validate scannability + auto-retry if enabled
+        if (req.mode == GenerationMode.CONTROLNET_QRCODE
+                and settings.qr_validate_scan
+                and req.qr_content):
+            from .qrcode_generator import validate_qr_scannable
+            if not validate_qr_scannable(result, req.qr_content):
+                log.warning("QR scan validation failed — attempting retry")
+                for retry in range(settings.qr_max_retries):
+                    retry_scale = cn_scale + settings.qr_retry_scale_increment * (retry + 1)
+                    retry_scale = min(retry_scale, 3.0)
+                    call_kwargs["controlnet_conditioning_scale"] = retry_scale
+                    # Fresh generator for different seed path
+                    retry_seed = (generator.initial_seed() + retry + 1) % (2**32)
+                    call_kwargs["generator"] = torch.Generator("cuda").manual_seed(retry_seed)
+                    log.info("QR retry %d/%d: scale=%.2f seed=%d",
+                             retry + 1, settings.qr_max_retries, retry_scale, retry_seed)
+                    torch.compiler.cudagraph_mark_step_begin()
+                    with deepcache_manager.suspended(self._deepcache_helper):
+                        candidate = active_pipe(**call_kwargs).images[0]
+                    if validate_qr_scannable(candidate, req.qr_content):
+                        log.info("QR retry %d succeeded", retry + 1)
+                        result = candidate
+                        break
+                    result = candidate  # use last attempt even if validation fails
+
+        return result

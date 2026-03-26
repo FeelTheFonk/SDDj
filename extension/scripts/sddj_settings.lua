@@ -104,6 +104,18 @@ function PT.save_settings()
   -- MP4 export
   s.mp4_quality          = d.mp4_quality
   s.mp4_scale            = d.mp4_scale
+  -- QR Code tab
+  s.qr_content            = d.qr_content
+  s.qr_use_source         = d.qr_use_source
+  s.qr_denoise            = d.qr_denoise
+  s.qr_error_correction   = d.qr_error_correction
+  s.qr_module_size        = d.qr_module_size
+  s.qr_conditioning_scale = d.qr_conditioning_scale
+  s.qr_guidance_start     = d.qr_guidance_start
+  s.qr_guidance_end       = d.qr_guidance_end
+  s.qr_size               = d.qr_size
+  s.qr_steps              = d.qr_steps
+  s.qr_cfg                = d.qr_cfg
   local ok, encoded = pcall(PT.json.encode, s)
   if not ok then return end
   local f, ferr = io.open(PT.cfg.SETTINGS_FILE, "w")
@@ -136,7 +148,8 @@ function PT.apply_settings(s)
                    "expr_motion_zoom", "expr_motion_rot",
                    "expr_motion_tilt_x", "expr_motion_tilt_y",
                    "ps1_time", "ps1_prompt", "ps2_time", "ps2_prompt",
-                   "ps3_time", "ps3_prompt" }
+                   "ps3_time", "ps3_prompt",
+                   "qr_content" }
   for _, id in ipairs(texts) do
     if s[id] ~= nil then PT.dlg:modify{ id = id, text = s[id] } end
   end
@@ -148,6 +161,7 @@ function PT.apply_settings(s)
     "audio_fps", "audio_mod_preset", "audio_method",
     "audio_choreography", "audio_expr_preset",
     "mp4_quality", "mp4_scale",
+    "qr_error_correction", "qr_size",
   }
   -- Modulation slot comboboxes
   for i = 1, 6 do
@@ -166,6 +180,8 @@ function PT.apply_settings(s)
     "audio_steps", "audio_cfg", "audio_denoise",
     "audio_max_frames", "audio_freeinit_iters",
     "mod_slot_count",
+    "qr_module_size", "qr_conditioning_scale", "qr_guidance_start", "qr_guidance_end",
+    "qr_steps", "qr_cfg", "qr_denoise",
   }
   -- Modulation slot sliders
   for i = 1, 6 do
@@ -181,6 +197,7 @@ function PT.apply_settings(s)
                    "randomize_before", "loop_check", "random_loop_check", "save_output",
                    "audio_stems_enable", "audio_advanced", "audio_use_expressions",
                    "audio_freeinit", "audio_random_seed", "audio_prompt_schedule",
+                   "qr_use_source",
   }
   -- Modulation slot booleans
   for i = 1, 6 do
@@ -212,6 +229,14 @@ function PT.apply_settings(s)
     label = d.audio_max_frames == 0 and "Max Frames (0=all)" or ("Max Frames (" .. d.audio_max_frames .. ")") }
 
   PT.dlg:modify{ id = "mod_slot_count", label = "Slots (" .. d.mod_slot_count .. ")" }
+  -- QR Code tab labels
+  if d.qr_module_size then PT.dlg:modify{ id = "qr_module_size", label = "Module (" .. d.qr_module_size .. "px)" } end
+  if d.qr_conditioning_scale then PT.dlg:modify{ id = "qr_conditioning_scale", label = string.format("CN Scale (%.2f)", d.qr_conditioning_scale / 100.0) } end
+  if d.qr_guidance_start then PT.dlg:modify{ id = "qr_guidance_start", label = string.format("Guide Start (%.2f)", d.qr_guidance_start / 100.0) } end
+  if d.qr_guidance_end then PT.dlg:modify{ id = "qr_guidance_end", label = string.format("Guide End (%.2f)", d.qr_guidance_end / 100.0) } end
+  if d.qr_steps then PT.dlg:modify{ id = "qr_steps", label = "Steps (" .. d.qr_steps .. ")" } end
+  if d.qr_cfg then PT.dlg:modify{ id = "qr_cfg", label = string.format("CFG (%.1f)", d.qr_cfg / 10.0) } end
+  if d.qr_denoise then PT.dlg:modify{ id = "qr_denoise", label = string.format("Denoise (%.2f)", d.qr_denoise / 100.0) } end
   -- Sync max frames label
   if s.audio_max_frames then
     local v = s.audio_max_frames
@@ -223,6 +248,8 @@ function PT.apply_settings(s)
   if s.mode then
     if s.mode == "inpaint" then
       PT.dlg:modify{ id = "mode", label = "Mode (needs mask)" }
+    elseif s.mode == "controlnet_qrcode" then
+      PT.dlg:modify{ id = "mode", label = "Mode (QR)" }
     elseif s.mode == "img2img" or (s.mode and s.mode:find("controlnet_")) then
       PT.dlg:modify{ id = "mode", label = "Mode (needs layer)" }
     else

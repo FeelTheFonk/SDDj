@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.9.55] — 2026-03
+### Added
+- **ControlNet QR Code Monster v2 Integration** — new `controlnet_qrcode` generation mode explicitly optimized for "QR Illusion Art" (embedding functional QR codes into artistic generations).
+- **Dual-Path QR Engine**:
+  - *Illusion Art Workflow (img2img-based)*: Scrapes active layer as source image, blends QR conditioning with adjustable denoise strength (default 0.75). Uses `StableDiffusionControlNetImg2ImgPipeline`.
+  - *Standard Workflow (txt2img-based)*: Generates art directly from prompt shaped by the QR control. Uses `StableDiffusionControlNetPipeline`.
+  - Both pipelines share a single ControlNet model instance in VRAM.
+- **Dedicated QR UI Tab**: 10 parameters fully persisted via `sddj_settings.lua`, including "Use Layer (Illusion Art)" toggle, denoise slider, module size (16px default), error correction (H default), and scale tuning.
+- **Server-Side QR Synthesis**: `qrcode_generator.py` mathematically constructs the base QR image on a #808080 gray canvas honoring ISO quiet zones, avoiding client-side encoding complexity.
+- **Zero-Friction Scan Validation**: Auto-validates output scannability via `cv2.QRCodeDetector`. If scan fails, engine auto-retries (up to 2 times, configurable) with new seeds and progressively higher conditioning scale (+0.3 per retry).
+- **ControlNet DeepCache Override**: Suspends DeepCache for *all* ControlNet modes. (Cached steps skip UNet blocks where CN injects residuals, which previously caused conditioning to be partially dropped).
+- 14 new unit tests for QR logic (`test_qrcode_generator.py`).
+
+### Fixed
+- **Mode Pollution**: Excluded QR-specific fields (`qr_content`, `qr_error_correction`, etc.) from leaking into `AnimationRequest` and `AudioReactiveRequest` converters, preventing Pydantic validation crashes.
+- **Label Mismatches**: Fixed tooltip mode names in `sddj_dialog.lua` to correctly identify `controlnet_qrcode` as a zero-source-layer mode (unlike other ControlNets) when the illusion toggle is off.
+- **Unused Import**: Removed unused `import numpy` from `pipeline_factory.py`.
+- **Pending Action Comment**: Updated stale documentation comment in `sddj_state.lua` to include `qr_generate`.
+
+### Changed
+- Revised QR default values per SOTA research: `control_guidance_end` lowered from 1.0 to 0.8 (allows art to blend over the QR structure in final steps), default steps increased from 12 to 20 for better geometric structural integrity.
 ## [0.9.54] — 2026-03
 ### Codebase Audit & Remediation
 
