@@ -40,5 +40,6 @@ _warnings.filterwarnings("ignore", category=DeprecationWarning, module="audiorea
 _warnings.filterwarnings("ignore", category=DeprecationWarning, module="standard_aifc")
 _warnings.filterwarnings("ignore", category=DeprecationWarning, module="standard_sunau")
 
-__version__ = "0.9.53"
+from importlib.metadata import version as _pkg_version
+__version__ = _pkg_version("sddj-server")
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import tempfile
 import time
@@ -12,10 +13,7 @@ import numpy as np
 
 from .audio_analyzer import AudioAnalysis
 
-log = logging.getLogger("sddj.audio")
-
-# Cache entries older than this are purged on access
-_MAX_AGE_SECONDS = 24 * 3600  # 24 hours
+log = logging.getLogger("sddj.audio_cache")
 
 # Bytes to read for hashing (first 1 MB + file size = fast unique key)
 _HASH_CHUNK = 1024 * 1024
@@ -41,6 +39,12 @@ def _cache_key(audio_path: str, fps: float, enable_stems: bool) -> str:
     return hasher.hexdigest()[:24]
 
 
+def _max_age_seconds() -> int:
+    """Return cache TTL from config."""
+    from .config import settings
+    return settings.audio_cache_ttl_hours * 3600
+
+
 class AudioCache:
     """Disk-backed cache for AudioAnalysis results using .npz files."""
 
@@ -62,8 +66,9 @@ class AudioCache:
             return None
 
         # Check age
+        max_age = _max_age_seconds()
         age = time.time() - npz_path.stat().st_mtime
-        if age > _MAX_AGE_SECONDS:
+        if age > max_age:
             log.debug("Cache expired for %s (%.0fh old)", audio_path, age / 3600)
             npz_path.unlink(missing_ok=True)
             meta_path.unlink(missing_ok=True)
@@ -79,11 +84,7 @@ class AudioCache:
                 else:
                     features[name] = data[name]
 
-            meta = meta_path.read_text().strip().split("\n")
-            meta_dict = {}
-            for line in meta:
-                k, v = line.split("=", 1)
-                meta_dict[k] = v
+            meta_dict = json.loads(meta_path.read_text())
 
             analysis = AudioAnalysis(
                 fps=float(meta_dict["fps"]),
@@ -116,15 +117,15 @@ class AudioCache:
             for name, arr in analysis.raw_features.items():
                 save_dict[f"raw_{name}"] = arr
             np.savez_compressed(str(npz_path), **save_dict)
-            meta_path.write_text(
-                f"fps={analysis.fps}\n"
-                f"duration={analysis.duration}\n"
-                f"total_frames={analysis.total_frames}\n"
-                f"sample_rate={analysis.sample_rate}\n"
-                f"audio_path={analysis.audio_path}\n"
-                f"bpm={analysis.bpm}\n"
-                f"lufs={analysis.lufs}\n"
-            )
+            meta_path.write_text(json.dumps({
+                "fps": analysis.fps,
+                "duration": analysis.duration,
+                "total_frames": analysis.total_frames,
+                "sample_rate": analysis.sample_rate,
+                "audio_path": analysis.audio_path,
+                "bpm": analysis.bpm,
+                "lufs": analysis.lufs,
+            }))
             log.info("Cached analysis for %s (%d features)", Path(audio_path).name, len(analysis.features))
         except Exception as e:
             log.warning("Cache write failed: %s", e)
@@ -139,8 +140,9 @@ class AudioCache:
         """Remove expired cache entries. Returns number of entries removed."""
         removed = 0
         now = time.time()
+        max_age = _max_age_seconds()
         for f in self._dir.glob("*.npz"):
-            if now - f.stat().st_mtime > _MAX_AGE_SECONDS:
+            if now - f.stat().st_mtime > max_age:
                 f.unlink(missing_ok=True)
                 meta = f.with_suffix(".meta")
                 meta.unlink(missing_ok=True)

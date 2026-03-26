@@ -79,41 +79,31 @@ function PT.save_settings()
     expr_motion_rot    = d.expr_motion_rot,
     expr_motion_tilt_x = d.expr_motion_tilt_x,
     expr_motion_tilt_y = d.expr_motion_tilt_y,
-    mod1_enable = d.mod1_enable, mod1_source = d.mod1_source, mod1_target = d.mod1_target,
-    mod1_min = d.mod1_min, mod1_max = d.mod1_max, mod1_attack = d.mod1_attack, mod1_release = d.mod1_release,
-    mod1_invert = d.mod1_invert,
-    mod2_enable = d.mod2_enable, mod2_source = d.mod2_source, mod2_target = d.mod2_target,
-    mod2_min = d.mod2_min, mod2_max = d.mod2_max, mod2_attack = d.mod2_attack, mod2_release = d.mod2_release,
-    mod2_invert = d.mod2_invert,
-    mod3_enable = d.mod3_enable, mod3_source = d.mod3_source, mod3_target = d.mod3_target,
-    mod3_min = d.mod3_min, mod3_max = d.mod3_max, mod3_attack = d.mod3_attack, mod3_release = d.mod3_release,
-    mod3_invert = d.mod3_invert,
-    mod4_enable = d.mod4_enable, mod4_source = d.mod4_source, mod4_target = d.mod4_target,
-    mod4_min = d.mod4_min, mod4_max = d.mod4_max, mod4_attack = d.mod4_attack, mod4_release = d.mod4_release,
-    mod4_invert = d.mod4_invert,
-    mod5_enable = d.mod5_enable, mod5_source = d.mod5_source, mod5_target = d.mod5_target,
-    mod5_min = d.mod5_min, mod5_max = d.mod5_max, mod5_attack = d.mod5_attack, mod5_release = d.mod5_release,
-    mod5_invert = d.mod5_invert,
-    mod6_enable = d.mod6_enable, mod6_source = d.mod6_source, mod6_target = d.mod6_target,
-    mod6_min = d.mod6_min, mod6_max = d.mod6_max, mod6_attack = d.mod6_attack, mod6_release = d.mod6_release,
-    mod6_invert = d.mod6_invert,
-    quantize_enabled     = d.quantize_enabled,
-    audio_choreography   = d.audio_choreography,
-    audio_expr_preset    = d.audio_expr_preset,
-    -- Audio method & FreeInit
-    audio_method         = d.audio_method,
-    audio_freeinit       = d.audio_freeinit,
-    audio_freeinit_iters = d.audio_freeinit_iters,
-    -- Audio advanced sub-fields
-    audio_random_seed    = d.audio_random_seed,
-    audio_prompt_schedule = d.audio_prompt_schedule,
-    ps1_time = d.ps1_time, ps1_prompt = d.ps1_prompt,
-    ps2_time = d.ps2_time, ps2_prompt = d.ps2_prompt,
-    ps3_time = d.ps3_time, ps3_prompt = d.ps3_prompt,
-    -- MP4 export
-    mp4_quality          = d.mp4_quality,
-    mp4_scale            = d.mp4_scale,
   }
+  -- Modulation slots (loop over 6 slots × 8 fields)
+  local _mod_fields = {"enable", "source", "target", "min", "max", "attack", "release", "invert"}
+  for i = 1, 6 do
+    for _, f in ipairs(_mod_fields) do
+      local key = "mod" .. i .. "_" .. f
+      s[key] = d[key]
+    end
+  end
+  s.quantize_enabled     = d.quantize_enabled
+  s.audio_choreography   = d.audio_choreography
+  s.audio_expr_preset    = d.audio_expr_preset
+  -- Audio method & FreeInit
+  s.audio_method         = d.audio_method
+  s.audio_freeinit       = d.audio_freeinit
+  s.audio_freeinit_iters = d.audio_freeinit_iters
+  -- Audio advanced sub-fields
+  s.audio_random_seed    = d.audio_random_seed
+  s.audio_prompt_schedule = d.audio_prompt_schedule
+  s.ps1_time = d.ps1_time; s.ps1_prompt = d.ps1_prompt
+  s.ps2_time = d.ps2_time; s.ps2_prompt = d.ps2_prompt
+  s.ps3_time = d.ps3_time; s.ps3_prompt = d.ps3_prompt
+  -- MP4 export
+  s.mp4_quality          = d.mp4_quality
+  s.mp4_scale            = d.mp4_scale
   local ok, encoded = pcall(PT.json.encode, s)
   if not ok then return end
   local f, ferr = io.open(PT.cfg.SETTINGS_FILE, "w")
@@ -129,19 +119,7 @@ end
 
 function PT.load_settings()
   local f = io.open(PT.cfg.SETTINGS_FILE, "r")
-  if not f then
-    -- Migration: try old settings file from pre-0.7.5 (PixyToon era)
-    local old_path = app.fs.joinPath(app.fs.userConfigPath, "pixytoon_settings.json")
-    f = io.open(old_path, "r")
-    if f then
-      -- Read old settings, will be saved under new name on next save
-      local data = f:read("*a")
-      f:close()
-      local ok, s = pcall(PT.json.decode, data)
-      if ok and type(s) == "table" then return s end
-    end
-    return nil
-  end
+  if not f then return nil end
   local data = f:read("*a")
   f:close()
   local ok, s = pcall(PT.json.decode, data)
@@ -170,10 +148,12 @@ function PT.apply_settings(s)
     "audio_fps", "audio_mod_preset", "audio_method",
     "audio_choreography", "audio_expr_preset",
     "mp4_quality", "mp4_scale",
-    "mod1_source", "mod1_target", "mod2_source", "mod2_target",
-    "mod3_source", "mod3_target", "mod4_source", "mod4_target",
-    "mod5_source", "mod5_target", "mod6_source", "mod6_target",
   }
+  -- Modulation slot comboboxes
+  for i = 1, 6 do
+    opts[#opts + 1] = "mod" .. i .. "_source"
+    opts[#opts + 1] = "mod" .. i .. "_target"
+  end
   for _, id in ipairs(opts) do
     if s[id] ~= nil then PT.dlg:modify{ id = id, option = s[id] } end
   end
@@ -186,13 +166,13 @@ function PT.apply_settings(s)
     "audio_steps", "audio_cfg", "audio_denoise",
     "audio_max_frames", "audio_freeinit_iters",
     "mod_slot_count",
-    "mod1_min", "mod1_max", "mod1_attack", "mod1_release",
-    "mod2_min", "mod2_max", "mod2_attack", "mod2_release",
-    "mod3_min", "mod3_max", "mod3_attack", "mod3_release",
-    "mod4_min", "mod4_max", "mod4_attack", "mod4_release",
-    "mod5_min", "mod5_max", "mod5_attack", "mod5_release",
-    "mod6_min", "mod6_max", "mod6_attack", "mod6_release",
   }
+  -- Modulation slot sliders
+  for i = 1, 6 do
+    for _, f in ipairs({"min", "max", "attack", "release"}) do
+      vals[#vals + 1] = "mod" .. i .. "_" .. f
+    end
+  end
   for _, id in ipairs(vals) do
     if s[id] ~= nil then PT.dlg:modify{ id = id, value = s[id] } end
   end
@@ -201,10 +181,12 @@ function PT.apply_settings(s)
                    "randomize_before", "loop_check", "random_loop_check", "save_output",
                    "audio_stems_enable", "audio_advanced", "audio_use_expressions",
                    "audio_freeinit", "audio_random_seed", "audio_prompt_schedule",
-                   "mod1_enable", "mod2_enable", "mod3_enable", "mod4_enable",
-                   "mod5_enable", "mod6_enable",
-                   "mod1_invert", "mod2_invert", "mod3_invert",
-                   "mod4_invert", "mod5_invert", "mod6_invert" }
+  }
+  -- Modulation slot booleans
+  for i = 1, 6 do
+    bools[#bools + 1] = "mod" .. i .. "_enable"
+    bools[#bools + 1] = "mod" .. i .. "_invert"
+  end
   for _, id in ipairs(bools) do
     if s[id] ~= nil then PT.dlg:modify{ id = id, selected = s[id] } end
   end

@@ -112,7 +112,7 @@ class LoRAFuser:
             try:
                 pipe.unload_lora_weights()
             except Exception:
-                pass
+                log.debug("Failed to unload partially-fused LoRA weights")
             raise
         pipe.unload_lora_weights()
         self.current_name = name

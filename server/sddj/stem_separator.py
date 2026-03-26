@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-log = logging.getLogger("sddj.audio")
+log = logging.getLogger("sddj.stem_separator")
 
 # Stem names produced by htdemucs
 STEM_NAMES = ("drums", "bass", "vocals", "other")

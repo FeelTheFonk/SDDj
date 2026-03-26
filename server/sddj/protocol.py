@@ -360,7 +360,7 @@ class AudioReactiveRequest(BaseGenerationParams):
     # AnimateDiff-specific
     enable_freeinit: bool = False
     freeinit_iterations: int = Field(2, ge=1, le=3)
-    # Deprecated: audio-reactive uses fps exclusively. Kept for metadata backward compat.
+    # Audio-reactive uses fps instead; retained for metadata backward compat only.
     frame_duration_ms: Optional[int] = Field(None, ge=30, le=2000)
     tag_name: Optional[str] = Field(None, max_length=64)
 
@@ -402,7 +402,7 @@ class AnimationFrameResponse(BaseModel):
     time_ms: int
     width: int
     height: int
-    encoding: Optional[str] = None  # None = PNG (legacy), "raw_rgba" = raw RGBA bytes
+    encoding: Optional[str] = None  # None = PNG, "raw_rgba" = raw RGBA bytes
 
 
 class AnimationCompleteResponse(BaseModel):
@@ -499,7 +499,7 @@ class AudioReactiveFrameResponse(BaseModel):
     time_ms: int
     width: int
     height: int
-    encoding: Optional[str] = None  # None = PNG (legacy), "raw_rgba" = raw RGBA bytes
+    encoding: Optional[str] = None  # None = PNG, "raw_rgba" = raw RGBA bytes
     params_used: dict[str, float] = Field(default_factory=dict)
 
 

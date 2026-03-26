@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from .audio_analyzer import AudioAnalysis
 
-log = logging.getLogger("sddj.audio")
+log = logging.getLogger("sddj.modulation_engine")
 
 # Valid modulation targets and their clamping ranges
 TARGET_RANGES: dict[str, tuple[float, float]] = {
@@ -548,6 +548,8 @@ class ExpressionEvaluator:
 
     def validate(self, expression: str, available_vars: list[str]) -> str | None:
         """Validate an expression. Returns error message or None if valid."""
+        if len(expression) > 1024:
+            return "Expression too long (max 1024 characters)"
         try:
             # Set dummy values for all variables
             self._evaluator.names = {v: 0.5 for v in available_vars}
@@ -559,6 +561,8 @@ class ExpressionEvaluator:
 
     def evaluate(self, expression: str, variables: dict[str, float]) -> float:
         """Evaluate expression with given variables. Returns float result."""
+        if len(expression) > 1024:
+            raise ValueError("Expression too long (max 1024 characters)")
         self._evaluator.names = variables
         result = self._evaluator.eval(expression)
         return float(result)
@@ -575,12 +579,16 @@ class ModulationEngine:
             self._expr_eval = ExpressionEvaluator()
         return self._expr_eval
 
+    _LEGACY_PRESETS = {"energetic", "ambient", "bass_driven"}
+
     @staticmethod
     def get_preset(name: str) -> list[ModulationSlot]:
         """Get a built-in modulation preset by name."""
         if name not in PRESETS:
             raise ValueError(f"Unknown modulation preset: {name!r}. "
                            f"Available: {list(PRESETS.keys())}")
+        if name in ModulationEngine._LEGACY_PRESETS:
+            log.warning("Preset %r is legacy (v0.7.0) — consider using a newer preset", name)
         return [ModulationSlot(**slot) for slot in PRESETS[name]]
 
     @staticmethod

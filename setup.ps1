@@ -73,15 +73,11 @@ Step 5 6 "Installing extension into Aseprite"
 $aseExt = "$env:APPDATA/Aseprite/extensions/sddj"
 $aseScripts = "$env:APPDATA/Aseprite/scripts"
 
-# Clean stale global scripts (current + legacy)
-foreach ($f in "sddj.lua", "pixytoon.lua", "json.lua") {
+# Clean stale global scripts
+foreach ($f in "sddj.lua", "json.lua") {
     $p = Join-Path $aseScripts $f
     if (Test-Path $p) { Remove-Item $p -Force }
 }
-
-# Remove legacy extension (pre-0.7.5 rename)
-$legacyExt = "$env:APPDATA/Aseprite/extensions/pixytoon"
-if (Test-Path $legacyExt) { Remove-Item $legacyExt -Recurse -Force }
 
 # Deploy extension
 if (Test-Path $aseExt) { Remove-Item $aseExt -Recurse -Force }

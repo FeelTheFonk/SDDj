@@ -52,7 +52,7 @@ def move_to_cpu(module: Optional[nn.Module]) -> None:
         try:
             module.to("cpu")
         except Exception:
-            pass  # best-effort — module may be in inconsistent state
+            log.debug("move_to_cpu failed (non-critical): %s", type(module).__name__)
 
 
 def check_vram_budget(required_mb: float, min_free_mb: float = 512.0) -> bool:

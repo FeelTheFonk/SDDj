@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     max_lora_rank: int = Field(128, ge=1)  # Must be >= rank of all LoRA adapters used
     enable_cpu_offload: bool = False  # Mutually exclusive with DeepCache + torch.compile
     vram_min_free_mb: int = Field(512, ge=0)  # VRAM budget guard for lazy-loads
-    quantize_unet: Literal["none", "int8", "fp8"] = "none"  # INT8/FP8 UNet quantization
+    # UNet quantization planned but not yet wired — field removed until implemented
 
     # ── FreeU v2 (free quality boost, no training needed) ────
     enable_freeu: bool = True
@@ -139,6 +139,7 @@ class Settings(BaseSettings):
 
     # ── Video Export ──────────────────────────────────────────
     ffmpeg_path: str = ""  # empty = auto-detect via shutil.which("ffmpeg")
+    audio_cache_ttl_hours: int = Field(24, ge=1, le=168)  # 1h–7d
 
     model_config = {"env_prefix": "SDDJ_"}
 

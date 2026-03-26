@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.9.54] — 2026-03
+### Codebase Audit & Remediation
+
+#### Removed
+- **PixyToon legacy traces** — purged from `setup.ps1` (cleanup list + extension removal block) and `sddj_settings.lua` (migration fallback). Zero references remain.
+- **Noop `quantize_unet` config** — field existed in `config.py` and `REFERENCE.md` but was never consumed by `pipeline_factory.py`. Removed until implemented.
+- **Misplaced CHANGELOG boilerplate** — duplicate "All notable changes…" line at L121.
+
+#### Fixed
+- **Logger name collisions** — `audio_cache.py`, `stem_separator.py`, and `modulation_engine.py` all shared `sddj.audio`. Each now has its own logger (`sddj.audio_cache`, `sddj.stem_separator`, `sddj.modulation_engine`).
+- **Silent `except: pass` blocks** — `vram_utils.py` and `lora_fuser.py` now log at DEBUG level instead of swallowing errors silently.
+- **Dead `hasattr` guard** — `prompt_generator.py` checked `_active_exclude` which is always initialized in `__init__`.
+- **Pillow 13 deprecation** — `helpers.py` `Image.fromarray(mode="L")` replaced with `Image.fromarray()` (auto-detected).
+- **REFERENCE.md file structure** — `models/` was shown inside `sddj/` but is a sibling directory.
+- **Stale protocol comments** — removed misleading "legacy" and "deprecated" labels from `protocol.py`.
+
+#### Security
+- **Expression length cap** — `modulation_engine.py` now rejects expressions > 1024 characters in both `validate()` and `evaluate()`.
+- **Explicit `shell=False`** — `video_export.py` `subprocess.run()` now has defense-in-depth shell restriction.
+- **`os.execute` hardening** — `sddj_output.lua` `open_output_dir()` strips all shell metacharacters (`"&|;$%<>()`) instead of only double quotes.
+
+#### Improved
+- **Audio cache TTL configurable** — new `SDDJ_AUDIO_CACHE_TTL_HOURS` env var (default 24, range 1–168h) replaces hardcoded constant.
+- **Cache meta → JSON** — `audio_cache.py` now uses `json.dumps`/`json.loads` instead of fragile custom `key=value` format. Existing caches auto-invalidate gracefully.
+- **Legacy preset warnings** — `modulation_engine.py` logs `WARNING` when v0.7.0 presets (`energetic`, `ambient`, `bass_driven`) are used.
+- **DRY modulation slot persistence** — `sddj_settings.lua` save/apply now use loops for 6 slots × 8 fields instead of 68 copy-paste lines.
+- **Version single source of truth** — `__init__.py` reads version from `importlib.metadata` (set by `pyproject.toml`). New `bump_version.ps1` updates all 3 remaining files atomically.
+
+#### Added
+- **`.env.example`** — documents all configurable environment variables with defaults.
+- **`bump_version.ps1`** — atomic version bump across `pyproject.toml`, `package.json`, `sddj_state.lua`, + `uv.lock` regeneration.
+- **`SDDJ_AUDIO_CACHE_TTL_HOURS`** documented in `REFERENCE.md`.
+
 ## [0.9.53] — 2026-03
 ### Fixed
 - **Settings persistence: 23 missing fields** — modulation slots 5-6 (14 fields), invert toggles for all 6 slots (6 fields), `quantize_enabled`, `audio_choreography`, and `audio_expr_preset` were not saved/loaded, causing data loss on restart.
@@ -118,7 +151,6 @@
 - Clarified `animatediff` vs `animatediff_audio` backend aliases.
 
 
-All notable changes to SDDj are documented here.
 
 ## [0.9.45] — 2026-03
 

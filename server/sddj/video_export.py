@@ -252,6 +252,7 @@ def export_mp4(
             capture_output=True,
             text=True,
             timeout=300,  # 5 minutes max
+            shell=False,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError("ffmpeg timed out after 300 seconds")

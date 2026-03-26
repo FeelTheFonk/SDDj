@@ -97,8 +97,8 @@ server/
 │   ├── pipeline_factory.py — Dynamic model routing, torch.compile, scheduler swaps
 │   ├── audio_analyzer.py   — DSP feature extraction
 │   ├── modulation_engine.py — Parameter scheduling
-│   ├── postprocess.py      — Pixel art rendering stages
-│   └── models/             — Local weight storage (no runtime downloads)
+│   └── postprocess.py      — Pixel art rendering stages
+models/                      — Local weight storage (no runtime downloads)
 extension/
 └── scripts/             — Lua modules (dialog, state, ws, handler, import, output, request)
 ```
@@ -423,7 +423,6 @@ All environment variables are prefixed with `SDDJ_`. **Priority**: system env > 
 | `SDDJ_MAX_LORA_RANK` | `128` | Must be ≥ rank of all LoRA adapters used |
 | `SDDJ_ENABLE_CPU_OFFLOAD` | `False` | Model offloading. Mutually exclusive with DeepCache + torch.compile |
 | `SDDJ_VRAM_MIN_FREE_MB` | `512` | VRAM budget guard for lazy-loads (MB) |
-| `SDDJ_QUANTIZE_UNET` | `none` | UNet quantization: `none` / `int8` / `fp8` |
 | `SDDJ_DEEPCACHE_INTERVAL` | `3` | DeepCache skip interval |
 | `SDDJ_DEEPCACHE_BRANCH` | `0` | DeepCache branch ID |
 | `SDDJ_FREEU_S1` / `S2` | `0.9` / `0.2` | FreeU v2 skip scales |
@@ -477,6 +476,7 @@ Active when model is `ByteDance/AnimateDiff-Lightning`.
 | `SDDJ_AUDIO_BEAT_BACKEND` | `auto` | `auto` / `librosa` / `madmom` |
 | `SDDJ_AUDIO_SUPERFLUX_LAG` | `2` | SuperFlux onset lag (1–5) |
 | `SDDJ_AUDIO_SUPERFLUX_MAX_SIZE` | `3` | SuperFlux max filter (1–7) |
+| `SDDJ_AUDIO_CACHE_TTL_HOURS` | `24` | Cache expiry (1–168h) |
 | `SDDJ_FFMPEG_PATH` | auto-detect | Path to ffmpeg binary |
 
 ### Temporal Coherence

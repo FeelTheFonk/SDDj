@@ -194,8 +194,8 @@ function PT.open_output_dir()
   if not app.fs.isDirectory(dir) then
     app.fs.makeDirectory(dir)
   end
-  -- Cross-platform open (sanitize path to prevent command injection)
-  local safe_dir = dir:gsub('"', "")
+  -- Sanitize: strip shell metacharacters to prevent command injection
+  local safe_dir = dir:gsub('["%&|`;%$%%<>%(%)]', "")
   if package.config:sub(1, 1) == "\\" then
     -- Windows
     safe_dir = safe_dir:gsub("/", "\\")

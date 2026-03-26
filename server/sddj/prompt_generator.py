@@ -356,7 +356,7 @@ class PromptGenerator:
         if subject_type and subject_type != "any" and subject_type in self._typed_subjects:
             pool = self._typed_subjects[subject_type]
             # Apply active exclusions to typed pool too
-            if hasattr(self, '_active_exclude') and self._active_exclude:
+            if self._active_exclude:
                 pool = [s for s in pool if not any(ex in s.lower() for ex in self._active_exclude)]
             if pool:
                 return self._pick_from_pool(pool, randomness)

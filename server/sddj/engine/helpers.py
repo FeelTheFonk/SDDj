@@ -28,7 +28,7 @@ def _apply_hue_shift(image: Image.Image, shift: float) -> Image.Image:
     h, s, v = hsv.split()
     h_arr = np.array(h, dtype=np.int16)
     h_arr = (h_arr + int(shift * 255)) % 256
-    h = Image.fromarray(h_arr.astype(np.uint8), mode="L")
+    h = Image.fromarray(h_arr.astype(np.uint8))
     result = Image.merge("HSV", (h, s, v)).convert("RGB")
     if alpha is not None:
         result.putalpha(alpha)
