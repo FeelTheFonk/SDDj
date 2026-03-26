@@ -17,7 +17,7 @@ class TestSettingsDefaults:
         # Clear any SDDJ_ env vars that could leak into tests
         env = {k: v for k, v in os.environ.items() if not k.startswith("SDDJ_")}
         with patch.dict(os.environ, env, clear=True):
-            return Settings(**overrides)
+            return Settings(_env_file=None, **overrides)
 
     def test_network_defaults(self):
         s = self._make_settings()
@@ -138,7 +138,7 @@ class TestSettingsEnvPrefix:
         env = {k: v for k, v in os.environ.items() if not k.startswith("SDDJ_")}
         env["SDDJ_PORT"] = "8888"
         with patch.dict(os.environ, env, clear=True):
-            s = Settings()
+            s = Settings(_env_file=None)
         assert s.port == 8888
 
     def test_env_prefix_overrides_host(self):
@@ -147,7 +147,7 @@ class TestSettingsEnvPrefix:
         env = {k: v for k, v in os.environ.items() if not k.startswith("SDDJ_")}
         env["SDDJ_HOST"] = "0.0.0.0"
         with patch.dict(os.environ, env, clear=True):
-            s = Settings()
+            s = Settings(_env_file=None)
         assert s.host == "0.0.0.0"
 
 
@@ -161,6 +161,7 @@ class TestSettingsValidator:
             import logging
             with caplog.at_level(logging.WARNING, logger="sddj.config"):
                 Settings(
+                    _env_file=None,
                     models_dir=tmp_path / "nonexistent",
                     checkpoints_dir=tmp_path / "nonexistent",
                     loras_dir=tmp_path / "nonexistent",
@@ -181,6 +182,7 @@ class TestSettingsValidator:
             import logging
             with caplog.at_level(logging.WARNING, logger="sddj.config"):
                 Settings(
+                    _env_file=None,
                     models_dir=tmp_path / "models",
                     checkpoints_dir=tmp_path / "checkpoints",
                     loras_dir=tmp_path / "loras",
@@ -198,7 +200,7 @@ class TestCompileMode:
         from sddj.config import Settings
         env = {k: v for k, v in os.environ.items() if not k.startswith("SDDJ_")}
         with patch.dict(os.environ, env, clear=True):
-            return Settings(**overrides)
+            return Settings(_env_file=None, **overrides)
 
     def test_valid_modes(self):
         for mode in ("default", "max-autotune", "reduce-overhead"):

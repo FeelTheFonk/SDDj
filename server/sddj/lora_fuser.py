@@ -49,9 +49,15 @@ class LoRAFuser:
         Uses assign=True to avoid ~1.7GB temporary VRAM spike — tensors are
         swapped in-place rather than copied through an intermediate buffer.
         Requires torch>=2.4.
+
+        CRITICAL: assign=True *replaces* parameter tensor references with the
+        CPU copies from the snapshot.  The UNet ends up on CPU after this call.
+        We must move it back to the pipeline device before any further use.
         """
         if self._original_unet_state is not None:
+            device = next(pipe.unet.parameters()).device
             pipe.unet.load_state_dict(self._original_unet_state, assign=True)
+            pipe.unet.to(device)
 
     def _needs_dynamo_reset(self) -> bool:
         """Return True if dynamo.reset() is needed after LoRA change."""

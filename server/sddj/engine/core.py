@@ -201,6 +201,12 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 log.info("No style LoRAs found in %s — skipping", settings.loras_dir)
                 return
             lora_name = available[0]
+        else:
+            # Support full file path in .env — extract stem for resolve_lora_path()
+            from pathlib import PurePath as _PurePath
+            _p = _PurePath(lora_name)
+            if _p.suffix.lower() in (".safetensors", ".bin", ".pt"):
+                lora_name = _p.stem
 
         try:
             self.set_style_lora(lora_name, settings.default_style_lora_weight)
@@ -358,6 +364,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
     def set_style_lora(self, name: Optional[str], weight: float = 1.0) -> None:
         """Load or switch style LoRA (fused into weights, no PEFT runtime)."""
         if not self._loaded or self._pipe is None:
+            log.debug("set_style_lora(%s) ignored — engine not loaded", name)
             return
         weight = max(-2.0, min(2.0, weight))
         self._lora_fuser.set_lora(self._pipe, name, weight)

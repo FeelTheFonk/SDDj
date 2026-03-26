@@ -52,7 +52,7 @@ class ResourceManager:
                 resolved = candidate.resolve()
                 if not str(resolved).startswith(str(d.resolve())):
                     raise ValueError(f"{self._kind} path escapes directory: {resolved}")
-                return candidate
+                return resolved
         raise FileNotFoundError(
             f"{self._kind} '{name}' not found in {d}. "
             f"Available: {self.list()}"

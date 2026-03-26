@@ -145,7 +145,11 @@ class Settings(BaseSettings):
     ffmpeg_path: str = ""  # empty = auto-detect via shutil.which("ffmpeg")
     audio_cache_ttl_hours: int = Field(24, ge=1, le=168)  # 1h–7d
 
-    model_config = {"env_prefix": "SDDJ_"}
+    model_config = {
+        "env_prefix": "SDDJ_",
+        "env_file": str(_SERVER_ROOT / ".env"),
+        "env_file_encoding": "utf-8",
+    }
 
     @cached_property
     def is_animatediff_lightning(self) -> bool:

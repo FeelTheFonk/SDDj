@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.59] — 2026-03
+### LoRA Management & Configuration Audit
+Exhaustive multi-level audit of LoRA management system and environment configuration.
+
+#### Critical
+- **`.env` was never loaded** — `pydantic-settings v2` requires explicit `env_file` in `model_config` (was not set), `uv run` requires `--env-file` flag (was not passed), no `python-dotenv` in codebase. All `SDDJ_*` variables in `.env` were silently ignored since day one; every setting used hardcoded defaults from `config.py`. Fixed: `model_config` now explicitly loads `server/.env` via absolute path.
+- **Orphaned root `.env` deleted** — duplicate configuration file at project root was never read by any process.
+
+#### Fixed
+- **`default_style_lora` full-path crash** — full file paths in `.env` (e.g. `C:/models/pixelart.safetensors`) failed `validate_resource_name()` regex. Now extracts stem name automatically via `PurePath`.
+- **`ResourceManager.resolve()` returned non-resolved path** — validated against the absolute resolved path but returned the relative candidate. Now returns the absolute resolved path consistently.
+- **`set_style_lora()` silent no-op** — no feedback when called before engine loaded. Added `log.debug` for observability.
+
+#### Improved
+- **`.env.example` completeness** — rewritten with all 28+ config variables (was missing: LoRA hotswap, TF32, CPU offload, VRAM budget, QR ControlNet ×4, audio core ×4, audio DSP ×9, `compile_dynamic`, `audio_cache_ttl_hours`).
+- **`server/.env` synced** — all new sections added, `SDDJ_DEFAULT_STYLE_LORA` changed from full path to stem name.
+- **Test isolation** — all `Settings()` calls in `test_config.py` now pass `_env_file=None` to prevent real `.env` from leaking into unit tests.
+
 ## [0.9.58] — 2026-03
 ### Pipeline Performance Audit
 Exhaustive 30+ module audit (weighted avg 66/100 → target 90/100) with 15 fixes across 13 source files.
