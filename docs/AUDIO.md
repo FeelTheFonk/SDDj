@@ -318,17 +318,23 @@ Define frame-indexed keyframes with transition modes. Works in **all generation 
 
 | Field | Description |
 |-------|-------------|
-| `frame` | Frame index where this prompt activates |
-| `prompt` | Positive prompt for this keyframe |
-| `negative_prompt` | Per-keyframe negative (overrides global) |
-| `transition` | `hard_cut` (instant switch) or `blend` (frame-alternating crossfade) |
-| `transition_frames` | Blend window length (blend mode only) |
+| `[time]` | Time bracket: frame (`[10]`), seconds (`[2.5s]`), or percent (`[50%]`) |
+| `prompt` | Positive prompt (multi-line supported) |
+| `--` | Negative prompt for this keyframe (overrides global) |
+| `blend: N` | Blend window length to crossfade between prompts |
+| `weight: N` | Target guidance weight at this keyframe |
 
 **Example** — 3-act animation with a blended transition:
 ```
-KF 0 : "pixel art forest, morning light"        [hard_cut]
-KF 5 : "pixel art ocean, sunset"                 [blend, 3 frames]
-KF 10: "pixel art volcano, dramatic sky"         [hard_cut]
+[0]
+pixel art forest, morning light
+
+[5]
+blend: 3
+pixel art ocean, sunset
+
+[10]
+pixel art volcano, dramatic sky
 ```
 
 Frames 0–4 show the forest. Frames 5–7 alternate between forest and ocean (visual crossfade via img2img chain). Frames 8+ show the ocean, then volcano from frame 10.

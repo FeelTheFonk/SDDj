@@ -171,16 +171,24 @@ Instead of a single static prompt, you can define **Keyframes** in the Prompt Sc
 
 **Syntax Example:**
 ```
-0%: 1girl, smiling
+[0%]
+1girl, smiling
+
 # Visual crossfade into crying
-50%(blend:6): 1girl, crying [-] happy, smiling
-100%(hard_cut): 1girl, sleeping
+[50%]
+blend: 6
+1girl, crying
+--
+happy, smiling
+ 
+[100%]
+1girl, sleeping
 ```
 
-- **Timing**: Use `12:` (frame 12), `2.5s:` (2.5 seconds), or `50%:` (halfway).
-- **Transitions**: Add `(blend:N)` to crossfade between prompts over `N` frames, or `(hard_cut)` to snap immediately.
-- **Negative Prompts**: Use `[-]` inline to define a negative prompt specifically for that keyframe.
-- **File Injection**: Use `file: <path-to-text-file.txt>` to load a massive schedule dynamically.
+- **Timing**: Use `[12]` (frame 12), `[2.5s]` (2.5 seconds), or `[50%]` (halfway). Implicit frame `[0]` fallback if brackets are omitted.
+- **Transitions**: Add `blend: N` on a new line within a block to crossfade between prompts over `N` frames. Default is `hard_cut` (snap immediately).
+- **Negative Prompts**: Use `--` before text to separate the positive from the negative prompt specifically for that keyframe.
+- **File Injection**: Use the `Prompt Schedule (File)` selector in the UI to load a massive schedule dynamically.
 
 ---
 
