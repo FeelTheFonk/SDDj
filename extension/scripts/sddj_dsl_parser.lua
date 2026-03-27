@@ -22,8 +22,9 @@ function M.parse(input_str, total_frames, fps)
   end
   
   -- Support file loading transparently. Note: in Aseprite env 'app.fs' or 'io.open' could be used.
-  if input_str:match("^%s*file:%s*(.+)") then
-     local path = trim(input_str:match("^%s*file:%s*(.+)"))
+  local file_path = input_str:match("^%s*file:%s*(.+)")
+  if file_path then
+     local path = trim(file_path)
      local f = io.open(path, "r")
      if f then
        input_str = f:read("*a")
@@ -101,12 +102,17 @@ function M.parse(input_str, total_frames, fps)
     for _, l in ipairs(block.lines) do
       if l:match("^%-%-") then
           in_negative = true
-          negative_prompt = trim(l:sub(3))
+          local np_part = trim(l:sub(3))
+          if negative_prompt == "" then
+              negative_prompt = np_part
+          elseif np_part ~= "" then
+              negative_prompt = negative_prompt .. " " .. np_part
+          end
       elseif l:match("^blend:%s*(%d+)") then
           transition = "blend"
           transition_frames = tonumber(l:match("^blend:%s*(%d+)"))
-      elseif l:match("^transition:%s*(%w+)") then
-          transition = trim(l:match("^transition:%s*(%w+)"))
+      elseif l:match("^transition:%s*([%w_]+)") then
+          transition = trim(l:match("^transition:%s*([%w_]+)"))
       elseif l:match("^weight:%s*([%d%.]+)") or l:match("^w:%s*([%d%.]+)") then
           weight = tonumber(l:match("^w.-:%s*([%d%.]+)")) or weight
       else
@@ -136,6 +142,18 @@ function M.parse(input_str, total_frames, fps)
   -- Sort ascending by frame
   table.sort(schedule.keyframes, function(a, b) return a.frame < b.frame end)
   
+  -- If {auto} is used but no keyframes were defined, inject a default base keyframe
+  if #schedule.keyframes == 0 and schedule.auto_fill then
+    table.insert(schedule.keyframes, {
+      frame = 0,
+      prompt = "",
+      negative_prompt = "",
+      weight = 1.0,
+      transition = "hard_cut",
+      transition_frames = 0
+    })
+  end
+
   return schedule
 end
 

@@ -139,6 +139,22 @@ class PromptKeyframeSpec(BaseModel):
     transition: str = "hard_cut"
     transition_frames: int = Field(0, ge=0, le=120)
 
+    @field_validator("weight", mode="before")
+    @classmethod
+    def _clamp_weight(cls, v: Any) -> float:
+        try:
+            return max(0.0, min(5.0, float(v)))
+        except (ValueError, TypeError):
+            return 1.0
+
+    @field_validator("transition_frames", mode="before")
+    @classmethod
+    def _clamp_frames(cls, v: Any) -> int:
+        try:
+            return max(0, min(120, int(v)))
+        except (ValueError, TypeError):
+            return 0
+
     @field_validator("transition")
     @classmethod
     def _valid_transition(cls, v: str) -> str:
@@ -151,6 +167,14 @@ class PromptScheduleSpec(BaseModel):
     keyframes: list[PromptKeyframeSpec] = Field(default_factory=list)
     default_prompt: str = ""
     auto_fill: bool = False
+
+    @field_validator("keyframes", mode="before")
+    @classmethod
+    def _empty_dict_to_list(cls, v: Any) -> Any:
+        # normalizes empty dict {} passed from Lua json encoding to []
+        if isinstance(v, dict) and not v:
+            return []
+        return v
 
 
 _DEFAULT_NEGATIVE = (

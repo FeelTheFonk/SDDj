@@ -114,7 +114,11 @@ function PT.extract_prompt_schedule(total_frames, fps)
   -- Zéro plantage : on omet totalement le payload si vide
   if dsl_text:match("^%s*$") then return nil end
   
-  local parser = require("sddj_dsl_parser")
+  local ok, parser = pcall(dofile, "./sddj_dsl_parser.lua")
+  if not ok then
+    app.alert("Failed to load SDDj DSL parser. Please ensure sddj_dsl_parser.lua exists.")
+    return nil
+  end
   local success, sched = pcall(parser.parse, dsl_text, total_frames, fps)
   if success and sched and #sched.keyframes > 0 then
     return sched

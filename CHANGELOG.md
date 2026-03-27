@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.64] — 2026-03
+### Aseprite Environment Fixes
+Final cross-check and remediation of module loading in the Aseprite runtime environment.
+
+#### Fixed
+- **Aseprite Module Discovery Error**: Replaced standard Lua `require("sddj_dsl_parser")` with Aseprite-compatible `dofile("./sddj_dsl_parser.lua")` in `sddj_request.lua` to fully resolve the "Generate" tab crashing due to unlocated DSL parsing logic.
+
+## [0.9.63] — 2026-03
+### Robustness Pinnacle & Edge-Case Lockdown
+Complete cross-platform zero-crash remediation of the Prompt Scheduling DSL integration and UI protocol constraints.
+
+#### Fixed
+- **Lua Path Extraction Crash (0-Day)**: Suppressed a critical null-pointer crash triggered during `file:` input parsing when attempting to `trim(nil)` an empty path argument.
+- **Protocol Bounds 500-Error Vulnerability**: Added graceful boundary-clamping pre-validators directly to `PromptKeyframeSpec` in `protocol.py`. Weights outside `(0.0, 5.0)` or transitions outside `(0, 120)` are now safely clipped rather than throwing internal Server Error validation exceptions (UX 90/100).
+- **Silent Sequence Override**: Negative prompts inside the timeline (e.g. `-- bad`) now correctly concatenate when multiple lines are provided instead of continually overriding each other in the Lua AST.
+- **Transition Token Truncation**: Fixed the regex `(%w+)` incorrectly truncating the underscore in `"hard_cut"` to `"hard"` during Lua ingestion, closing a subtle mismatch gap with the Python Backend protocol.
+
 ## [0.9.62] — 2026-03
 ### DSL Parser Perfection & UI UX Alignment
 Refinement of the Prompt Scheduling DSL parser, UI layout, and backend fail-safes ensuring 100% zero-crash stability and supreme user experience.
