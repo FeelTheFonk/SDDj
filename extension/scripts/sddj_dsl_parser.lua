@@ -19,6 +19,7 @@ function M.parse(input_str, total_frames, fps)
   
   if input_str:match("{auto}") then
     schedule.auto_fill = true
+    input_str = input_str:gsub("{auto}", "")
   end
   
   -- Support file loading transparently. Note: in Aseprite env 'app.fs' or 'io.open' could be used.
@@ -29,6 +30,11 @@ function M.parse(input_str, total_frames, fps)
      if f then
        input_str = f:read("*a")
        f:close()
+       -- Re-check for {auto} in the loaded file
+       if input_str:match("{auto}") then
+         schedule.auto_fill = true
+         input_str = input_str:gsub("{auto}", "")
+       end
      else
        print("Warning: unable to read scheduling file " .. path)
        input_str = ""
@@ -36,6 +42,16 @@ function M.parse(input_str, total_frames, fps)
   end
 
   if not input_str or input_str:match("^%s*$") then
+    if schedule.auto_fill then
+      table.insert(schedule.keyframes, {
+        frame = 0,
+        prompt = "",
+        negative_prompt = "",
+        weight = 1.0,
+        transition = "hard_cut",
+        transition_frames = 0
+      })
+    end
     return schedule
   end
 

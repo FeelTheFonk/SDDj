@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.65] — 2026-03
+### Absolute Rigor & Empty Input Defenses
+Total lockdown of the DSL parser edge cases and Aseprite widget pass-through bugs.
+
+#### Fixed
+- **Empty File UI Leak**: Prevented Aseprite's 'file' widget from leaking the default working directory as a string when no file is selected. A strict `app.fs.isFile` validation guard now intercepts pseudo-paths, eliminating the `unable to read scheduling file` warning console popup.
+- **`{auto}` Tag Purity**: The `{auto}` tag is now rigorously stripped from prompt strings to prevent explicit bleed-through into the SD generation, while still securely injecting the baseline keyframe logic.
+- **Headless Lua Validation Suite**: Implemented a standalone Python `unittest` suite wrapped in `lupa` to rigorously test all syntax and bounds of `sddj_dsl_parser.lua` natively in backend environments devoid of Lua binaries or `pytest`.
+
 ## [0.9.64] — 2026-03
 ### Aseprite Environment Fixes
 Final cross-check and remediation of module loading in the Aseprite runtime environment.

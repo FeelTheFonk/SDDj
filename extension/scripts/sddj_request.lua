@@ -107,19 +107,27 @@ function PT.extract_prompt_schedule(total_frames, fps)
   local d = PT.dlg.data
   local dsl_text = d.generate_prompt_schedule_dsl or ""
   local file_path = d.generate_prompt_schedule_file or ""
+  if type(file_path) == "string" then file_path = file_path:match("^%s*(.-)%s*$") or "" end
+  
   if file_path ~= "" then
-    dsl_text = "file: " .. file_path
+    if app and app.fs and app.fs.isFile then
+      if app.fs.isFile(file_path) then
+        dsl_text = "file: " .. file_path
+      end
+    else
+      dsl_text = "file: " .. file_path
+    end
   end
   
   -- Zéro plantage : on omet totalement le payload si vide
-  if dsl_text:match("^%s*$") then return nil end
+  if type(dsl_text) ~= "string" or dsl_text:match("^%s*$") then return nil end
   
-  local ok, parser = pcall(dofile, "./sddj_dsl_parser.lua")
-  if not ok then
-    app.alert("Failed to load SDDj DSL parser. Please ensure sddj_dsl_parser.lua exists.")
+  if not PT.dsl_parser then
+    app.alert("SDDj DSL parser not loaded.")
     return nil
   end
-  local success, sched = pcall(parser.parse, dsl_text, total_frames, fps)
+  
+  local success, sched = pcall(PT.dsl_parser.parse, dsl_text, total_frames, fps)
   if success and sched and #sched.keyframes > 0 then
     return sched
   elseif not success then

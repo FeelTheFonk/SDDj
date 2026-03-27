@@ -22,9 +22,15 @@ if not json_ok or not json then
   return
 end
 
+local parser_ok, dsl_parser = pcall(dofile, "./sddj_dsl_parser.lua")
+if not parser_ok or type(dsl_parser) ~= "table" then
+  app.alert("SDDj: Failed to load sddj_dsl_parser.lua\n" .. tostring(dsl_parser))
+  return
+end
+
 -- ─── Shared Context ───────────────────────────────────────
 
-local _PT = { json = json }
+local _PT = { json = json, dsl_parser = dsl_parser }
 
 -- ─── Module Loader ────────────────────────────────────────
 -- dofile("./name.lua") resolves relative to the calling script's
