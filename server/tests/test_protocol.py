@@ -54,6 +54,7 @@ class TestAction:
             "list_prompt_schedules", "get_prompt_schedule",
             "save_prompt_schedule", "delete_prompt_schedule",
             "validate_dsl",
+            "randomize_schedule",
             "export_mp4",
             "shutdown",
         }

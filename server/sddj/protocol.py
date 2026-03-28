@@ -48,6 +48,7 @@ class Action(str, Enum):
     SAVE_PROMPT_SCHEDULE = "save_prompt_schedule"
     DELETE_PROMPT_SCHEDULE = "delete_prompt_schedule"
     VALIDATE_DSL = "validate_dsl"
+    RANDOMIZE_SCHEDULE = "randomize_schedule"
     # Video export
     EXPORT_MP4 = "export_mp4"
     # Server lifecycle
@@ -324,6 +325,8 @@ class Request(BaseModel):
     # DSL validation
     dsl_text: Optional[str] = None
     total_frames: Optional[int] = None
+    # Schedule randomization
+    schedule_profile: Optional[str] = None
     # Video export fields
     output_dir: Optional[str] = None
     scale_factor: Optional[int] = None
@@ -699,4 +702,12 @@ class PromptScheduleSavedResponse(BaseModel):
 class PromptScheduleDeletedResponse(BaseModel):
     type: Literal["prompt_schedule_deleted"] = "prompt_schedule_deleted"
     name: str
+
+
+class RandomizedScheduleResponse(BaseModel):
+    type: Literal["randomized_schedule"] = "randomized_schedule"
+    dsl_text: str = ""
+    keyframes: list[dict] = Field(default_factory=list)
+    profile: str = ""
+    keyframe_count: int = 0
 

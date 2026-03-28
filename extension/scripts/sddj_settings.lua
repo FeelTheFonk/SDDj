@@ -79,6 +79,8 @@ function PT.save_settings()
     expr_motion_rot    = d.expr_motion_rot,
     expr_motion_tilt_x = d.expr_motion_tilt_x,
     expr_motion_tilt_y = d.expr_motion_tilt_y,
+    -- Schedule randomizer (stored in PT, not dialog)
+    schedule_last_profile = PT.schedule_last_profile,
   }
   -- Modulation slots (loop over 6 slots × 8 fields)
   local _mod_fields = {"enable", "source", "target", "min", "max", "attack", "release", "invert"}
@@ -284,6 +286,9 @@ function PT.apply_settings(s)
     PT.dlg:modify{ id = "audio_denoise", value = s.denoise }
     PT.dlg:modify{ id = "audio_denoise", label = string.format("Strength (%.2f)", s.denoise / 100.0) }
   end
+
+  -- Restore schedule randomizer profile (stored in PT, not dialog)
+  PT.schedule_last_profile = s.schedule_last_profile or "dynamic"
 
   -- Initialize prompt schedule state from restored DSL text
   if PT.update_schedule_state then

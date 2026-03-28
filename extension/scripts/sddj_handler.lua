@@ -1029,6 +1029,60 @@ handlers.prompt_schedule_deleted = function(resp)
   PT.update_status("Schedule preset deleted: " .. tostring(resp.name or "?"))
 end
 
+-- ─── Randomized Schedule ──────────────────────────────────
+
+handlers.randomized_schedule = function(resp)
+  if not PT.dlg or not resp then return end
+
+  local dsl = resp.dsl_text or ""
+
+  -- Fallback: reconstruct DSL from keyframes if dsl_text is empty
+  if dsl == "" and resp.keyframes and #resp.keyframes > 0 then
+    local lines = {}
+    for _, kf in ipairs(resp.keyframes) do
+      lines[#lines + 1] = "[" .. (kf.frame or 0) .. "]"
+      if kf.prompt and kf.prompt ~= "" then
+        lines[#lines + 1] = kf.prompt
+      end
+      if kf.negative_prompt and kf.negative_prompt ~= "" then
+        lines[#lines + 1] = "-- " .. kf.negative_prompt
+      end
+      if kf.transition and kf.transition ~= "hard_cut" then
+        lines[#lines + 1] = "transition: " .. kf.transition
+      end
+      if kf.transition_frames and kf.transition_frames > 0 then
+        lines[#lines + 1] = "blend: " .. kf.transition_frames
+      end
+      if kf.weight_end then
+        local w = kf.weight or 1.0
+        lines[#lines + 1] = string.format("weight: %.2f->%.2f", w, kf.weight_end)
+      elseif kf.weight and kf.weight ~= 1.0 then
+        lines[#lines + 1] = string.format("weight: %.2f", kf.weight)
+      end
+      if kf.denoise_strength then
+        lines[#lines + 1] = string.format("denoise: %.2f", kf.denoise_strength)
+      end
+      if kf.cfg_scale then
+        lines[#lines + 1] = string.format("cfg: %.1f", kf.cfg_scale)
+      end
+      if kf.steps then
+        lines[#lines + 1] = "steps: " .. kf.steps
+      end
+      lines[#lines + 1] = ""
+    end
+    dsl = table.concat(lines, "\n")
+  end
+
+  PT.dlg:modify{ id = "generate_prompt_schedule_dsl", text = dsl }
+  if PT.update_schedule_state then
+    PT.update_schedule_state(dsl)
+  end
+
+  local count = resp.keyframe_count or 0
+  local profile = resp.profile or "?"
+  PT.update_status("Random schedule: " .. count .. " keyframes (" .. profile .. ")")
+end
+
 -- ─── Decoupled Refresh Timer ────────────────────────────────
 -- Frame imports no longer call app.refresh() directly (that caused
 -- re-entrant event pumping → stack overflow or frame batching).

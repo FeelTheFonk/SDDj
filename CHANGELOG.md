@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.70] — 2026-03
+### Random Prompt Schedule Generator
+Generate complete prompt schedules — structure and content — with a single click. Seven built-in profiles control keyframe placement, transition types, blend windows, parameter overrides, and prompt variety.
+
+#### Added
+- **Random Schedule Generator**: New `randomize_schedule` action with 7 profiles (`gentle`, `dynamic`, `rhythmic`, `cinematic`, `dreamy`, `chaos`, `minimal`). Each profile parameterizes keyframe count, spacing strategy (uniform/random/front-heavy/back-heavy), transition weights, blend ranges, parameter variety, and weight animation.
+- **UI**: "Random" button in the Prompt Schedule section with profile picker popup showing descriptions, preview, and current context (randomness, Lock Subject, total frames). Confirmation dialog when replacing an existing schedule.
+- **DSL round-trip**: `schedule_to_dsl()` converts generated keyframes to standard DSL, fully editable and saveable as presets.
+- **Per-keyframe negatives**: Each generated keyframe gets its own auto-matched negative prompt from the PromptGenerator.
+- **Settings persistence**: Last-used profile is saved and restored across sessions.
+
+#### Tests
+- 31 new tests across 6 classes: structure validation, E004 compliance, value ranges, locked subject, edge cases (1-10800 frames), profile distribution, DSL round-trip, stress (100 random iterations), protocol serialization.
+- **597 tests passing, 0 failures.**
+
 ## [0.9.69] — 2026-03
 ### Settings Persistence, AnimateDiff Audio Pipeline & LoRA Hotswap Fix
 Three critical bug fixes across the full stack: Lua frontend persistence, Python AnimateDiff pipeline, and CUDA tensor management.

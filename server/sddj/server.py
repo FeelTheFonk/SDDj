@@ -440,6 +440,9 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
         elif req.action == Action.VALIDATE_DSL:
             await _handle_validate_dsl(websocket, req)
 
+        elif req.action == Action.RANDOMIZE_SCHEDULE:
+            await _handle_randomize_schedule(websocket, req)
+
         elif req.action == Action.GENERATE_AUDIO_REACTIVE:
             await _handle_generate_audio_reactive(websocket, req, ws_id)
 
@@ -923,6 +926,48 @@ async def _handle_validate_dsl(websocket: WebSocket, req: Request) -> None:
         warnings=warnings,
         has_auto=result.has_auto,
     ))
+
+
+async def _handle_randomize_schedule(websocket: WebSocket, req: Request) -> None:
+    """Generate a random prompt schedule from a named profile."""
+    from .prompt_generator import prompt_generator
+    from .prompt_schedule import randomize_schedule, schedule_to_dsl
+    from .protocol import RandomizedScheduleResponse
+
+    profile = req.schedule_profile or "dynamic"
+    total_frames = max(1, req.total_frames or 100)
+    fps_val = max(1.0, req.fps or 24.0)
+    rand_level = req.randomness
+    locked = req.locked_fields or {}
+    base = req.prompt or ""
+
+    log.info(
+        "Randomizing schedule: profile=%s randomness=%d frames=%d fps=%.1f",
+        profile, rand_level, total_frames, fps_val,
+    )
+
+    try:
+        result = randomize_schedule(
+            total_frames=total_frames,
+            fps=fps_val,
+            profile=profile,
+            prompt_gen=prompt_generator,
+            randomness=rand_level,
+            locked_fields=locked,
+            base_prompt=base,
+        )
+        kfs = result.get("keyframes", [])
+        dsl_text = schedule_to_dsl(kfs)
+        await _send(websocket, RandomizedScheduleResponse(
+            dsl_text=dsl_text,
+            keyframes=kfs,
+            profile=profile,
+            keyframe_count=len(kfs),
+        ))
+    except Exception as e:
+        log.exception("randomize_schedule failed")
+        await _send(websocket, ErrorResponse(
+            code="RANDOMIZE_FAILED", message=str(e)))
 
 
 async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:

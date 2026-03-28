@@ -193,6 +193,28 @@ happy, smiling
 
 See **[Prompt Schedule DSL](PROMPT_SCHEDULE_DSL.md)** for the full grammar specification, all 8 transition types, per-keyframe parameter overrides, and validation rules.
 
+### Random Schedule Generator
+
+The **Random** button (next to Presets in the Prompt Schedule section) generates a complete prompt schedule — structure and content — in one click. It randomizes keyframe placement, transitions, blend windows, parameter overrides, and prompt text using the PromptGenerator engine.
+
+**Profiles** (7 built-in):
+
+| Profile | Keyframes | Transitions | Character |
+|---------|:---------:|-------------|-----------|
+| `gentle` | 2-3 | Smooth blends | Subtle evolution |
+| `dynamic` | 3-5 | Mixed (default) | Versatile, balanced |
+| `rhythmic` | 4-6 | Hard cuts | Beat-sync, rapid changes |
+| `cinematic` | 3-4 | Ease curves | Narrative arc, animated weights |
+| `dreamy` | 2-3 | Slerp blends | Long transitions, animated weights |
+| `chaos` | 5-8 | All types | Maximum variation (denoise, CFG, steps) |
+| `minimal` | 2 | Single blend | Simple A→B transition |
+
+**Interactions**:
+- **Randomness slider** (0-20): Controls prompt variation. At 0, copies the base prompt to all keyframes without randomization.
+- **Lock Subject**: When enabled, the locked subject appears in every keyframe's prompt.
+- **Total frames**: Read from the Animation Frames slider; keyframes are distributed within this range.
+- Output is standard DSL — fully editable via the Edit button, saveable as a Preset, and compatible with all generation modes (Animation Chain, AnimateDiff, Audio Reactive).
+
 ---
 
 ## Post-Processing

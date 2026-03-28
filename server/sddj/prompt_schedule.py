@@ -14,6 +14,7 @@ from __future__ import annotations
 import bisect
 import logging
 import math
+import random
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -919,3 +920,394 @@ def auto_generate_segments(
         len(keyframes), randomness, analysis.duration, bpm,
     )
     return {"keyframes": keyframes, "default_prompt": base_prompt}
+
+
+# ─────────────────────────────────────────────────────────────
+# Random schedule generation — structure + content
+# ─────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ScheduleRandomProfile:
+    """Parameterises how a random schedule is constructed."""
+
+    name: str
+    description: str
+    kf_count: tuple[int, int]
+    transition_weights: dict[str, float]
+    blend_range: tuple[int, int]
+    param_variety: float
+    denoise_range: tuple[float, float]
+    cfg_range: tuple[float, float]
+    steps_range: tuple[int, int] | None
+    weight_range: tuple[float, float]
+    use_weight_end: bool
+    spacing: str
+    min_gap_ratio: float
+
+
+_RANDOM_PROFILES: dict[str, ScheduleRandomProfile] = {
+    "gentle": ScheduleRandomProfile(
+        name="gentle",
+        description="2-3 keyframes, smooth blends, subtle evolution",
+        kf_count=(2, 3),
+        transition_weights={"blend": 0.8, "ease_in_out": 0.2},
+        blend_range=(6, 20),
+        param_variety=0.1,
+        denoise_range=(0.30, 0.50),
+        cfg_range=(4.0, 6.0),
+        steps_range=None,
+        weight_range=(0.9, 1.1),
+        use_weight_end=False,
+        spacing="uniform",
+        min_gap_ratio=0.3,
+    ),
+    "dynamic": ScheduleRandomProfile(
+        name="dynamic",
+        description="3-5 keyframes, mixed transitions (default)",
+        kf_count=(3, 5),
+        transition_weights={"hard_cut": 0.4, "ease_in_out": 0.3, "blend": 0.2, "cubic": 0.1},
+        blend_range=(4, 12),
+        param_variety=0.3,
+        denoise_range=(0.25, 0.65),
+        cfg_range=(3.5, 8.0),
+        steps_range=None,
+        weight_range=(0.8, 1.3),
+        use_weight_end=False,
+        spacing="random",
+        min_gap_ratio=0.25,
+    ),
+    "rhythmic": ScheduleRandomProfile(
+        name="rhythmic",
+        description="4-6 keyframes, hard cuts, beat-sync style",
+        kf_count=(4, 6),
+        transition_weights={"hard_cut": 0.7, "slerp": 0.2, "ease_in_out": 0.1},
+        blend_range=(2, 6),
+        param_variety=0.5,
+        denoise_range=(0.30, 0.70),
+        cfg_range=(4.0, 9.0),
+        steps_range=None,
+        weight_range=(0.8, 1.4),
+        use_weight_end=False,
+        spacing="uniform",
+        min_gap_ratio=0.2,
+    ),
+    "cinematic": ScheduleRandomProfile(
+        name="cinematic",
+        description="3-4 keyframes, ease curves, narrative arc, animated weights",
+        kf_count=(3, 4),
+        transition_weights={"ease_in_out": 0.5, "cubic": 0.3, "slerp": 0.2},
+        blend_range=(6, 16),
+        param_variety=0.25,
+        denoise_range=(0.25, 0.55),
+        cfg_range=(4.0, 7.0),
+        steps_range=None,
+        weight_range=(0.8, 1.5),
+        use_weight_end=True,
+        spacing="front_heavy",
+        min_gap_ratio=0.25,
+    ),
+    "dreamy": ScheduleRandomProfile(
+        name="dreamy",
+        description="2-3 keyframes, long slerp blends, animated weights",
+        kf_count=(2, 3),
+        transition_weights={"slerp": 0.6, "ease_in_out": 0.3, "cubic": 0.1},
+        blend_range=(10, 30),
+        param_variety=0.15,
+        denoise_range=(0.25, 0.45),
+        cfg_range=(4.0, 6.0),
+        steps_range=None,
+        weight_range=(0.7, 1.3),
+        use_weight_end=True,
+        spacing="uniform",
+        min_gap_ratio=0.3,
+    ),
+    "chaos": ScheduleRandomProfile(
+        name="chaos",
+        description="5-8 keyframes, all transitions, max variation",
+        kf_count=(5, 8),
+        transition_weights={
+            "hard_cut": 0.15, "blend": 0.15, "linear_blend": 0.1,
+            "ease_in": 0.1, "ease_out": 0.1, "ease_in_out": 0.15,
+            "cubic": 0.1, "slerp": 0.15,
+        },
+        blend_range=(2, 14),
+        param_variety=0.7,
+        denoise_range=(0.20, 0.80),
+        cfg_range=(2.0, 12.0),
+        steps_range=(6, 12),
+        weight_range=(0.5, 2.0),
+        use_weight_end=True,
+        spacing="random",
+        min_gap_ratio=0.15,
+    ),
+    "minimal": ScheduleRandomProfile(
+        name="minimal",
+        description="2 keyframes, simple A-to-B blend",
+        kf_count=(2, 2),
+        transition_weights={"blend": 1.0},
+        blend_range=(6, 20),
+        param_variety=0.0,
+        denoise_range=(0.35, 0.50),
+        cfg_range=(4.5, 6.0),
+        steps_range=None,
+        weight_range=(0.9, 1.1),
+        use_weight_end=False,
+        spacing="uniform",
+        min_gap_ratio=0.3,
+    ),
+}
+
+
+def _generate_positions(
+    kf_count: int,
+    total_frames: int,
+    spacing: str,
+    min_gap: int,
+) -> list[int]:
+    """Generate *kf_count* keyframe positions within [0, total_frames-1]."""
+
+    if kf_count <= 1:
+        return [0]
+
+    last = total_frames - 1
+    if kf_count == 2:
+        return [0, last]
+
+    if spacing == "uniform":
+        step = last / (kf_count - 1)
+        positions = [round(i * step) for i in range(kf_count)]
+    elif spacing == "front_heavy":
+        # 60 % of kfs in first 40 % of frames
+        n_front = max(1, round(kf_count * 0.6))
+        n_back = kf_count - n_front
+        front_end = round(last * 0.4)
+        positions = [0]
+        if n_front > 1 and front_end > 0:
+            step = front_end / n_front
+            positions += [round(step * i) for i in range(1, n_front)]
+        if n_back > 0:
+            back_start = front_end + 1
+            back_step = (last - back_start) / max(1, n_back)
+            positions += [round(back_start + back_step * i) for i in range(n_back)]
+    elif spacing == "back_heavy":
+        n_back = max(1, round(kf_count * 0.6))
+        n_front = kf_count - n_back
+        split = round(last * 0.6)
+        positions = [0]
+        if n_front > 1 and split > 0:
+            step = split / n_front
+            positions += [round(step * i) for i in range(1, n_front)]
+        if n_back > 0:
+            back_start = split + 1
+            back_step = (last - back_start) / max(1, n_back)
+            positions += [round(back_start + back_step * i) for i in range(n_back)]
+    else:
+        # "random" — sample with min_gap enforcement
+        positions = [0]
+        candidates = list(range(min_gap, last + 1))
+        random.shuffle(candidates)
+        for c in candidates:
+            if all(abs(c - p) >= min_gap for p in positions):
+                positions.append(c)
+            if len(positions) >= kf_count:
+                break
+        # If not enough, fill uniformly in largest gaps
+        while len(positions) < kf_count:
+            positions.sort()
+            best_gap, best_idx = 0, 0
+            for i in range(len(positions) - 1):
+                gap = positions[i + 1] - positions[i]
+                if gap > best_gap:
+                    best_gap = gap
+                    best_idx = i
+            if best_gap < 2:
+                break
+            mid = (positions[best_idx] + positions[best_idx + 1]) // 2
+            positions.insert(best_idx + 1, mid)
+
+    positions.sort()
+    # Deduplicate and ensure frame 0
+    seen: set[int] = set()
+    unique: list[int] = []
+    for p in positions:
+        p = max(0, min(last, p))
+        if p not in seen:
+            seen.add(p)
+            unique.append(p)
+    if not unique or unique[0] != 0:
+        unique = [0] + [u for u in unique if u != 0]
+    return unique[:kf_count]
+
+
+def randomize_schedule(
+    total_frames: int,
+    fps: float,
+    profile: str,
+    prompt_gen: "PromptGenerator",
+    randomness: int = 10,
+    locked_fields: dict[str, str] | None = None,
+    base_prompt: str = "",
+) -> dict:
+    """Generate a complete random prompt schedule (structure + content).
+
+    Returns a dict ``{"keyframes": [...], "default_prompt": "..."}``
+    compatible with *build_prompt_schedule()*.
+    """
+    prof = _RANDOM_PROFILES.get(profile, _RANDOM_PROFILES["dynamic"])
+    randomness = max(0, min(20, randomness))
+    total_frames = max(1, total_frames)
+    fps = max(1.0, fps)
+    locked = dict(locked_fields) if locked_fields else {}
+
+    # ── Keyframe count ──
+    kf_min, kf_max = prof.kf_count
+    if randomness == 0:
+        kf_count = kf_min
+    else:
+        kf_count = kf_min + round((kf_max - kf_min) * randomness / 20)
+    kf_count = max(1, min(kf_count, total_frames))
+
+    # ── Min gap ──
+    avg_gap = total_frames / max(1, kf_count)
+    min_gap = max(2, int(avg_gap * prof.min_gap_ratio))
+
+    # ── Positions ──
+    positions = _generate_positions(kf_count, total_frames, prof.spacing, min_gap)
+    kf_count = len(positions)  # may shrink if dedup
+
+    # ── Transition types & weights for random.choices ──
+    tr_types = list(prof.transition_weights.keys())
+    tr_weights = [prof.transition_weights[t] for t in tr_types]
+
+    # ── Build keyframes ──
+    keyframes: list[dict] = []
+    for idx, frame in enumerate(positions):
+        kf: dict = {"frame": frame}
+
+        # Transition
+        if idx == 0:
+            kf["transition"] = "hard_cut"
+            kf["transition_frames"] = 0
+        else:
+            tr = random.choices(tr_types, weights=tr_weights, k=1)[0]
+            kf["transition"] = tr
+            if tr == "hard_cut":
+                kf["transition_frames"] = 0
+            else:
+                gap = frame - positions[idx - 1]
+                bl_min, bl_max = prof.blend_range
+                bl = random.randint(bl_min, bl_max)
+                kf["transition_frames"] = max(0, min(bl, gap - 1))
+
+        # Prompt
+        if randomness == 0:
+            kf["prompt"] = base_prompt
+            kf["negative_prompt"] = ""
+        else:
+            try:
+                prompt, negative, _ = prompt_gen.generate(
+                    locked=locked, randomness=randomness,
+                )
+                kf["prompt"] = prompt
+                kf["negative_prompt"] = negative
+            except Exception:
+                log.warning("randomize_schedule: prompt gen failed for frame %d", frame)
+                kf["prompt"] = base_prompt
+                kf["negative_prompt"] = ""
+
+        # Weight
+        w_lo, w_hi = prof.weight_range
+        weight = round(random.uniform(w_lo, w_hi), 2)
+        kf["weight"] = max(0.1, min(5.0, weight))
+
+        # Animated weight
+        if prof.use_weight_end and random.random() < 0.5:
+            we = round(random.uniform(w_lo, w_hi), 2)
+            kf["weight_end"] = max(0.1, min(5.0, we))
+
+        # Parameter overrides
+        if random.random() < prof.param_variety:
+            d_lo, d_hi = prof.denoise_range
+            kf["denoise_strength"] = round(random.uniform(d_lo, d_hi), 2)
+            c_lo, c_hi = prof.cfg_range
+            kf["cfg_scale"] = round(random.uniform(c_lo, c_hi), 1)
+            if prof.steps_range:
+                s_lo, s_hi = prof.steps_range
+                kf["steps"] = random.randint(s_lo, s_hi)
+
+        # Normalise: non-hard_cut with 0 blend frames is effectively hard_cut
+        if kf.get("transition_frames", 0) == 0 and kf["transition"] != "hard_cut":
+            kf["transition"] = "hard_cut"
+
+        keyframes.append(kf)
+
+    # ── Validate output ──
+    try:
+        sched = PromptSchedule.from_dict({
+            "keyframes": keyframes,
+            "default_prompt": base_prompt,
+        })
+        result = sched.validate(total_frames)
+        if not result.valid:
+            for err in result.errors:
+                log.warning("randomize_schedule post-validation fix: %s", err)
+            # Auto-fix: clamp transition_frames that exceed gaps
+            for i in range(1, len(keyframes)):
+                gap = keyframes[i]["frame"] - keyframes[i - 1]["frame"]
+                tf = keyframes[i].get("transition_frames", 0)
+                if tf >= gap:
+                    keyframes[i]["transition_frames"] = max(0, gap - 1)
+                # Normalise transition type after clamping
+                if keyframes[i].get("transition_frames", 0) == 0 and keyframes[i]["transition"] != "hard_cut":
+                    keyframes[i]["transition"] = "hard_cut"
+    except Exception:
+        pass  # best effort — structure was built to be valid
+
+    log.info(
+        "Randomized schedule: profile=%s, kf=%d, randomness=%d, frames=%d",
+        prof.name, len(keyframes), randomness, total_frames,
+    )
+    return {"keyframes": keyframes, "default_prompt": base_prompt}
+
+
+def schedule_to_dsl(keyframes: list[dict]) -> str:
+    """Convert a list of keyframe dicts to DSL text.
+
+    Output is compatible with both the Python ``dsl_parser`` and the
+    Lua ``sddj_dsl_parser``.
+    """
+    if not keyframes:
+        return ""
+    lines: list[str] = []
+    for kf in keyframes:
+        lines.append(f"[{kf.get('frame', 0)}]")
+        prompt = kf.get("prompt", "")
+        if prompt:
+            lines.append(prompt)
+        neg = kf.get("negative_prompt", "")
+        if neg:
+            lines.append(f"-- {neg}")
+        tr = kf.get("transition", "hard_cut")
+        if tr != "hard_cut":
+            lines.append(f"transition: {tr}")
+        tf = kf.get("transition_frames", 0)
+        if tf > 0:
+            lines.append(f"blend: {tf}")
+        w = kf.get("weight", 1.0)
+        we = kf.get("weight_end")
+        if we is not None:
+            lines.append(f"weight: {w:.2f}->{we:.2f}")
+        elif w is not None and abs(w - 1.0) > 0.005:
+            lines.append(f"weight: {w:.2f}")
+        ds = kf.get("denoise_strength")
+        if ds is not None:
+            lines.append(f"denoise: {ds:.2f}")
+        cfg = kf.get("cfg_scale")
+        if cfg is not None:
+            lines.append(f"cfg: {cfg:.1f}")
+        steps = kf.get("steps")
+        if steps is not None:
+            lines.append(f"steps: {steps}")
+        lines.append("")
+    return "\n".join(lines)

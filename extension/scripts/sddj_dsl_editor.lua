@@ -597,4 +597,110 @@ function PT.open_schedule_presets()
   pdlg:show{ autoscrollbars = true }
 end
 
+-- ─── Random Schedule Generator popup ────────────────────────
+
+local RANDOM_PROFILES = {
+  "gentle", "dynamic", "rhythmic", "cinematic", "dreamy", "chaos", "minimal",
+}
+
+local PROFILE_INFO = {
+  gentle    = { desc = "2-3 keyframes, smooth blends, subtle evolution",            kf = "2-3", trans = "blends" },
+  dynamic   = { desc = "3-5 keyframes, mixed transitions (default)",               kf = "3-5", trans = "mixed" },
+  rhythmic  = { desc = "4-6 keyframes, hard cuts, beat-sync style",                kf = "4-6", trans = "hard cuts" },
+  cinematic = { desc = "3-4 keyframes, ease curves, narrative arc, animated wts",  kf = "3-4", trans = "ease curves" },
+  dreamy    = { desc = "2-3 keyframes, long slerp blends, animated weights",       kf = "2-3", trans = "slerp" },
+  chaos     = { desc = "5-8 keyframes, all transitions, max variation",            kf = "5-8", trans = "all" },
+  minimal   = { desc = "2 keyframes, simple A-to-B blend",                         kf = "2",   trans = "blend" },
+}
+
+function PT.open_schedule_randomizer()
+  if not PT.dlg then return end
+  local d = PT.dlg.data
+  local last_profile = PT.schedule_last_profile or "dynamic"
+
+  local rdlg = Dialog{
+    title = "Random Prompt Schedule",
+    parent = PT.dlg,
+  }
+
+  rdlg:combobox{
+    id = "profile",
+    label = "Profile",
+    options = RANDOM_PROFILES,
+    option = last_profile,
+    onchange = function()
+      local sel = rdlg.data.profile
+      local info = PROFILE_INFO[sel] or {}
+      rdlg:modify{ id = "profile_desc", text = info.desc or "" }
+      rdlg:modify{ id = "preview", text = "Expected: ~" .. (info.kf or "?")
+        .. " keyframes, " .. (info.trans or "?") .. " transitions" }
+    end,
+  }
+
+  local init_info = PROFILE_INFO[last_profile] or PROFILE_INFO["dynamic"]
+  rdlg:label{ id = "profile_desc", text = init_info.desc }
+
+  rdlg:separator{ text = "Context" }
+
+  local rnd = d.randomness or 0
+  local rnd_names = { [0]="Off", [5]="Subtle", [10]="Moderate", [15]="Wild", [20]="Chaos" }
+  local rnd_label = rnd_names[rnd] or tostring(rnd)
+  rdlg:label{ text = "Randomness: " .. rnd .. " (" .. rnd_label .. ")" }
+
+  local lock_info = "Free subject (random)"
+  if d.lock_subject and d.fixed_subject and d.fixed_subject ~= "" then
+    lock_info = "Locked: " .. d.fixed_subject
+  end
+  rdlg:label{ text = "Subject: " .. lock_info }
+  rdlg:label{ text = "Total frames: " .. (d.anim_frames or 100) }
+
+  rdlg:separator{ text = "Preview" }
+  rdlg:label{ id = "preview", text = "Expected: ~" .. (init_info.kf or "?")
+    .. " keyframes, " .. (init_info.trans or "?") .. " transitions" }
+
+  rdlg:separator{}
+
+  local generated = false
+  rdlg:button{
+    id = "generate_btn",
+    text = "Generate Random Schedule",
+    focus = true,
+    onclick = function()
+      if generated then return end
+      generated = true
+      rdlg:modify{ id = "generate_btn", enabled = false }
+
+      local locked = PT.build_locked_fields()
+      local total_frames = d.anim_frames or 100
+      local fps = 24
+      if d.anim_duration and d.anim_duration > 0 then
+        fps = math.max(1, math.floor(1000 / d.anim_duration))
+      end
+
+      PT.schedule_last_profile = rdlg.data.profile
+
+      PT.send({
+        action           = "randomize_schedule",
+        schedule_profile = rdlg.data.profile,
+        total_frames     = total_frames,
+        fps              = fps,
+        randomness       = d.randomness or 10,
+        locked_fields    = next(locked) and locked or nil,
+        prompt           = d.prompt or "",
+      })
+
+      PT.update_status("Generating random schedule (" .. rdlg.data.profile .. ")...")
+      rdlg:close()
+    end,
+  }
+
+  rdlg:button{
+    id = "cancel_btn",
+    text = "Cancel",
+    onclick = function() rdlg:close() end,
+  }
+
+  rdlg:show{ autoscrollbars = true }
+end
+
 end

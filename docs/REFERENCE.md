@@ -179,6 +179,7 @@ All messages are JSON. Maximum 5 concurrent connections.
 | `list_prompt_schedules` / `get_prompt_schedule` | Prompt schedule preset lookup |
 | `save_prompt_schedule` / `delete_prompt_schedule` | Prompt schedule preset management |
 | `validate_dsl` | Validate DSL text → `validate_dsl_result` |
+| `randomize_schedule` | Generate random prompt schedule → `randomized_schedule` |
 
 ### Generate Request
 

@@ -449,6 +449,30 @@ local function build_tab_generate()
     end,
   }
   dlg:button{
+    id = "schedule_random_btn",
+    text = "Random",
+    onclick = function()
+      if not PT.state.connected then
+        app.alert("Connect to the server first.")
+        return
+      end
+      -- Confirm before replacing an existing schedule
+      local dsl = dlg.data.generate_prompt_schedule_dsl or ""
+      if dsl ~= "" and not dsl:match("^%s*$") then
+        if app.alert{
+          title = "Replace Schedule?",
+          text = "The current prompt schedule will be replaced.",
+          buttons = { "Replace", "Cancel" }
+        } ~= 1 then
+          return
+        end
+      end
+      if PT.open_schedule_randomizer then
+        PT.open_schedule_randomizer()
+      end
+    end,
+  }
+  dlg:button{
     id = "schedule_clear_btn",
     text = "Clear",
     onclick = function()
