@@ -59,6 +59,16 @@ def build_prompt_schedule(req) -> "PromptSchedule | None":
     return None
 
 
+_HUE_SHIFT_EPSILON = 1e-6
+_DENOISE_FLOOR = 0.01
+_MOTION_XY_THRESHOLD = 0.01
+_MOTION_ZOOM_THRESHOLD = 0.001
+_MOTION_TILT_THRESHOLD = 0.01
+_AUTO_NOISE_DENOISE_GATE = 0.35
+_AUTO_NOISE_CEILING = 0.9
+_AUTO_NOISE_SCALE = 0.1
+
+
 class GenerationCancelled(Exception):
     """Raised when a client cancels an in-progress generation."""
 
@@ -70,7 +80,7 @@ def _apply_hue_shift(image: Image.Image, shift: float) -> Image.Image:
     """
     if image.size[0] == 0 or image.size[1] == 0:
         return image
-    if abs(shift) < 1e-6:
+    if abs(shift) < _HUE_SHIFT_EPSILON:
         return image
     has_alpha = image.mode == "RGBA"
     alpha = image.split()[-1] if has_alpha else None
@@ -99,7 +109,7 @@ def scale_steps_for_denoise(steps: int, strength: float) -> int:
     """
     if strength >= 1.0:
         return steps
-    strength = max(strength, 0.01)  # safety floor
+    strength = max(strength, _DENOISE_FLOOR)  # safety floor
     scaled = math.ceil(steps / strength)
     # Cap scaling for distilled models (Hyper-SD)
     cap = settings.distilled_step_scale_cap
@@ -185,7 +195,7 @@ def apply_frame_motion(
     my = frame_params.get("motion_y", 0.0)
     mz = frame_params.get("motion_zoom", 1.0)
     mr = frame_params.get("motion_rotation", 0.0)
-    if abs(mx) > 0.01 or abs(my) > 0.01 or abs(mz - 1.0) > 0.001 or abs(mr) > 0.01:
+    if abs(mx) > _MOTION_XY_THRESHOLD or abs(my) > _MOTION_XY_THRESHOLD or abs(mz - 1.0) > _MOTION_ZOOM_THRESHOLD or abs(mr) > _MOTION_XY_THRESHOLD:
         image = apply_motion_warp(
             image, tx=mx, ty=my, zoom=mz, rotation=mr,
             denoise_strength=denoise_strength,
@@ -193,7 +203,7 @@ def apply_frame_motion(
 
     mtx = frame_params.get("motion_tilt_x", 0.0)
     mty = frame_params.get("motion_tilt_y", 0.0)
-    if abs(mtx) > 0.01 or abs(mty) > 0.01:
+    if abs(mtx) > _MOTION_TILT_THRESHOLD or abs(mty) > _MOTION_TILT_THRESHOLD:
         image = apply_perspective_tilt(
             image, tilt_x=mtx, tilt_y=mty,
             denoise_strength=denoise_strength,
@@ -215,8 +225,8 @@ def apply_noise_injection(
     """
     noise_amp = max(0.0, min(1.0, frame_params.get("noise_amplitude", 0.0)))
     if settings.auto_noise_coupling and "noise_amplitude" not in frame_params:
-        if denoise_strength >= 0.35:
-            noise_amp = max(0.0, (0.9 - denoise_strength) * 0.1)
+        if denoise_strength >= _AUTO_NOISE_DENOISE_GATE:
+            noise_amp = max(0.0, (_AUTO_NOISE_CEILING - denoise_strength) * _AUTO_NOISE_SCALE)
         else:
             noise_amp = 0.0
     if noise_amp > 0:

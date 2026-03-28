@@ -199,7 +199,8 @@ class AudioReactiveMixin:
     ) -> int:
         """Audio-reactive chain animation — uses eager_pipeline context manager."""
         with eager_pipeline(self._pipe, self._img2img_pipe,
-                            self._controlnet_pipe, self._deepcache_helper):
+                            self._controlnet_pipe, self._deepcache_helper,
+                            self._controlnet_img2img_pipe):
             return self._generate_audio_chain_inner(req, schedule, on_frame, on_progress, audio_fps)
 
     @torch.compiler.disable

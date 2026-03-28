@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
-from .validation import validate_resource_name as _validate_name
+from .validation import validate_resource_name as _validate_name, validate_path_in_sandbox
 
 
 _DEFAULT_EXTENSIONS = frozenset({".safetensors", ".bin", ".pt"})
@@ -50,8 +50,7 @@ class ResourceManager:
             candidate = d / f"{name}{ext}"
             if candidate.is_file():
                 resolved = candidate.resolve()
-                if not str(resolved).startswith(str(d.resolve())):
-                    raise ValueError(f"{self._kind} path escapes directory: {resolved}")
+                validate_path_in_sandbox(resolved, d)
                 return resolved
         raise FileNotFoundError(
             f"{self._kind} '{name}' not found in {d}. "

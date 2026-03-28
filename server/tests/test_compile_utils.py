@@ -84,3 +84,20 @@ def test_eager_pipeline_none_controlnet(mock_components):
         with eager_pipeline(pipe, img2img, None, dc):
             assert pipe.unet is raw_unet
 
+
+def test_eager_pipeline_controlnet_img2img(mock_components):
+    """controlnet_img2img_pipe also gets raw UNet swapped."""
+    pipe, img2img, cn, dc, raw_unet, compiled_unet = mock_components
+    cn_i2i = MagicMock(name="controlnet_img2img_pipe")
+
+    from sddj.engine.compile_utils import eager_pipeline
+    with patch("sddj.engine.compile_utils.deepcache_manager.suspended") as mock_suspended:
+        mock_suspended.return_value.__enter__ = MagicMock()
+        mock_suspended.return_value.__exit__ = MagicMock(return_value=False)
+
+        with eager_pipeline(pipe, img2img, cn, dc, controlnet_img2img_pipe=cn_i2i):
+            assert cn_i2i.unet is raw_unet
+
+    # Restored after exit
+    assert cn_i2i.unet is compiled_unet
+

@@ -568,8 +568,13 @@ class PromptGenerator:
             else:
                 template = self._default_template
 
-        # Security: reject attribute/index access patterns
-        if re.search(r"\{[^}]*[.\[\]]", template):
+        # Security: reject attribute/index access, excessively long templates,
+        # and format spec abuse (e.g. {foo!r}, {foo:>100})
+        _MAX_TEMPLATE_LEN = 2000
+        if len(template) > _MAX_TEMPLATE_LEN:
+            log.warning("Template too long (%d chars), using default", len(template))
+            template = self._default_template
+        if re.search(r"\{[^}]*[.\[\]!:]", template):
             log.warning("Template rejected (unsafe pattern): %s", template[:80])
             template = self._default_template
 

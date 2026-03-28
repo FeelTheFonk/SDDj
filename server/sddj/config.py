@@ -177,6 +177,15 @@ class Settings(BaseSettings):
             ckpt = _SERVER_ROOT / ckpt
         if not ckpt.exists():
             log.warning("CRITICAL: default_checkpoint not found: %s", ckpt)
+        # Cross-validation: mutually exclusive / incompatible settings
+        if self.enable_cpu_offload and self.enable_deepcache:
+            log.warning("cpu_offload + deepcache are mutually exclusive — disabling DeepCache")
+            object.__setattr__(self, 'enable_deepcache', False)
+        if self.compile_dynamic and self.enable_deepcache:
+            log.warning("compile_dynamic=True is incompatible with DeepCache — forcing compile_dynamic=False")
+            object.__setattr__(self, 'compile_dynamic', False)
+        if self.enable_torch_compile and not self.enable_lora_hotswap:
+            log.warning("torch_compile without lora_hotswap: LoRA switches will trigger full recompilation (~20s)")
         return self
 
 

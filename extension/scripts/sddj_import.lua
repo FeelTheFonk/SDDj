@@ -169,6 +169,9 @@ function PT.import_animation_frame(resp)
   local img, decoded_bytes = _decode_to_image(resp)
   resp._decoded_bytes = decoded_bytes
 
+  -- Re-check cancel after decode (may have been set during file I/O yield)
+  if PT.state.cancel_pending then return end
+
   if not img then
     PT.anim.decode_failures = PT.anim.decode_failures + 1
     PT.update_status("Frame " .. (resp.frame_index + 1) .. " decode failed ("

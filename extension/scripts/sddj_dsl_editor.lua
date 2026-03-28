@@ -195,9 +195,13 @@ function PT.open_schedule_editor()
   local fps = 24
 
   local kfs = dsl_to_keyframes(dsl_text, total_frames, fps)
-  local kf_count = #kfs
-  -- Cap at 8 keyframes in the editor for sanity
-  if kf_count > 8 then kf_count = 8 end
+  local kf_count_raw = #kfs
+  local kf_count = kf_count_raw
+  local truncated = false
+  if kf_count > 8 then
+    kf_count = 8
+    truncated = true
+  end
 
   -- Build the editor dialog
   local edlg = Dialog{
@@ -207,6 +211,10 @@ function PT.open_schedule_editor()
 
   edlg:label{ text = "Define keyframes for your animation prompt schedule." }
   edlg:label{ text = "Keyframes are ordered by frame number." }
+
+  if truncated then
+    edlg:label{ text = string.format("⚠ Showing 8 of %d keyframes (edit raw DSL for the rest)", kf_count_raw) }
+  end
 
   -- Populate keyframe sections
   for i = 1, kf_count do
@@ -251,54 +259,6 @@ function PT.open_schedule_editor()
     end,
   }
 
-  -- Import raw DSL button
-  edlg:separator{ text = "Import / Export" }
-  edlg:button{
-    id = "import_dsl_btn",
-    text = "Import from File...",
-    onclick = function()
-      local ok, path = pcall(app.fs.fileDialog, {
-        title = "Import DSL File",
-        open = true,
-        filetypes = { "txt" },
-      })
-      if not ok or not path or path == "" then return end
-      local fh = io.open(path, "r")
-      if not fh then
-        app.alert("Cannot open file: " .. path)
-        return
-      end
-      local content = fh:read("*a")
-      fh:close()
-      edlg:close()
-      PT.dlg:modify{ id = "generate_prompt_schedule_dsl", text = content }
-      PT.update_schedule_state(content)
-      PT.open_schedule_editor()
-    end,
-  }
-  edlg:button{
-    id = "export_dsl_btn",
-    text = "Export to File...",
-    onclick = function()
-      local cur = read_keyframes_from_dialog(edlg, kf_count)
-      local dsl = keyframes_to_dsl(cur)
-      local ok, path = pcall(app.fs.fileDialog, {
-        title = "Export DSL File",
-        save = true,
-        filetypes = { "txt" },
-      })
-      if not ok or not path or path == "" then return end
-      local fh = io.open(path, "w")
-      if not fh then
-        app.alert("Cannot write to: " .. path)
-        return
-      end
-      fh:write(dsl)
-      fh:close()
-      app.alert("Schedule exported to:\n" .. path)
-    end,
-  }
-
   -- Apply / Cancel
   edlg:separator{}
   edlg:button{
@@ -321,7 +281,7 @@ function PT.open_schedule_editor()
     end,
   }
 
-  edlg:show()
+  edlg:show{ autoscrollbars = true }
 end
 
 -- ─── Schedule state management ───────────────────────────────
@@ -409,6 +369,9 @@ function PT.paint_schedule_timeline(ev)
   local gc = ev.context
   local w = gc.width
   local h = gc.height
+  -- Cache canvas dimensions for click handler (ev.context is only in onpaint)
+  PT.schedule_timeline_width = w
+  PT.schedule_timeline_height = h
   local sd = PT.schedule_data
   local kfs = sd.keyframes
   local total = sd.total_frames or 100
@@ -495,7 +458,7 @@ end
 -- ─── Timeline click handler ──────────────────────────────────
 
 function PT.on_timeline_click(ev)
-  local w = ev.context and ev.context.width or 300
+  local w = PT.schedule_timeline_width or 300
   local sd = PT.schedule_data
   local kfs = sd.keyframes
   local total = sd.total_frames or 100
@@ -631,7 +594,7 @@ function PT.open_schedule_presets()
     PT.send({ action = "list_prompt_schedules" })
   end
 
-  pdlg:show()
+  pdlg:show{ autoscrollbars = true }
 end
 
 end

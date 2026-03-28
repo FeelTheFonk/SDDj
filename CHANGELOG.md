@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.9.67] — 2026-03
+### CUDA Hotswap Fix, Systemic Hardening & Edge-Case Lockdown
+Comprehensive 11-phase remediation: critical bug fix, security hardening, performance optimization, and cross-stack alignment.
+
+#### Fixed
+- **CUDA LoRA Hotswap Crash**: Fixed "Expected all tensors on same device" error when switching LoRA. Root cause: `load_state_dict(assign=True)` on torch.compile's OptimizedModule replaced tensor references the Dynamo graph still held. Fix: operate on raw UNet via `_get_raw_module()`, snapshot/restore both UNet AND text_encoder, post-restore device validation with `dynamo.reset()` fallback.
+- **Eager Pipeline Missing Pipe**: `eager_pipeline()` now swaps UNet on all 4 pipelines including `controlnet_img2img_pipe` (was missing).
+- **Animation Frame 0 Parameter Consistency**: Inpaint and ControlNet frame 0 now use `blend_embeds` (SLERP transitions), `frame_cfg`, `frame_steps`, and `frame_denoise` from prompt schedule keyframe overrides instead of hardcoded `req.*` values. TXT2IMG and ControlNet use `frame_steps_full` (unscaled) for correct step counts.
+- **Thread Safety**: `vram_utils._last_gc` now protected by `threading.Lock` to prevent race conditions.
+- **Path Traversal Security**: `validate_path_in_sandbox()` with `Path.is_relative_to()` + symlink rejection replaces unsafe `str.startswith()` checks in `resource_manager.py` and `dsl_parser.py`.
+- **Template Injection**: Expanded unsafe pattern regex to block `!` and `:` format specs + 2000-char length limit in `prompt_generator.py`.
+- **FreeU Error Handling**: `enable_freeu()` wrapped in try/except with log.warning fallback.
+- **Config Cross-Validation**: `cpu_offload + deepcache` mutual exclusion, `compile_dynamic + deepcache` incompatibility auto-fix, `torch_compile` without `lora_hotswap` performance warning.
+- **URL Validation**: WebSocket connect now validates URL scheme before attempting connection.
+- **Settings Atomic Write**: `save_settings()` writes to `.tmp` then renames to prevent corruption on crash.
+- **Unknown Response Handler**: Server responses with unknown types now logged instead of silently dropped (both direct dispatch and queue drain paths).
+- **Output Directory Check**: `save_animation_frame()` verifies `makeDirectory()` success before writing frames.
+- **`.env.example` Alignment**: Fixed wrong variable names (`SDDJ_COMPILE_UNET` → `SDDJ_ENABLE_TORCH_COMPILE`, `SDDJ_FREEU_ENABLED` → `SDDJ_ENABLE_FREEU`) and corrected FreeU v2 default values (B1=1.5, B2=1.6).
+
+#### Improved
+- **Prompt Schedule Performance**: O(n) linear keyframe search replaced with O(log n) `bisect.bisect_right()`.
+- **Named Constants**: Motion thresholds, denoise floor, hue shift epsilon, and auto-noise parameters extracted from magic numbers into module-level constants in `helpers.py`.
+- **Cancel Guard**: `import_animation_frame` re-checks `cancel_pending` after decode (belt-and-suspenders against file I/O yield).
+
+#### Documentation
+- **GUIDE.md**: Timeout troubleshooting now specifies both server (600s) and client (660s) defaults.
+- **AUDIO.md**: Added default parameters table (FPS=24, Steps=8, CFG=5.0, Denoise=0.50).
+- **README.md**: Version number synchronized.
+
+#### Tests
+- `test_lora_fuser.py`: Added `_get_raw_module` unwrap/passthrough, text_encoder snapshot, dual-module restore tests.
+- `test_compile_utils.py`: Added `controlnet_img2img_pipe` swap and restore test.
+- `test_validation.py`: Added `validate_path_in_sandbox` tests (traversal, symlink escape, valid paths).
+- **561 tests passing, 0 failures.**
+
 ## [0.9.65] — 2026-03
 ### Absolute Rigor & Empty Input Defenses
 Total lockdown of the DSL parser edge cases and Aseprite widget pass-through bugs.

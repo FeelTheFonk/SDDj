@@ -13,9 +13,12 @@ def apply_freeu(pipe) -> None:
     """Apply FreeU v2 to any diffusers pipeline if enabled in settings."""
     if not settings.enable_freeu:
         return
-    pipe.enable_freeu(
-        s1=settings.freeu_s1,
-        s2=settings.freeu_s2,
-        b1=settings.freeu_b1,
-        b2=settings.freeu_b2,
-    )
+    try:
+        pipe.enable_freeu(
+            s1=settings.freeu_s1,
+            s2=settings.freeu_s2,
+            b1=settings.freeu_b1,
+            b2=settings.freeu_b2,
+        )
+    except Exception as e:
+        log.warning("FreeU v2 unavailable for %s: %s", type(pipe).__name__, e)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import threading
 import time
 from typing import Optional
 
@@ -18,6 +19,7 @@ import torch.nn as nn
 log = logging.getLogger("sddj.vram")
 
 _last_gc: float = 0.0
+_gc_lock = threading.Lock()
 _GC_COOLDOWN: float = 2.0  # Minimum seconds between gc.collect() calls
 
 
@@ -27,12 +29,16 @@ def vram_cleanup(force: bool = False) -> None:
     By default, gc.collect() is throttled to at most once per _GC_COOLDOWN
     seconds to avoid 50-200ms stalls in hot paths.  Pass force=True for
     genuine cleanup scenarios (model unload, OOM recovery).
+
+    Thread-safe: protects _last_gc with a lock to prevent concurrent
+    calls from skipping GC due to stale reads.
     """
     global _last_gc
     now = time.monotonic()
-    if force or (now - _last_gc) > _GC_COOLDOWN:
-        gc.collect()
-        _last_gc = now
+    with _gc_lock:
+        if force or (now - _last_gc) > _GC_COOLDOWN:
+            gc.collect()
+            _last_gc = time.monotonic()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 

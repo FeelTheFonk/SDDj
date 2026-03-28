@@ -37,6 +37,16 @@ graph TD
 
 The Audio tab has its own dedicated **Steps**, **CFG**, and **Strength** sliders. Supports all generation modes (txt2img, img2img, inpaint, ControlNet) and both animation methods.
 
+### Default Parameters
+
+| Parameter | Default | Range |
+|-----------|---------|-------|
+| FPS | 24 | 1–60 |
+| Steps | 8 | 1–50 |
+| CFG | 5.0 | 0.0–30.0 |
+| Denoise Strength | 0.50 | 0.00–1.00 |
+| Max Frames | 0 (all) | 0–9999 |
+
 ---
 
 ## Analysis

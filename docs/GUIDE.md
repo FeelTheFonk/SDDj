@@ -162,7 +162,7 @@ The actual seed used is shown in the status bar after generation and in the laye
 |---------|----------|
 | Black image | Check prompt. Try a simple test: `a red dragon, fantasy art` |
 | Blurry / not pixelated | Enable Pixelate in Post-Process (target 64–128). For non-pixel-art, increase Steps |
-| Generation timed out | Increase `SDDJ_GENERATION_TIMEOUT` or reduce steps/resolution |
+| Generation timed out | Increase `SDDJ_GENERATION_TIMEOUT` (default 600s server-side, 660s client-side) or reduce steps/resolution |
 | Wrong colors | Try palette enforcement (CIELAB) or adjust `quantize_colors` |
 
 ### Prompt Scheduling (Timeline DSL)

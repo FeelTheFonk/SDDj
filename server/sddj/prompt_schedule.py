@@ -11,6 +11,7 @@ even/odd frame alternation which caused visual flicker.
 
 from __future__ import annotations
 
+import bisect
 import logging
 import math
 from dataclasses import dataclass, field
@@ -256,12 +257,10 @@ class PromptSchedule:
             )
 
         # Find active keyframe (last kf where kf.frame <= frame_idx)
-        active_idx = -1
-        for i, kf in enumerate(self.keyframes):
-            if kf.frame <= frame_idx:
-                active_idx = i
-            else:
-                break
+        # O(log n) via bisect instead of linear scan
+        frames = [kf.frame for kf in self.keyframes]
+        pos = bisect.bisect_right(frames, frame_idx)
+        active_idx = pos - 1
 
         if active_idx < 0:
             return PromptBlendInfo(

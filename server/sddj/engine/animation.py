@@ -103,7 +103,8 @@ class AnimationMixin:
         compiled — dynamo has no guards for it.
         """
         with eager_pipeline(self._pipe, self._img2img_pipe,
-                            self._controlnet_pipe, self._deepcache_helper):
+                            self._controlnet_pipe, self._deepcache_helper,
+                            self._controlnet_img2img_pipe):
             return self._generate_chain_inner(req, on_frame, on_progress)
 
     @torch.compiler.disable
@@ -195,6 +196,7 @@ class AnimationMixin:
                 frame_denoise = chain_denoise
                 frame_cfg = req.cfg_scale
                 frame_steps = chain_scaled_steps
+                frame_steps_full = req.steps  # unscaled (for txt2img/controlnet that don't use denoise)
                 if schedule and schedule.keyframes:
                     blend_info = schedule.get_blend_info_for_frame(frame_idx)
                     frame_prompt = blend_info.effective_prompt or frame_prompt
@@ -234,11 +236,12 @@ class AnimationMixin:
                         frame_cfg = blend_info.cfg_scale
                     if blend_info.steps is not None:
                         frame_steps = scale_steps_for_denoise(blend_info.steps, frame_denoise)
+                        frame_steps_full = blend_info.steps
 
                 if frame_idx == 0:
                     if req.mode == GenerationMode.TXT2IMG:
                         gen_kwargs = dict(
-                            num_inference_steps=req.steps,
+                            num_inference_steps=frame_steps_full,
                             guidance_scale=frame_cfg,
                             width=target_w,
                             height=target_h,
@@ -277,36 +280,46 @@ class AnimationMixin:
                     elif req.mode == GenerationMode.INPAINT:
                         if _source_img is None or _mask_img is None:
                             raise ValueError("inpaint requires source_image and mask_image")
-                        inpainted = self._img2img_pipe(
-                            prompt=frame_prompt,
-                            negative_prompt=frame_neg,
+                        inp_kwargs = dict(
                             image=_source_img,
-                            num_inference_steps=chain_scaled_steps,
-                            guidance_scale=req.cfg_scale,
-                            strength=chain_denoise,
+                            num_inference_steps=frame_steps,
+                            guidance_scale=frame_cfg,
+                            strength=frame_denoise,
                             generator=generator,
                             clip_skip=req.clip_skip,
                             callback_on_step_end=step_callback,
                             output_type="pil",
-                        ).images[0]
+                        )
+                        if blend_embeds is not None:
+                            inp_kwargs["prompt_embeds"] = blend_embeds[0]
+                            inp_kwargs["negative_prompt_embeds"] = blend_embeds[1]
+                        else:
+                            inp_kwargs["prompt"] = frame_prompt
+                            inp_kwargs["negative_prompt"] = frame_neg
+                        inpainted = self._img2img_pipe(**inp_kwargs).images[0]
                         image = composite_with_mask(_source_img, inpainted, _mask_img)
                     elif req.mode.value.startswith("controlnet_"):
                         if _control_img is None:
                             raise ValueError("controlnet requires control_image")
                         self._ensure_controlnet(req.mode)
-                        image = self._controlnet_pipe(
-                            prompt=frame_prompt,
-                            negative_prompt=frame_neg,
+                        cn_f0_kwargs = dict(
                             image=_control_img,
-                            num_inference_steps=req.steps,
-                            guidance_scale=req.cfg_scale,
+                            num_inference_steps=frame_steps_full,
+                            guidance_scale=frame_cfg,
                             width=target_w,
                             height=target_h,
                             generator=generator,
                             clip_skip=req.clip_skip,
                             callback_on_step_end=step_callback,
                             output_type="pil",
-                        ).images[0]
+                        )
+                        if blend_embeds is not None:
+                            cn_f0_kwargs["prompt_embeds"] = blend_embeds[0]
+                            cn_f0_kwargs["negative_prompt_embeds"] = blend_embeds[1]
+                        else:
+                            cn_f0_kwargs["prompt"] = frame_prompt
+                            cn_f0_kwargs["negative_prompt"] = frame_neg
+                        image = self._controlnet_pipe(**cn_f0_kwargs).images[0]
                     else:
                         raise ValueError(f"Unknown mode: {req.mode}")
                 else:

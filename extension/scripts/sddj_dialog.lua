@@ -409,6 +409,9 @@ local function build_tab_generate()
     hexpand = true,
     vexpand = false,
     onpaint = function(ev)
+      -- Cache canvas width for click handler (ev.context only in onpaint)
+      PT.schedule_timeline_width = ev.context.width
+      PT.schedule_timeline_height = ev.context.height
       if PT.paint_schedule_timeline then
         PT.paint_schedule_timeline(ev)
       end
@@ -446,54 +449,11 @@ local function build_tab_generate()
     end,
   }
   dlg:button{
-    id = "schedule_validate_btn",
-    text = "Validate",
-    onclick = function()
-      if PT.state and PT.state.connected then
-        local dsl = dlg.data.generate_prompt_schedule_dsl or ""
-        if dsl ~= "" then
-          PT.send({
-            action = "validate_dsl",
-            dsl_text = dsl,
-            total_frames = dlg.data.anim_frames or 100,
-            fps = 24,
-          })
-          PT.update_status("Validating DSL...")
-        else
-          PT.update_schedule_status()
-        end
-      else
-        -- Local-only validation
-        PT.update_schedule_state(dlg.data.generate_prompt_schedule_dsl)
-      end
-    end,
-  }
-  dlg:button{
     id = "schedule_clear_btn",
     text = "Clear",
     onclick = function()
       dlg:modify{ id = "generate_prompt_schedule_dsl", text = "" }
       PT.update_schedule_state("")
-    end,
-  }
-
-  -- File picker for importing DSL from file (power users)
-  dlg:file{
-    id = "generate_prompt_schedule_file",
-    label = "Load File",
-    filetypes = { "txt" },
-    open = true,
-    onchange = function()
-      local path = dlg.data.generate_prompt_schedule_file or ""
-      if path ~= "" then
-        local fh = io.open(path, "r")
-        if fh then
-          local content = fh:read("*a")
-          fh:close()
-          dlg:modify{ id = "generate_prompt_schedule_dsl", text = content }
-          PT.update_schedule_state(content)
-        end
-      end
     end,
   }
 end

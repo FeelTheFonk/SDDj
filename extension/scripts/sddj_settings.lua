@@ -112,11 +112,20 @@ function PT.save_settings()
   s.qr_cfg                = d.qr_cfg
   local ok, encoded = pcall(PT.json.encode, s)
   if not ok then return end
-  local f, ferr = io.open(PT.cfg.SETTINGS_FILE, "w")
+  -- Atomic write: write to .tmp then rename to avoid corruption on crash
+  local tmp_path = PT.cfg.SETTINGS_FILE .. ".tmp"
+  local f, ferr = io.open(tmp_path, "w")
   if f then
     local wok, werr = pcall(function() f:write(encoded); f:close() end)
     if not wok then
       PT.update_status("Settings save error: " .. tostring(werr))
+      pcall(os.remove, tmp_path)
+      return
+    end
+    local rok, rerr = os.rename(tmp_path, PT.cfg.SETTINGS_FILE)
+    if not rok then
+      PT.update_status("Settings rename error: " .. tostring(rerr))
+      pcall(os.remove, tmp_path)
     end
   else
     PT.update_status("Cannot save settings: " .. tostring(ferr))

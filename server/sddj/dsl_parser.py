@@ -447,13 +447,20 @@ def _resolve_file_ref(
 
     resolved = (base_dir / file_path).resolve()
 
-    # Verify resolved path is within base_dir
-    try:
-        resolved.relative_to(base_dir.resolve())
-    except ValueError:
+    # Verify resolved path is within base_dir (symlink-safe)
+    sandbox_resolved = base_dir.resolve()
+    if not resolved.is_relative_to(sandbox_resolved):
         errors.append(ValidationError(
             1, None, "E010",
             f"Path escapes sandbox: {file_path!r}",
+        ))
+        return None
+    # Reject symlinks that could bypass audits
+    candidate = base_dir / file_path
+    if candidate.is_symlink() and not candidate.resolve().is_relative_to(sandbox_resolved):
+        errors.append(ValidationError(
+            1, None, "E010",
+            f"Symlink target escapes sandbox: {file_path!r}",
         ))
         return None
 

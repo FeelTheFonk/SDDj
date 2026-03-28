@@ -17,7 +17,8 @@ log = logging.getLogger("sddj.engine.compile")
 
 
 @contextmanager
-def eager_pipeline(pipe, img2img_pipe, controlnet_pipe, deepcache_helper):
+def eager_pipeline(pipe, img2img_pipe, controlnet_pipe, deepcache_helper,
+                   controlnet_img2img_pipe=None):
     """Run a block with raw (uncompiled) UNet and DeepCache suspended.
 
     On enter:
@@ -40,6 +41,8 @@ def eager_pipeline(pipe, img2img_pipe, controlnet_pipe, deepcache_helper):
         img2img_pipe.unet = raw_unet
         if controlnet_pipe is not None:
             controlnet_pipe.unet = raw_unet
+        if controlnet_img2img_pipe is not None:
+            controlnet_img2img_pipe.unet = raw_unet
         try:
             yield
         finally:
@@ -48,3 +51,5 @@ def eager_pipeline(pipe, img2img_pipe, controlnet_pipe, deepcache_helper):
             img2img_pipe.unet = compiled_unet
             if controlnet_pipe is not None:
                 controlnet_pipe.unet = compiled_unet
+            if controlnet_img2img_pipe is not None:
+                controlnet_img2img_pipe.unet = compiled_unet

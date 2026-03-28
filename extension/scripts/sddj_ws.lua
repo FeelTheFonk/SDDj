@@ -148,10 +148,16 @@ end
 
 function PT.connect()
   PT.reconnect.manual_disconnect = false
+  -- Validate URL before connecting (basic scheme check — allows paths, ports, IPs)
+  local url = PT.cfg.DEFAULT_SERVER_URL or ""
+  if not url:match("^wss?://[%w%.%-_]+") then
+    PT.update_status("Invalid server URL: " .. url)
+    return
+  end
   if PT.ws_handle then pcall(function() PT.ws_handle:close() end); PT.ws_handle = nil end
   PT.update_status("Connecting...")
   PT.ws_handle = WebSocket{
-    url = PT.cfg.DEFAULT_SERVER_URL,
+    url = url,
     onreceive = function(msg_type, data)
       if msg_type == WebSocketMessageType.OPEN then
         PT.stop_connect_timer()

@@ -4,9 +4,16 @@ When enable_lora_hotswap is active (diffusers SOTA 2025), LoRA swaps bypass
 torch.compile recompilation entirely — no dynamo.reset() needed.
 Falls back to dynamo.reset() when hotswap unavailable.
 
-Weight snapshot: stores original UNet weights (CPU, ~1.7GB for SD1.5) before
+Weight snapshot: stores original UNet + text_encoder weights (CPU) before
 the first style LoRA fuse.  On unfuse, restores from snapshot instead of
 unfuse_lora() to prevent numerical drift after N fuse/unfuse cycles.
+
+CRITICAL FIX (v0.9.67): restore operates on the RAW (uncompiled) UNet to
+avoid device mismatch with torch.compile's OptimizedModule.  assign=True
+on an OptimizedModule replaces tensor references that the Dynamo graph
+still points to — the compiled graph then reads stale CPU addresses while
+new CUDA tensors are created by .to(device), causing
+"Expected all tensors to be on the same device" errors.
 """
 
 from __future__ import annotations
@@ -27,6 +34,18 @@ log = logging.getLogger("sddj.lora_fuser")
 _adapter_counter = itertools.count(1)
 
 
+def _get_raw_module(module):
+    """Unwrap torch.compile OptimizedModule to get the raw nn.Module.
+
+    load_state_dict(assign=True) must target the raw module — otherwise
+    it replaces tensor refs that the compiled graph still holds, causing
+    device mismatch on the next forward pass.
+    """
+    if hasattr(module, "_orig_mod"):
+        return module._orig_mod
+    return module
+
+
 class LoRAFuser:
     """Manages style LoRA fusing into pipeline weights."""
 
@@ -34,30 +53,70 @@ class LoRAFuser:
         self.current_name: Optional[str] = None
         self.current_weight: float = 0.0
         self._original_unet_state: Optional[dict] = None
+        self._original_te_state: Optional[dict] = None
 
     def _ensure_snapshot(self, pipe) -> None:
-        """Snapshot UNet weights to CPU before the first style LoRA fuse."""
+        """Snapshot UNet + text_encoder weights to CPU before the first style LoRA fuse.
+
+        Both are captured because fuse_lora() merges adapter weights into
+        BOTH the UNet and text_encoder.  Without a text_encoder snapshot,
+        successive LoRA switches accumulate fused weights in the encoder,
+        causing semantic drift.
+        """
         if self._original_unet_state is None:
+            raw_unet = _get_raw_module(pipe.unet)
             self._original_unet_state = {
-                k: v.cpu().clone() for k, v in pipe.unet.state_dict().items()
+                k: v.cpu().clone() for k, v in raw_unet.state_dict().items()
             }
             log.info("UNet weight snapshot captured (CPU)")
+        if self._original_te_state is None and hasattr(pipe, "text_encoder") and pipe.text_encoder is not None:
+            raw_te = _get_raw_module(pipe.text_encoder)
+            self._original_te_state = {
+                k: v.cpu().clone() for k, v in raw_te.state_dict().items()
+            }
+            log.info("Text encoder weight snapshot captured (CPU)")
 
     def _restore_weights(self, pipe) -> None:
-        """Restore UNet to exact original weights from CPU snapshot.
+        """Restore UNet + text_encoder to exact original weights from CPU snapshot.
 
-        Uses assign=True to avoid ~1.7GB temporary VRAM spike — tensors are
-        swapped in-place rather than copied through an intermediate buffer.
-        Requires torch>=2.4.
+        CRITICAL: operates on the RAW (uncompiled) module to avoid breaking
+        torch.compile's Dynamo graph tensor references.  assign=True replaces
+        parameter tensor objects — doing this on an OptimizedModule causes the
+        compiled graph to read freed/stale CPU tensor addresses while new CUDA
+        tensors are created by .to(device).
 
-        CRITICAL: assign=True *replaces* parameter tensor references with the
-        CPU copies from the snapshot.  The UNet ends up on CPU after this call.
-        We must move it back to the pipeline device before any further use.
+        After restore, validates that ALL parameters are on the expected device.
+        Falls back to dynamo.reset() if any mismatch is detected.
         """
         if self._original_unet_state is not None:
-            device = next(pipe.unet.parameters()).device
-            pipe.unet.load_state_dict(self._original_unet_state, assign=True)
-            pipe.unet.to(device)
+            raw_unet = _get_raw_module(pipe.unet)
+            device = next(raw_unet.parameters()).device
+            raw_unet.load_state_dict(self._original_unet_state, assign=True)
+            raw_unet.to(device)
+            # Validate: all params must be on the same device after restore
+            mismatched = [
+                k for k, p in raw_unet.named_parameters()
+                if p.device != device
+            ]
+            if mismatched:
+                log.warning(
+                    "Device mismatch after UNet restore (%d params on wrong device), "
+                    "forcing dynamo reset: %s",
+                    len(mismatched), mismatched[:3],
+                )
+                try:
+                    torch._dynamo.reset()
+                except Exception:
+                    pass
+            else:
+                log.debug("UNet weights restored, all params on %s", device)
+
+        if self._original_te_state is not None and hasattr(pipe, "text_encoder") and pipe.text_encoder is not None:
+            raw_te = _get_raw_module(pipe.text_encoder)
+            te_device = next(raw_te.parameters()).device
+            raw_te.load_state_dict(self._original_te_state, assign=True)
+            raw_te.to(te_device)
+            log.debug("Text encoder weights restored to %s", te_device)
 
     def _needs_dynamo_reset(self) -> bool:
         """Return True if dynamo.reset() is needed after LoRA change."""
@@ -100,7 +159,7 @@ class LoRAFuser:
                 log.info("Dynamo cache reset after LoRA removal")
             return
 
-        # Capture pre-fuse UNet weights (once, before first style LoRA)
+        # Capture pre-fuse weights (once, before first style LoRA)
         self._ensure_snapshot(pipe)
 
         path = resolve_lora_path(name)

@@ -106,18 +106,6 @@ function PT.extract_prompt_schedule(total_frames, fps)
   if not PT.dlg then return nil end
   local d = PT.dlg.data
   local dsl_text = d.generate_prompt_schedule_dsl or ""
-  local file_path = d.generate_prompt_schedule_file or ""
-  if type(file_path) == "string" then file_path = file_path:match("^%s*(.-)%s*$") or "" end
-  
-  if file_path ~= "" then
-    if app and app.fs and app.fs.isFile then
-      if app.fs.isFile(file_path) then
-        dsl_text = "file: " .. file_path
-      end
-    else
-      dsl_text = "file: " .. file_path
-    end
-  end
   
   -- Zéro plantage : on omet totalement le payload si vide
   if type(dsl_text) ~= "string" or dsl_text:match("^%s*$") then return nil end

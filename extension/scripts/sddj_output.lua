@@ -122,7 +122,11 @@ function PT.save_animation_frame(resp)
       _output_counter = _output_counter + 1
       local folder_name = time_str .. "_" .. string.format("%04d", _output_counter) .. "_" .. action_prefix .. "_" .. tag
       PT.anim.output_dir = app.fs.joinPath(date_dir, folder_name)
-      app.fs.makeDirectory(PT.anim.output_dir)
+      if not app.fs.makeDirectory(PT.anim.output_dir) then
+        PT.update_status("Cannot create output dir: " .. folder_name)
+        PT.anim.output_dir = nil
+        return
+      end
       PT.anim.output_count = 0
     end
 

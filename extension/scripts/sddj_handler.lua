@@ -1096,7 +1096,11 @@ local function _drain_next()
     _processing = true
     local ok, err = pcall(function()
       local handler = handlers[queued.type]
-      if handler then handler(queued) end
+      if handler then
+        handler(queued)
+      elseif queued.type and queued.type ~= "" then
+        PT.update_status("Unknown response type: " .. tostring(queued.type))
+      end
     end)
     _processing = false
     if not ok then
@@ -1131,7 +1135,11 @@ function PT.handle_response(resp)
   _processing = true
   local ok, err = pcall(function()
     local handler = handlers[resp.type]
-    if handler then handler(resp) end
+    if handler then
+      handler(resp)
+    elseif resp.type and resp.type ~= "" then
+      PT.update_status("Unknown response type: " .. tostring(resp.type))
+    end
   end)
   _processing = false
   if not ok then
