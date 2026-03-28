@@ -8,12 +8,15 @@ Weight snapshot: stores original UNet + text_encoder weights (CPU) before
 the first style LoRA fuse.  On unfuse, restores from snapshot instead of
 unfuse_lora() to prevent numerical drift after N fuse/unfuse cycles.
 
-CRITICAL FIX (v0.9.67): restore operates on the RAW (uncompiled) UNet to
-avoid device mismatch with torch.compile's OptimizedModule.  assign=True
-on an OptimizedModule replaces tensor references that the Dynamo graph
-still points to — the compiled graph then reads stale CPU addresses while
-new CUDA tensors are created by .to(device), causing
-"Expected all tensors to be on the same device" errors.
+FIX (v0.9.67): restore operates on the RAW (uncompiled) UNet.
+FIX (v0.9.69): uses load_state_dict(assign=False) to COPY data into
+existing CUDA tensors instead of replacing tensor objects.  assign=True
+broke torch.compile's Dynamo graph references — the compiled graph held
+pointers to old CPU tensors while new CUDA tensors were created by
+.to(device), causing "Expected all tensors to be on the same device".
+With assign=False, tensor identity is preserved and the compiled graph
+stays valid.  Also validates BOTH parameters AND buffers for device
+consistency (v0.9.67 only checked parameters, missing buffers).
 """
 
 from __future__ import annotations
@@ -37,9 +40,9 @@ _adapter_counter = itertools.count(1)
 def _get_raw_module(module):
     """Unwrap torch.compile OptimizedModule to get the raw nn.Module.
 
-    load_state_dict(assign=True) must target the raw module — otherwise
-    it replaces tensor refs that the compiled graph still holds, causing
-    device mismatch on the next forward pass.
+    load_state_dict must target the raw module so that weight data is
+    copied into the actual parameter tensors, not into the compiled
+    wrapper's internal references.
     """
     if hasattr(module, "_orig_mod"):
         return module._orig_mod
@@ -79,44 +82,62 @@ class LoRAFuser:
     def _restore_weights(self, pipe) -> None:
         """Restore UNet + text_encoder to exact original weights from CPU snapshot.
 
-        CRITICAL: operates on the RAW (uncompiled) module to avoid breaking
-        torch.compile's Dynamo graph tensor references.  assign=True replaces
-        parameter tensor objects — doing this on an OptimizedModule causes the
-        compiled graph to read freed/stale CPU tensor addresses while new CUDA
-        tensors are created by .to(device).
+        Uses load_state_dict with assign=False (default) to COPY snapshot data
+        into existing CUDA tensor objects.  This preserves torch.compile's Dynamo
+        graph tensor references — no object replacement, no stale pointers, no
+        device mismatch.  The copy operation handles CPU→CUDA transfer internally.
 
-        After restore, validates that ALL parameters are on the expected device.
-        Falls back to dynamo.reset() if any mismatch is detected.
+        Falls back to dynamo.reset() only if a device anomaly is detected.
         """
         if self._original_unet_state is not None:
             raw_unet = _get_raw_module(pipe.unet)
             device = next(raw_unet.parameters()).device
-            raw_unet.load_state_dict(self._original_unet_state, assign=True)
-            raw_unet.to(device)
-            # Validate: all params must be on the same device after restore
+            # assign=False (default): copies data INTO existing CUDA tensors.
+            # Preserves tensor object identity → compiled graph refs stay valid.
+            raw_unet.load_state_dict(self._original_unet_state)
+            # Validate: all params AND buffers must be on the expected device
             mismatched = [
-                k for k, p in raw_unet.named_parameters()
-                if p.device != device
+                k for k, t in itertools.chain(
+                    raw_unet.named_parameters(),
+                    raw_unet.named_buffers(),
+                )
+                if t.device != device
             ]
             if mismatched:
                 log.warning(
-                    "Device mismatch after UNet restore (%d params on wrong device), "
-                    "forcing dynamo reset: %s",
-                    len(mismatched), mismatched[:3],
+                    "Device mismatch after UNet restore (%d tensors on wrong device), "
+                    "forcing .to(%s) + dynamo reset: %s",
+                    len(mismatched), device, mismatched[:5],
                 )
+                raw_unet.to(device)
                 try:
                     torch._dynamo.reset()
                 except Exception:
                     pass
             else:
-                log.debug("UNet weights restored, all params on %s", device)
+                log.debug("UNet weights restored, all tensors on %s", device)
 
         if self._original_te_state is not None and hasattr(pipe, "text_encoder") and pipe.text_encoder is not None:
             raw_te = _get_raw_module(pipe.text_encoder)
             te_device = next(raw_te.parameters()).device
-            raw_te.load_state_dict(self._original_te_state, assign=True)
-            raw_te.to(te_device)
-            log.debug("Text encoder weights restored to %s", te_device)
+            raw_te.load_state_dict(self._original_te_state)
+            # Validate text encoder device consistency
+            te_mismatched = [
+                k for k, t in itertools.chain(
+                    raw_te.named_parameters(),
+                    raw_te.named_buffers(),
+                )
+                if t.device != te_device
+            ]
+            if te_mismatched:
+                log.warning(
+                    "Device mismatch after text encoder restore (%d tensors), "
+                    "forcing .to(%s): %s",
+                    len(te_mismatched), te_device, te_mismatched[:5],
+                )
+                raw_te.to(te_device)
+            else:
+                log.debug("Text encoder weights restored to %s", te_device)
 
     def _needs_dynamo_reset(self) -> bool:
         """Return True if dynamo.reset() is needed after LoRA change."""

@@ -67,6 +67,18 @@ def test_restore_weights(mock_settings, mock_pipe):
     mock_pipe.unet.load_state_dict.assert_called_once()
 
 
+def test_restore_uses_assign_false(mock_settings, mock_pipe):
+    """Restore must use assign=False (default) to preserve tensor identity for torch.compile."""
+    from sddj.lora_fuser import LoRAFuser
+    fuser = LoRAFuser()
+    fuser._ensure_snapshot(mock_pipe)
+    fuser._restore_weights(mock_pipe)
+    # load_state_dict called without assign=True — preserves compiled graph refs
+    call_kwargs = mock_pipe.unet.load_state_dict.call_args
+    assert "assign" not in (call_kwargs.kwargs or {}), \
+        "load_state_dict must NOT pass assign=True (breaks torch.compile tensor refs)"
+
+
 def test_restore_no_snapshot(mock_settings, mock_pipe):
     """Restore with no snapshot is a no-op."""
     from sddj.lora_fuser import LoRAFuser

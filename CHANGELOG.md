@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.69] — 2026-03
+### Settings Persistence, AnimateDiff Audio Pipeline & LoRA Hotswap Fix
+Three critical bug fixes across the full stack: Lua frontend persistence, Python AnimateDiff pipeline, and CUDA tensor management.
+
+#### Fixed
+- **Settings Persistence (Windows)**: `os.rename` fails on Windows when the destination file already exists, silently discarding saved settings. Fixed with explicit `os.remove` before rename + fallback direct write. Added `.tmp` crash recovery in `load_settings()` and `exit()` fallback via cached JSON when the dialog is already destroyed.
+- **AnimateDiff-Lightning 32-Frame Cap in Audio-Reactive Mode**: Hard total-frame rejection (`total_frames > 32`) blocked audio-reactive generation even though chunked processing (16-frame chunks) stays within the Lightning per-batch limit. Replaced with per-chunk validation that correctly allows long sequences.
+- **LoRA Hotswap CUDA Device Mismatch**: `load_state_dict(assign=True)` replaced tensor objects, breaking torch.compile Dynamo graph references that still pointed to the old CPU tensors. Fixed by using `assign=False` (default) which copies data into existing CUDA tensors, preserving tensor identity. Extended post-restore validation to include both parameters AND buffers, and added text_encoder snapshot/restore parity.
+- **DeepCache Restore After AnimateDiff**: Unprotected `DeepCacheState.restore()` in `finally` blocks could throw and mask the actual generation result. Wrapped in try/except with warning log in both `animation.py` and `audio_reactive.py`.
+
+#### Tests
+- Added `test_restore_uses_assign_false` — validates that `load_state_dict` is called without `assign=True` to preserve torch.compile tensor references.
+- Added `TestAnimateDiffLightning` — validates `is_animatediff_lightning` property, default max frames, and bounds validation.
+- **566 tests passing, 0 failures.**
+
 ## [0.9.68] — 2026-03
 ### AnimateDiff Performance Optimization
 Systematic elimination of pipeline initialization and DeepCache toggle overhead across all AnimateDiff paths.

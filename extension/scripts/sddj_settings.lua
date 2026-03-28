@@ -111,7 +111,12 @@ function PT.save_settings()
   s.qr_steps              = d.qr_steps
   s.qr_cfg                = d.qr_cfg
   local ok, encoded = pcall(PT.json.encode, s)
-  if not ok then return end
+  if not ok then
+    PT.update_status("Settings encode error — not saved")
+    return
+  end
+  -- Cache encoded settings for exit() fallback (before any I/O that might fail)
+  PT._last_encoded_settings = encoded
   -- Atomic write: write to .tmp then rename to avoid corruption on crash
   local tmp_path = PT.cfg.SETTINGS_FILE .. ".tmp"
   local f, ferr = io.open(tmp_path, "w")
@@ -122,10 +127,19 @@ function PT.save_settings()
       pcall(os.remove, tmp_path)
       return
     end
+    -- Windows: os.rename fails if destination exists — remove first, then rename
+    pcall(os.remove, PT.cfg.SETTINGS_FILE)
     local rok, rerr = os.rename(tmp_path, PT.cfg.SETTINGS_FILE)
     if not rok then
-      PT.update_status("Settings rename error: " .. tostring(rerr))
+      -- Fallback: direct write (non-atomic but reliable)
       pcall(os.remove, tmp_path)
+      local ff = io.open(PT.cfg.SETTINGS_FILE, "w")
+      if ff then
+        ff:write(encoded)
+        ff:close()
+      else
+        PT.update_status("Settings save failed: " .. tostring(rerr))
+      end
     end
   else
     PT.update_status("Cannot save settings: " .. tostring(ferr))
@@ -134,7 +148,18 @@ end
 
 function PT.load_settings()
   local f = io.open(PT.cfg.SETTINGS_FILE, "r")
-  if not f then return nil end
+  if not f then
+    -- Recovery: .tmp may exist if process crashed between remove and rename
+    local tmp = PT.cfg.SETTINGS_FILE .. ".tmp"
+    f = io.open(tmp, "r")
+    if not f then return nil end
+    local data = f:read("*a")
+    f:close()
+    pcall(os.rename, tmp, PT.cfg.SETTINGS_FILE)
+    local rok, s = pcall(PT.json.decode, data)
+    if rok and type(s) == "table" then return s end
+    return nil
+  end
   local data = f:read("*a")
   f:close()
   local ok, s = pcall(PT.json.decode, data)

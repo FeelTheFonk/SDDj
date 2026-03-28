@@ -6,7 +6,7 @@ return function(PT)
 
 -- ─── Constants ──────────────────────────────────────────────
 
-PT.VERSION = "0.9.68"
+PT.VERSION = "0.9.69"
 
 PT.cfg = {
   DEFAULT_SERVER_URL      = "ws://127.0.0.1:9876/ws",
@@ -111,8 +111,9 @@ PT.audio = {
 
 -- ─── Metadata Tracking ────────────────────────────────────────
 
-PT.last_request     = nil   -- last generation request (deep copy, no images)
-PT.last_result_meta = nil   -- metadata built from last_request + response
+PT.last_request            = nil   -- last generation request (deep copy, no images)
+PT.last_result_meta        = nil   -- metadata built from last_request + response
+PT._last_encoded_settings  = nil   -- cached JSON for exit() fallback save
 
 -- ─── Output Config ────────────────────────────────────────────
 

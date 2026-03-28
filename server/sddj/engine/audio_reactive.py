@@ -466,15 +466,22 @@ class AudioReactiveMixin:
         NOTE: Audio-reactive keeps chunk loop (per-chunk parameter modulation is
         the feature). FreeNoise within-chunk coherence is handled by the pipeline.
         """
-        # Lightning frame cap (same as standard AnimateDiff path)
+        # Lightning + audio-reactive: chunked generation handles long sequences.
+        # Each chunk is _ANIMATEDIFF_CHUNK_SIZE (16) frames, well within
+        # Lightning's per-batch limit.  No total-frame cap needed here —
+        # the standard AnimateDiff path rejects because it relies on FreeNoise
+        # (incompatible with distilled models), but audio-reactive uses its
+        # own chunking strategy instead.
         if settings.is_animatediff_lightning:
             max_lt = settings.animatediff_max_frames_lightning
-            if schedule.total_frames > max_lt:
+            if self._ANIMATEDIFF_CHUNK_SIZE > max_lt:
                 raise ValueError(
-                    f"AnimateDiff-Lightning is limited to {max_lt} frames "
-                    f"(audio has {schedule.total_frames}). FreeNoise long-video "
-                    f"is incompatible with distilled few-step models."
+                    f"AnimateDiff-Lightning: chunk size {self._ANIMATEDIFF_CHUNK_SIZE} "
+                    f"exceeds per-batch limit {max_lt}. Reduce chunk size."
                 )
+            log.info("AnimateDiff-Lightning audio: %d total frames via %d-frame chunks "
+                     "(within %d-frame Lightning limit)",
+                     schedule.total_frames, self._ANIMATEDIFF_CHUNK_SIZE, max_lt)
         is_controlnet = req.mode.value.startswith("controlnet_")
         if not is_controlnet and self._controlnet_pipe is not None:
             log.info("Smart transition: unloading ControlNet before AnimateDiff audio")
@@ -491,7 +498,10 @@ class AudioReactiveMixin:
             )
         finally:
             if self._dc_state is not None:
-                self._dc_state.restore()
+                try:
+                    self._dc_state.restore()
+                except Exception as e:
+                    log.warning("DeepCache restore failed after audio AnimateDiff (non-critical): %s", e)
 
     def _generate_audio_animatediff_inner(
         self,

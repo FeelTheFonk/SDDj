@@ -210,3 +210,32 @@ class TestCompileMode:
     def test_invalid_mode(self):
         with pytest.raises(ValidationError):
             self._make_settings(compile_mode="turbo")
+
+
+class TestAnimateDiffLightning:
+
+    def _make_settings(self, **overrides):
+        from sddj.config import Settings
+        env = {k: v for k, v in os.environ.items() if not k.startswith("SDDJ_")}
+        with patch.dict(os.environ, env, clear=True):
+            return Settings(_env_file=None, **overrides)
+
+    def test_default_model_is_lightning(self):
+        s = self._make_settings()
+        assert s.is_animatediff_lightning is True
+
+    def test_non_lightning_model(self):
+        s = self._make_settings(animatediff_model="guoyww/animatediff-motion-adapter-v1-5-3")
+        assert s.is_animatediff_lightning is False
+
+    def test_lightning_max_frames_default(self):
+        s = self._make_settings()
+        assert s.animatediff_max_frames_lightning == 32
+
+    def test_lightning_max_frames_bounds(self):
+        self._make_settings(animatediff_max_frames_lightning=8)
+        self._make_settings(animatediff_max_frames_lightning=64)
+        with pytest.raises(ValidationError):
+            self._make_settings(animatediff_max_frames_lightning=7)
+        with pytest.raises(ValidationError):
+            self._make_settings(animatediff_max_frames_lightning=65)

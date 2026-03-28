@@ -94,6 +94,14 @@ function exit(plugin)
 
   -- Save settings before exit
   if _PT.save_settings then pcall(_PT.save_settings) end
+  -- Fallback: if dlg was already nil (destroyed by onclose), write cached settings
+  if not _PT.dlg and _PT._last_encoded_settings and _PT.cfg then
+    pcall(function()
+      pcall(os.remove, _PT.cfg.SETTINGS_FILE)
+      local f = io.open(_PT.cfg.SETTINGS_FILE, "w")
+      if f then f:write(_PT._last_encoded_settings); f:close() end
+    end)
+  end
 
   -- Send shutdown to server (auto-stop)
   if _PT.state and _PT.state.connected and _PT.ws_handle then

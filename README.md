@@ -1,4 +1,4 @@
-$10.9.68
+$10.9.69
 
 Local SOTA image generation and animation for Aseprite via Stable Diffusion + AnimateDiff.
 

@@ -441,7 +441,10 @@ class AnimationMixin:
             return self._generate_animatediff_inner(req, on_frame, on_progress)
         finally:
             if self._dc_state is not None:
-                self._dc_state.restore()
+                try:
+                    self._dc_state.restore()
+                except Exception as e:
+                    log.warning("DeepCache restore failed after AnimateDiff (non-critical): %s", e)
 
     def _generate_animatediff_inner(
         self,
