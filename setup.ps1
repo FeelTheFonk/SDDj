@@ -26,25 +26,25 @@ Set-Location -Path $Root
 Write-Host "`n  ${B}${W}SDDj${R}  ${D}Setup${R}`n  ${D}$('-' * 36)${R}`n"
 
 # --- Paths ---
-$ServerDir = Join-Path -Path $Root -ChildPath "server"
-$ScriptsDir = Join-Path -Path $Root -ChildPath "scripts"
-$VenvPython = Join-Path -Path $ServerDir -ChildPath ".venv\Scripts\python.exe"
+$ServerDir  = Join-Path $Root "server"
+$ScriptsDir = Join-Path $Root "scripts"
+$VenvPython = Join-Path $ServerDir ".venv\Scripts\python.exe"
 
 # --- 1. Check uv ---
-Step 1 7 "Checking uv package manager"
+Step 1 8 "Checking uv package manager"
 if (-not (Get-Command -Name "uv" -ErrorAction Ignore)) {
-    Fail "uv not found - install from https://docs.astral.sh/uv/"
+    Fail "uv not found — install from https://docs.astral.sh/uv/"
 }
 $uvVer = (uv --version 2>$null) -join ""
 Ok $uvVer
 
 # --- 2. Install dependencies ---
-Step 2 7 "Installing dependencies"
-Push-Location -Path $ServerDir
+Step 2 8 "Installing dependencies"
+Push-Location $ServerDir
 try {
-    $null = uv sync --locked 2>&1
+    $uvOut = uv sync --locked 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Warn "Lockfile mismatch, syncing with resolution..."
+        Warn "Locked sync failed — retrying with resolution..."
         $uvOut = uv sync 2>&1
         if ($LASTEXITCODE -ne 0) {
             Fail "Dependency install failed:`n$($uvOut | Out-String)"
@@ -55,17 +55,19 @@ try {
 }
 Ok "Dependencies installed"
 
-# --- 3. Validate Env ---
-if (-not (Test-Path -Path $VenvPython)) {
+# --- 3. Validate environment ---
+Step 3 8 "Validating environment"
+if (-not (Test-Path $VenvPython)) {
     Fail "Python executable not found in .venv"
 }
+Ok "Virtual environment valid"
 
 # --- 4. Download models ---
-Step 3 7 "Provisioning models"
+Step 4 8 "Provisioning models"
 if ($SkipModels) {
-    Ok "Skipped (--SkipModels)"
+    Ok "Skipped (-SkipModels)"
 } else {
-    $dlScript = Join-Path -Path $ScriptsDir -ChildPath "download_models.py"
+    $dlScript = Join-Path $ScriptsDir "download_models.py"
     # Execute natively to preserve \r buffer flushing and prevent console newline spam
     Write-Host ""
     & $VenvPython $dlScript --all
@@ -78,60 +80,70 @@ if ($SkipModels) {
 }
 
 # --- 5. Build extension ---
-Step 4 7 "Building Aseprite extension"
-$buildScript = Join-Path -Path $ScriptsDir -ChildPath "build_extension.py"
+Step 5 8 "Building Aseprite extension"
+$buildScript = Join-Path $ScriptsDir "build_extension.py"
 $buildOut = & $VenvPython $buildScript 2>&1
 if ($LASTEXITCODE -ne 0) { Fail "Extension build failed:`n$($buildOut | Out-String)" }
 Ok "Extension built"
 
-# --- 6. Install extension ---
-Step 5 7 "Deploying extension"
+# --- 6. Deploy extension ---
+Step 6 8 "Deploying extension"
 if (-not $env:APPDATA) { Fail "APPDATA not set (required for Aseprite extension deploy)" }
-$AseData = Join-Path -Path $env:APPDATA -ChildPath "Aseprite"
-$AseExt = Join-Path -Path $AseData -ChildPath "extensions\sddj"
-$AseScripts = Join-Path -Path $AseData -ChildPath "scripts"
+$AseData    = Join-Path $env:APPDATA "Aseprite"
+$AseExt     = Join-Path $AseData "extensions\sddj"
+$AseScripts = Join-Path $AseData "scripts"
 
+# Remove legacy flat scripts (pre-extension era)
 foreach ($f in @("sddj.lua", "json.lua")) {
-    $p = Join-Path -Path $AseScripts -ChildPath $f
-    if (Test-Path -Path $p) { Remove-Item -Path $p -Force }
+    $p = Join-Path $AseScripts $f
+    if (Test-Path $p) { Remove-Item $p -Force }
 }
 
-if (Test-Path -Path $AseExt) { Remove-Item -Path $AseExt -Recurse -Force }
-$null = New-Item -Path (Join-Path -Path $AseExt -ChildPath "scripts") -ItemType Directory -Force
-$null = New-Item -Path (Join-Path -Path $AseExt -ChildPath "keys") -ItemType Directory -Force
+# Remove old extension (guarded: Aseprite file locks cause access-denied)
+if (Test-Path $AseExt) {
+    try {
+        Remove-Item $AseExt -Recurse -Force
+    } catch {
+        Fail "Cannot remove old extension — close Aseprite first"
+    }
+}
 
-$ExtSrc = Join-Path -Path $Root -ChildPath "extension"
-Copy-Item -Path (Join-Path -Path $ExtSrc -ChildPath "package.json") -Destination $AseExt -Force
-Copy-Item -Path (Join-Path -Path (Join-Path -Path $ExtSrc -ChildPath "scripts") -ChildPath "*.lua") -Destination (Join-Path -Path $AseExt -ChildPath "scripts") -Force
-Copy-Item -Path (Join-Path -Path (Join-Path -Path $ExtSrc -ChildPath "keys") -ChildPath "*") -Destination (Join-Path -Path $AseExt -ChildPath "keys") -Force
+$null = New-Item -Path (Join-Path $AseExt "scripts") -ItemType Directory -Force
+$null = New-Item -Path (Join-Path $AseExt "keys") -ItemType Directory -Force
 
-$luaFiles = @(Get-ChildItem -Path (Join-Path -Path $AseExt -ChildPath "scripts") -Filter "*.lua" -ErrorAction SilentlyContinue)
-$count = $luaFiles.Count
-Ok "$count Lua files deployed"
+$ExtSrc = Join-Path $Root "extension"
+Copy-Item (Join-Path $ExtSrc "package.json") $AseExt -Force
+Copy-Item (Join-Path $ExtSrc "scripts\*.lua") (Join-Path $AseExt "scripts") -Force
+Copy-Item (Join-Path $ExtSrc "keys\*") (Join-Path $AseExt "keys") -Force
+
+$luaFiles = @(Get-ChildItem -Path (Join-Path $AseExt "scripts") -Filter "*.lua" -ErrorAction SilentlyContinue)
+if ($luaFiles.Count -eq 0) { Fail "No Lua files deployed — extension source may be missing" }
+Ok "$($luaFiles.Count) Lua files deployed"
 
 # --- 7. Environment config ---
-Step 6 7 "Checking environment config"
-$EnvFile = Join-Path -Path $ServerDir -ChildPath ".env"
-$EnvExample = Join-Path -Path $ServerDir -ChildPath ".env.example"
+Step 7 8 "Checking environment config"
+$EnvFile    = Join-Path $ServerDir ".env"
+$EnvExample = Join-Path $ServerDir ".env.example"
 
-if (-not (Test-Path -Path $EnvFile)) {
-    if (Test-Path -Path $EnvExample) {
-        Copy-Item -Path $EnvExample -Destination $EnvFile -Force
+if (-not (Test-Path $EnvFile)) {
+    if (Test-Path $EnvExample) {
+        Copy-Item $EnvExample $EnvFile -Force
         Ok "Created .env from template"
     } else {
         Ok "Using default settings"
     }
 } else {
-    Ok ".env exists - keeping config"
+    Ok ".env exists — keeping config"
 }
 
-# --- Verify ---
-Step 7 7 "Verifying installation"
+# --- 8. Verify installation ---
+Step 8 8 "Verifying installation"
 try {
-    $ver = & $VenvPython -c "import sddj; print(sddj.__version__)" 2>$null
-    if ($LASTEXITCODE -eq 0) { Ok "SDDj v$ver" } else { Warn "Package import check failed" }
+    # Metadata-only check (avoids torch/CUDA import chain, ~50ms vs ~500ms)
+    $ver = & $VenvPython -c "from importlib.metadata import version; print(version('sddj-server'))" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $ver) { Ok "SDDj v$ver" } else { Warn "Package verification failed" }
 } catch {
-    Warn "Package import check failed"
+    Warn "Package verification failed"
 }
 
 Write-Host "`n  ${D}$('-' * 36)${R}`n  ${G}${B}Setup complete.${R}`n"
