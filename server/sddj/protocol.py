@@ -484,11 +484,12 @@ class ProgressResponse(BaseModel):
 
 class ResultResponse(BaseModel):
     type: Literal["result"] = "result"
-    image: str          # base64 PNG RGBA
+    image: str          # base64 PNG RGBA (empty for binary frames)
     seed: int
     time_ms: int
     width: int
     height: int
+    encoding: Optional[str] = None  # None = PNG, "raw_rgba" = raw RGBA bytes
 
 
 class AnimationFrameResponse(BaseModel):

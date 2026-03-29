@@ -47,7 +47,7 @@ from ..image_codec import (
     composite_with_mask,
     decode_b64_image,
     decode_b64_mask,
-    encode_image_b64,
+    encode_image_raw_bytes,
     resize_to_target,
     round8,
 )
@@ -506,17 +506,20 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                     raise GenerationCancelled("Cancelled during post-processing")
 
                 # ── Encode result ─────────────────────────────────────
-                b64_image = encode_image_b64(image)
+                raw_bytes = encode_image_raw_bytes(image)
                 elapsed_ms = int((time.perf_counter() - t0) * 1000)
                 w, h = image.size
 
-                return ResultResponse(
-                    image=b64_image,
+                result = ResultResponse(
+                    image="",
                     seed=seed,
                     time_ms=elapsed_ms,
                     width=w,
                     height=h,
+                    encoding="raw_rgba",
                 )
+                result._raw_bytes = raw_bytes
+                return result
 
         except torch.cuda.OutOfMemoryError:
             log.error("CUDA OOM — clearing VRAM cache")

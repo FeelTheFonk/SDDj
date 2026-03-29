@@ -80,6 +80,25 @@ function PT.deep_copy_request(src)
   return _deep_copy(src, 0, {})
 end
 
+-- Shallow copy: only metadata-relevant fields (skips heavy binary blobs).
+-- Single-level deep for nested tables — avoids full recursive traversal.
+function PT.shallow_copy_request(req)
+  if type(req) ~= "table" then return req end
+  local copy = {}
+  for k, v in pairs(req) do
+    if k ~= "image" and k ~= "source_image" and k ~= "mask_image" and k ~= "control_image" and k ~= "_decoded_bytes" and k ~= "_raw_image" then
+      if type(v) == "table" then
+        local t = {}
+        for tk, tv in pairs(v) do t[tk] = tv end
+        copy[k] = t
+      else
+        copy[k] = v
+      end
+    end
+  end
+  return copy
+end
+
 -- ─── Timer Lifecycle ────────────────────────────────────────
 
 -- Stop a timer safely. Returns nil for idiomatic reassignment:

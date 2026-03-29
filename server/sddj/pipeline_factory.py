@@ -24,6 +24,13 @@ from .protocol import GenerationMode
 
 log = logging.getLogger("sddj.pipeline_factory")
 
+# ── Torch version (computed once at import) ───────────────────
+_TORCH_MAJOR = int(torch.__version__.split(".")[0])
+
+# ── Pipeline caches ───────────────────────────────────────────
+_pipeline_cache: dict[str, StableDiffusionPipeline] = {}
+_img2img_cache: dict[int, StableDiffusionImg2ImgPipeline] = {}
+
 # ─────────────────────────────────────────────────────────────
 # CONTROLNET MODEL IDS
 # ─────────────────────────────────────────────────────────────
@@ -45,6 +52,11 @@ def load_base_pipeline() -> StableDiffusionPipeline:
       - Single file (.safetensors/.ckpt): "/path/to/model.safetensors"
     """
     ckpt = settings.default_checkpoint
+    cache_key = str(ckpt)
+    if cache_key in _pipeline_cache:
+        log.debug("Pipeline cache hit: %s", cache_key)
+        return _pipeline_cache[cache_key]
+
     ckpt_path = Path(ckpt)
     log.info("Loading base pipeline: %s", ckpt)
 
@@ -65,6 +77,7 @@ def load_base_pipeline() -> StableDiffusionPipeline:
             local_files_only=True,
         )
     pipe.to("cuda")
+    _pipeline_cache[cache_key] = pipe
     return pipe
 
 
@@ -75,8 +88,7 @@ def setup_attention(pipe: StableDiffusionPipeline) -> None:
     diffusers via AttnProcessor2_0 — no explicit call needed. We only
     need xformers or slicing as fallbacks for older PyTorch.
     """
-    torch_major = int(torch.__version__.split(".")[0])
-    if torch_major >= 2:
+    if _TORCH_MAJOR >= 2:
         log.info("PyTorch %s: SDP attention active (native AttnProcessor2_0)", torch.__version__)
         return
 
@@ -183,16 +195,23 @@ def create_img2img_pipeline(
     both call set_timesteps() which mutates internal state. Sharing one
     scheduler causes chain animation to deadlock on the 3rd frame.
     """
+    pipe_id = id(pipe)
+    if pipe_id in _img2img_cache:
+        cached = _img2img_cache[pipe_id]
+        cached.scheduler = type(pipe.scheduler).from_config(pipe.scheduler.config)
+        return cached
+
     img2img = StableDiffusionImg2ImgPipeline(
         vae=pipe.vae,
         text_encoder=pipe.text_encoder,
         tokenizer=pipe.tokenizer,
         unet=pipe.unet,
-        scheduler=copy.deepcopy(pipe.scheduler),
+        scheduler=type(pipe.scheduler).from_config(pipe.scheduler.config),
         safety_checker=None,
         feature_extractor=None,
     )
     apply_freeu(img2img)
+    _img2img_cache[pipe_id] = img2img
     return img2img
 
 
@@ -264,6 +283,12 @@ def create_controlnet_pipeline(
     setup_vae(cn_pipe)
     setup_vae(cn_img2img_pipe)
     return cn_pipe, cn_img2img_pipe
+
+
+def clear_pipeline_cache():
+    """Invalidate all pipeline caches (call when model changes)."""
+    _pipeline_cache.clear()
+    _img2img_cache.clear()
 
 
 def get_controlnet_from_pipe(

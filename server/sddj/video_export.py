@@ -7,9 +7,12 @@ import os
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
 from fractions import Fraction
+from pathlib import Path
+
+_FFMPEG_EXECUTOR = ThreadPoolExecutor(max_workers=2)
 
 log = logging.getLogger("sddj.video_export")
 
@@ -77,7 +80,10 @@ def _fill_frame_gaps(frame_dir: Path, frames: list[Path]) -> list[Path]:
         else:
             # Gap detected — forward-fill with previous frame
             gap_path = frame_dir / f"frame_{n:0{width}d}.png"
-            shutil.copy2(prev_path, gap_path)
+            try:
+                os.link(str(prev_path), str(gap_path))
+            except (OSError, NotImplementedError):
+                shutil.copy2(prev_path, gap_path)
             numbered[n] = gap_path
             filled += 1
 
@@ -274,3 +280,8 @@ def export_mp4(
         size_mb=round(size_mb, 2),
         duration_s=round(duration_s, 2),
     )
+
+
+def export_mp4_async(frame_dir, audio_path=None, **kwargs):
+    """Non-blocking wrapper. Returns a concurrent.futures.Future."""
+    return _FFMPEG_EXECUTOR.submit(export_mp4, frame_dir, audio_path, **kwargs)

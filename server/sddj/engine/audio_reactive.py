@@ -27,7 +27,7 @@ from ..image_codec import (
     composite_with_mask,
     decode_b64_image,
     decode_b64_mask,
-    encode_image_raw_b64,
+    encode_image_raw_bytes,
     resize_to_target,
     round8,
 )
@@ -260,15 +260,16 @@ class AudioReactiveMixin:
                         hue_shift = frame_params.get("palette_shift", 0.0)
                         if hue_shift > 0.01:
                             image = _apply_hue_shift(image, hue_shift)
-                        b64_image = encode_image_raw_b64(image)
+                        raw_bytes = encode_image_raw_bytes(image)
                         w, h = image.size
                         elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
                         frame_resp = AudioReactiveFrameResponse(
                             frame_index=frame_idx, total_frames=total_frames,
-                            image=b64_image, seed=0, time_ms=elapsed_ms,
+                            image="", seed=0, time_ms=elapsed_ms,
                             width=w, height=h, params_used=frame_params,
                             encoding="raw_rgba",
                         )
+                        frame_resp._raw_bytes = raw_bytes
                         if on_frame:
                             on_frame(frame_resp)
                         frame_count += 1
@@ -493,14 +494,14 @@ class AudioReactiveMixin:
                 if self._cancel_event.is_set():
                     raise GenerationCancelled("Audio-reactive cancelled during post-processing")
 
-                b64_image = encode_image_raw_b64(image)
+                raw_bytes = encode_image_raw_bytes(image)
                 w, h = image.size
                 elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
 
                 frame_resp = AudioReactiveFrameResponse(
                     frame_index=frame_idx,
                     total_frames=total_frames,
-                    image=b64_image,
+                    image="",
                     seed=frame_seed,
                     time_ms=elapsed_ms,
                     width=w,
@@ -508,6 +509,7 @@ class AudioReactiveMixin:
                     params_used=frame_params,
                     encoding="raw_rgba",
                 )
+                frame_resp._raw_bytes = raw_bytes
                 frame_count += 1
                 if on_frame:
                     on_frame(frame_resp)
@@ -798,16 +800,17 @@ class AudioReactiveMixin:
                 hue_shift = frame_params.get("palette_shift", 0.0)
                 if hue_shift > 0.01:
                     image = _apply_hue_shift(image, hue_shift)
-                b64_image = encode_image_raw_b64(image)
+                raw_bytes = encode_image_raw_bytes(image)
                 w, h = image.size
                 elapsed_ms = int((time.perf_counter() - t0_total) * 1000)
                 frame_resp = AudioReactiveFrameResponse(
                     frame_index=frame_idx, total_frames=total_frames,
-                    image=b64_image, seed=frame_seeds.get(frame_idx, base_seed),
+                    image="", seed=frame_seeds.get(frame_idx, base_seed),
                     time_ms=elapsed_ms, width=w, height=h,
                     params_used=frame_params,
                     encoding="raw_rgba",
                 )
+                frame_resp._raw_bytes = raw_bytes
                 frame_count_ad += 1
                 if on_frame:
                     on_frame(frame_resp)
@@ -836,14 +839,14 @@ class AudioReactiveMixin:
 
             prev_ad_image = image
 
-            b64_image = encode_image_raw_b64(image)
+            raw_bytes = encode_image_raw_bytes(image)
             w, h = image.size
             elapsed_ms = int((time.perf_counter() - t0_total) * 1000)
 
             frame_resp = AudioReactiveFrameResponse(
                 frame_index=frame_idx,
                 total_frames=total_frames,
-                image=b64_image,
+                image="",
                 seed=frame_seeds.get(frame_idx, base_seed),
                 time_ms=elapsed_ms,
                 width=w,
@@ -851,6 +854,7 @@ class AudioReactiveMixin:
                 params_used=frame_params,
                 encoding="raw_rgba",
             )
+            frame_resp._raw_bytes = raw_bytes
             frame_count_ad += 1
             if on_frame:
                 on_frame(frame_resp)

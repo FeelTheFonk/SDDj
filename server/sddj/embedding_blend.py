@@ -9,10 +9,39 @@ from __future__ import annotations
 
 import logging
 import math
+from collections import OrderedDict
 
 import torch
 
 log = logging.getLogger("sddj.embedding_blend")
+
+
+class _EmbeddingCache:
+    """LRU cache for CLIP prompt embeddings. Eliminates redundant tokenization+encoding."""
+
+    def __init__(self, maxsize: int = 256):
+        self._cache: OrderedDict[tuple, tuple[torch.Tensor, torch.Tensor]] = OrderedDict()
+        self._maxsize = maxsize
+
+    def get(self, key: tuple) -> tuple[torch.Tensor, torch.Tensor] | None:
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        return None
+
+    def put(self, key: tuple, embeds: tuple[torch.Tensor, torch.Tensor]):
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        else:
+            if len(self._cache) >= self._maxsize:
+                self._cache.popitem(last=False)
+            self._cache[key] = embeds
+
+    def clear(self):
+        self._cache.clear()
+
+
+_embed_cache = _EmbeddingCache()
 
 
 def slerp(
@@ -140,6 +169,11 @@ def blend_prompt_embeds(
     return blended, neg_blended
 
 
+def clear_embedding_cache():
+    """Call when pipeline/model changes to invalidate cached embeddings."""
+    _embed_cache.clear()
+
+
 def _encode_prompt(
     pipe,
     prompt: str,
@@ -149,7 +183,13 @@ def _encode_prompt(
     """Encode a single prompt + negative via the pipeline's text encoder.
 
     Handles clip_skip by extracting from the appropriate hidden layer.
+    Uses LRU cache to eliminate redundant tokenization+encoding across frames.
     """
+    cache_key = (prompt, negative_prompt or "", clip_skip, id(pipe.text_encoder))
+    cached = _embed_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     # Use the pipeline's built-in encoding method
     if hasattr(pipe, "encode_prompt"):
         # Modern diffusers API
@@ -204,4 +244,6 @@ def _encode_prompt(
         else:
             neg_embeds = text_encoder(neg_tokens)[0]
 
-    return pos_embeds, neg_embeds
+    result = (pos_embeds, neg_embeds)
+    _embed_cache.put(cache_key, result)
+    return result

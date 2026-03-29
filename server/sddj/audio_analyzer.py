@@ -318,15 +318,23 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
                       n_mels: int, perceptual_weighting: bool,
                       superflux_lag: int, superflux_max_size: int,
                       librosa_fps: float, target_fps: float, total_frames: int,
-                      prefix: str = "global") -> dict[str, np.ndarray]:
+                      prefix: str = "global") -> tuple[dict[str, np.ndarray], np.ndarray]:
     """Extract all features from a mono audio signal.
 
     Args:
         prefix: Feature name prefix ("global" or stem name like "drums").
+
+    Returns:
+        Tuple of (features_dict, onset_envelope). The onset_envelope is returned
+        so the caller can reuse it for beat tracking without recomputing.
     """
     import librosa
 
     features: dict[str, np.ndarray] = {}
+
+    # ── STFT magnitude (computed once, reused for all spectral features) ──
+    S_mag = np.abs(librosa.stft(y=y, n_fft=n_fft, hop_length=hop_length))
+    S_power = S_mag ** 2
 
     # K-weighting for energy-based features
     if perceptual_weighting:
@@ -352,24 +360,23 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
         _resample_to_fps(onset, librosa_fps, target_fps, total_frames), f"{prefix}_onset",
     )
 
-    # ── Spectral centroid ──
-    centroid_raw = librosa.feature.spectral_centroid(y=y, sr=sr, n_fft=n_fft, hop_length=hop_length)[0]
+    # ── Spectral centroid (reuses pre-computed S_mag) ──
+    centroid_raw = librosa.feature.spectral_centroid(S=S_mag, sr=sr, hop_length=hop_length)[0]
     centroid = centroid_raw if len(centroid_raw) > 0 else np.zeros(1)
     features[f"{prefix}_centroid"] = _normalize(
         _resample_to_fps(centroid, librosa_fps, target_fps, total_frames), f"{prefix}_centroid",
     )
 
     # ── Mel spectrogram (K-weighted for band energies) ──
-    S = librosa.feature.melspectrogram(
+    S_mel = librosa.feature.melspectrogram(
         y=y_energy, sr=sr, n_mels=n_mels, n_fft=n_fft, hop_length=hop_length,
     )
-    mel_linear = S  # already linear power
 
     # ── 9-band segmentation (dynamic bin computation) ──
     band_indices = _compute_mel_band_indices(sr, n_mels)
     band_energies = {}
     for band_name, (b_start, b_end) in band_indices.items():
-        energy = mel_linear[b_start:b_end, :].mean(axis=0)
+        energy = S_mel[b_start:b_end, :].mean(axis=0)
         features[f"{prefix}_{band_name}"] = _normalize(
             _resample_to_fps(energy, librosa_fps, target_fps, total_frames),
             f"{prefix}_{band_name}",
@@ -380,7 +387,7 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
     # global_low = weighted mean of sub_bass + bass + low_mid
     low_bands = ["sub_bass", "bass", "low_mid"]
     low_sum = sum(
-        mel_linear[band_indices[b][0]:band_indices[b][1], :].sum(axis=0)
+        S_mel[band_indices[b][0]:band_indices[b][1], :].sum(axis=0)
         for b in low_bands
     )
     low_count = sum(band_indices[b][1] - band_indices[b][0] for b in low_bands)
@@ -392,7 +399,7 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
     # global_mid = mid + upper_mid (already extracted individually)
     mid_bands = ["mid", "upper_mid"]
     mid_sum = sum(
-        mel_linear[band_indices[b][0]:band_indices[b][1], :].sum(axis=0)
+        S_mel[band_indices[b][0]:band_indices[b][1], :].sum(axis=0)
         for b in mid_bands
     )
     mid_count = sum(band_indices[b][1] - band_indices[b][0] for b in mid_bands)
@@ -404,7 +411,7 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
     # global_high = presence + brilliance + air + ultrasonic
     high_bands = ["presence", "brilliance", "air", "ultrasonic"]
     high_sum = sum(
-        mel_linear[band_indices[b][0]:band_indices[b][1], :].sum(axis=0)
+        S_mel[band_indices[b][0]:band_indices[b][1], :].sum(axis=0)
         for b in high_bands
     )
     high_count = sum(band_indices[b][1] - band_indices[b][0] for b in high_bands)
@@ -412,10 +419,6 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
         _resample_to_fps(high_sum / max(1, high_count), librosa_fps, target_fps, total_frames),
         f"{prefix}_high",
     )
-
-    # ── STFT magnitude (computed once, reused for all spectral features) ──
-    S_mag = np.abs(librosa.stft(y=y, n_fft=n_fft, hop_length=hop_length))
-    S_power = S_mag ** 2
 
     # ── Spectral contrast (peak-vs-valley per frequency band) ──
     contrast = librosa.feature.spectral_contrast(S=S_power, sr=sr, hop_length=hop_length, n_bands=6)
@@ -471,7 +474,7 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
         f"{prefix}_chroma_energy",
     )
 
-    return features
+    return features, onset
 
 
 class AudioAnalyzer:
@@ -523,7 +526,7 @@ class AudioAnalyzer:
             log.warning("LUFS measurement failed (using default -24.0): %s", e)
 
         # ── Extract all global features ──
-        features = _extract_features(
+        features, onset_env = _extract_features(
             y=y, sr=sr, hop_length=hop_length, n_fft=n_fft, n_mels=n_mels,
             perceptual_weighting=settings.audio_perceptual_weighting,
             superflux_lag=settings.audio_superflux_lag,
@@ -532,11 +535,7 @@ class AudioAnalyzer:
             prefix="global",
         )
 
-        # ── Beat tracking ──
-        onset_env = librosa.onset.onset_strength(
-            y=y, sr=sr, hop_length=hop_length,
-            lag=settings.audio_superflux_lag, max_size=settings.audio_superflux_max_size,
-        )
+        # ── Beat tracking (reuses onset_env from feature extraction) ──
         n_onset_frames = len(onset_env)
 
         use_madmom = (
@@ -578,7 +577,7 @@ class AudioAnalyzer:
                 if len(stem_audio) == 0:
                     continue
 
-                stem_features = _extract_features(
+                stem_features, _stem_onset = _extract_features(
                     y=stem_audio, sr=sr, hop_length=hop_length, n_fft=n_fft, n_mels=n_mels,
                     perceptual_weighting=settings.audio_perceptual_weighting,
                     superflux_lag=settings.audio_superflux_lag,

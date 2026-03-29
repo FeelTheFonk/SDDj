@@ -76,29 +76,59 @@ function PT.capture_mask()
   local cel = app.cel
   if cel and cel.image then
     local img = cel.image
-    local mask_img = Image(spr.width, spr.height, ColorMode.GRAY)
+    local mask_w, mask_h = spr.width, spr.height
+    local mask_img = Image(mask_w, mask_h, ColorMode.GRAY)
     mask_img:clear(Color{ gray = 0 })
     local ox, oy = cel.position.x, cel.position.y
     if spr.colorMode == ColorMode.RGB then
-      for y = 0, img.height - 1 do
-        for x = 0, img.width - 1 do
-          local px = img:getPixel(x, y)
-          local a = app.pixelColor.rgbaA(px)
-          if a > 0 then
-            local sx, sy = ox + x, oy + y
-            if sx >= 0 and sx < spr.width and sy >= 0 and sy < spr.height then
-              mask_img:drawPixel(sx, sy, Color{ gray = 255 })
+      -- Bulk alpha extraction via Image.bytes (RGBA src → GRAY mask)
+      local ok_bytes, src_bytes = pcall(function() return img.bytes end)
+      if ok_bytes and src_bytes then
+        local w, h = img.width, img.height
+        local byte = string.byte
+        -- Pre-fill mask buffer with zeroes (GRAY = 1 byte per pixel)
+        local mask_data = {}
+        local zero = string.char(0)
+        for i = 1, mask_w * mask_h do
+          mask_data[i] = zero
+        end
+        local white = string.char(255)
+        for y = 0, h - 1 do
+          local row_offset = y * w * 4  -- RGBA = 4 bytes per pixel
+          for x = 0, w - 1 do
+            local a = byte(src_bytes, row_offset + x * 4 + 4)  -- Alpha channel (1-indexed: +4)
+            if a and a > 0 then
+              local mx = x + ox
+              local my = y + oy
+              if mx >= 0 and mx < mask_w and my >= 0 and my < mask_h then
+                mask_data[my * mask_w + mx + 1] = white
+              end
+            end
+          end
+        end
+        mask_img.bytes = table.concat(mask_data)
+      else
+        -- Fallback: Image.bytes not available, use pixel-by-pixel
+        for y = 0, img.height - 1 do
+          for x = 0, img.width - 1 do
+            local px = img:getPixel(x, y)
+            local a = app.pixelColor.rgbaA(px)
+            if a > 0 then
+              local sx, sy = ox + x, oy + y
+              if sx >= 0 and sx < mask_w and sy >= 0 and sy < mask_h then
+                mask_img:drawPixel(sx, sy, Color{ gray = 255 })
+              end
             end
           end
         end
       end
     else
       -- Non-RGB modes: render through sprite compositing to RGB, then check alpha
-      local tmp_img = Image(spr.width, spr.height, ColorMode.RGB)
+      local tmp_img = Image(mask_w, mask_h, ColorMode.RGB)
       tmp_img:clear()
       tmp_img:drawImage(cel.image, cel.position)
-      for y = 0, spr.height - 1 do
-        for x = 0, spr.width - 1 do
+      for y = 0, mask_h - 1 do
+        for x = 0, mask_w - 1 do
           local px = tmp_img:getPixel(x, y)
           local a = app.pixelColor.rgbaA(px)
           if a > 0 then

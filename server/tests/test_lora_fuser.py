@@ -34,15 +34,22 @@ def mock_pipe():
     })
     pipe.unet._orig_mod = pipe.unet  # _get_raw_module passthrough
     pipe.unet.state_dict.return_value = state
-    pipe.unet.parameters.return_value = iter([torch.randn(3, 3, device="cpu")])
-    pipe.unet.named_parameters.return_value = iter([
-        ("conv.weight", torch.randn(3, 3, device="cpu")),
+    _unet_param = torch.randn(3, 3, device="cpu")
+    pipe.unet.parameters.side_effect = lambda: iter([_unet_param])
+    pipe.unet.named_parameters.side_effect = lambda: iter([
+        ("conv.weight", _unet_param),
     ])
+    pipe.unet.named_buffers.side_effect = lambda: iter([])
     # text_encoder
     te_state = OrderedDict({"embed.weight": torch.randn(4, 4)})
     pipe.text_encoder._orig_mod = pipe.text_encoder
     pipe.text_encoder.state_dict.return_value = te_state
-    pipe.text_encoder.parameters.return_value = iter([torch.randn(4, 4, device="cpu")])
+    _te_param = torch.randn(4, 4, device="cpu")
+    pipe.text_encoder.parameters.side_effect = lambda: iter([_te_param])
+    pipe.text_encoder.named_parameters.side_effect = lambda: iter([
+        ("embed.weight", _te_param),
+    ])
+    pipe.text_encoder.named_buffers.side_effect = lambda: iter([])
     return pipe
 
 

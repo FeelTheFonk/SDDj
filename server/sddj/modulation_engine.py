@@ -652,14 +652,32 @@ class ModulationEngine:
             a_rel = 1.0 - _exp(-1.0 / max(1, slot.release))
             slot_alphas.append((a_att, a_rel))
 
+        # Pre-extract per-slot source arrays (avoid repeated dict lookup per frame)
+        slot_sources = [feat_source[s.source] for s in active_slots]
+        slot_inverts = [s.invert for s in active_slots]
+        slot_mins = [s.min_val for s in active_slots]
+        slot_ranges = [s.max_val - s.min_val for s in active_slots]
+        slot_targets = [s.target for s in active_slots]
+
+        # Pre-allocate expression variables dict (updated in-place per frame)
+        expr_variables: dict[str, float] | None = None
+        if expressions and evaluator:
+            expr_variables = {
+                "t": 0.0, "max_f": float(total),
+                "fps": analysis.fps, "s": 0.0, "bpm": analysis.bpm,
+            }
+            for feat_name in analysis.features:
+                expr_variables[feat_name] = 0.0
+
         for frame_idx in range(total):
             params: dict[str, float] = {}
             # Track per-target contributions for multi-slot aggregation
             target_values: dict[str, list[float]] = {}
 
             # Apply modulation matrix slots with per-slot EMA smoothing
-            for slot_idx, slot in enumerate(active_slots):
-                raw_val = float(feat_source[slot.source][frame_idx])
+            for slot_idx in range(len(active_slots)):
+                src_arr = slot_sources[slot_idx]
+                raw_val = float(src_arr[min(frame_idx, len(src_arr) - 1)])
 
                 # Per-slot asymmetric EMA (fast attack, slow release)
                 prev = slot_ema[slot_idx]
@@ -674,11 +692,11 @@ class ModulationEngine:
                 slot_ema[slot_idx] = smoothed
 
                 # Invert source if requested (0→1, 1→0)
-                mapped = (1.0 - smoothed) if slot.invert else smoothed
+                mapped = (1.0 - smoothed) if slot_inverts[slot_idx] else smoothed
 
                 # Map [0, 1] smoothed feature to [min_val, max_val]
-                output = slot.min_val + (slot.max_val - slot.min_val) * mapped
-                target_values.setdefault(slot.target, []).append(output)
+                output = slot_mins[slot_idx] + slot_ranges[slot_idx] * mapped
+                target_values.setdefault(slot_targets[slot_idx], []).append(output)
 
             # Aggregate multi-slot targets (average)
             for target, values in target_values.items():
@@ -686,24 +704,18 @@ class ModulationEngine:
                 params[target] = max(lo, min(hi, sum(values) / len(values)))
 
             # Override with custom expressions (take priority over slots)
-            if expressions and evaluator:
-                # Build variable dict for this frame
-                variables: dict[str, float] = {
-                    "t": float(frame_idx),
-                    "max_f": float(total),
-                    "fps": analysis.fps,
-                    "s": frame_idx / analysis.fps,  # seconds
-                    "bpm": analysis.bpm,
-                }
-                # Add all audio features as variables
+            if expr_variables is not None and evaluator:
+                # Update variables in-place (no dict allocation per frame)
+                expr_variables["t"] = float(frame_idx)
+                expr_variables["s"] = frame_idx / analysis.fps
                 for feat_name, feat_arr in analysis.features.items():
-                    variables[feat_name] = float(feat_arr[frame_idx])
+                    expr_variables[feat_name] = float(feat_arr[frame_idx])
 
                 for target, expr in expressions.items():
                     if target not in TARGET_RANGES:
                         continue
                     try:
-                        val = evaluator.evaluate(expr, variables)
+                        val = evaluator.evaluate(expr, expr_variables)
                         lo, hi = TARGET_RANGES[target]
                         params[target] = max(lo, min(hi, val))
                     except Exception as e:

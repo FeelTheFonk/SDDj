@@ -32,7 +32,7 @@ from ..image_codec import (
     composite_with_mask,
     decode_b64_image,
     decode_b64_mask,
-    encode_image_raw_b64,
+    encode_image_raw_bytes,
     resize_to_target,
     round8,
 )
@@ -111,7 +111,7 @@ class AnimationMixin:
         req: AnimationRequest,
         on_frame: Optional[Callable[[AnimationFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> list[AnimationFrameResponse]:
+    ) -> int:
         """Core chain animation logic — dynamo disabled via decorator.
 
         This decorator prevents torch._dynamo's global eval_frame hook from
@@ -388,7 +388,7 @@ class AnimationMixin:
                     raise GenerationCancelled("Animation cancelled during post-processing")
 
                 # Encode
-                b64_image = encode_image_raw_b64(image)
+                raw_bytes = encode_image_raw_bytes(image)
                 w, h = image.size
                 # frame_time_ms: per-frame generation time (from this frame's t0_frame)
                 elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
@@ -396,13 +396,14 @@ class AnimationMixin:
                 frame_resp = AnimationFrameResponse(
                     frame_index=frame_idx,
                     total_frames=req.frame_count,
-                    image=b64_image,
+                    image="",
                     seed=frame_seed,
                     time_ms=elapsed_ms,
                     width=w,
                     height=h,
                     encoding="raw_rgba",
                 )
+                frame_resp._raw_bytes = raw_bytes
                 frame_count += 1
                 if on_frame:
                     on_frame(frame_resp)
@@ -622,7 +623,7 @@ class AnimationMixin:
                 raise GenerationCancelled("AnimateDiff cancelled during post-processing")
             t0_frame = time.perf_counter()
             image = postprocess_apply(pil_img, req.post_process)
-            b64_image = encode_image_raw_b64(image)
+            raw_bytes = encode_image_raw_bytes(image)
             w, h = image.size
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
             frame_time_ms = int((time.perf_counter() - t0_frame) * 1000)
@@ -632,13 +633,14 @@ class AnimationMixin:
             frame_resp = AnimationFrameResponse(
                 frame_index=frame_idx,
                 total_frames=total_frames,
-                image=b64_image,
+                image="",
                 seed=seed,
                 time_ms=elapsed_ms,
                 width=w,
                 height=h,
                 encoding="raw_rgba",
             )
+            frame_resp._raw_bytes = raw_bytes
             frame_count += 1
             if on_frame:
                 on_frame(frame_resp)

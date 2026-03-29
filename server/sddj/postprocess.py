@@ -241,7 +241,7 @@ def _resolve_palette(spec) -> list[tuple[int, int, int]] | None:
 def _palette_to_lab(palette_key: tuple[tuple[int, int, int], ...]) -> np.ndarray:
     """Convert palette RGB tuples to CIELAB array (cached)."""
     from skimage.color import rgb2lab
-    palette_arr = np.array(palette_key, dtype=np.float64).reshape(1, -1, 3) / 255.0
+    palette_arr = np.array(palette_key, dtype=np.float32).reshape(1, -1, 3) / 255.0
     return rgb2lab(palette_arr).reshape(-1, 3)
 
 
@@ -405,7 +405,7 @@ def _floyd_steinberg(
     palette_rgb: list[tuple[int, int, int]],
 ) -> Image.Image:
     """Floyd-Steinberg error-diffusion dithering (palette-aware, Numba-accelerated)."""
-    arr = np.array(img, dtype=np.float64)
+    arr = np.array(img, dtype=np.float32)
     has_alpha = arr.shape[2] == 4
     if has_alpha:
         alpha = arr[:, :, 3].copy()
@@ -414,7 +414,7 @@ def _floyd_steinberg(
         alpha = None
         rgb = arr.copy()
 
-    pal = np.array(palette_rgb, dtype=np.float64)
+    pal = np.array(palette_rgb, dtype=np.float32)
 
     rgb = _fs_core(rgb, pal)
     rgb = np.clip(rgb, 0, 255).astype(np.uint8)
@@ -432,7 +432,7 @@ def _bayer_matrix(n: int) -> np.ndarray:
 def _bayer_matrix_unnorm(n: int) -> np.ndarray:
     """Generate unnormalized Bayer matrix recursively."""
     if n == 2:
-        return np.array([[0, 2], [3, 1]], dtype=np.float64)
+        return np.array([[0, 2], [3, 1]], dtype=np.float32)
     smaller = _bayer_matrix_unnorm(n // 2)
     return np.block([
         [4 * smaller + 0, 4 * smaller + 2],
@@ -446,7 +446,7 @@ def _bayer_dither(
     matrix_size: int,
 ) -> Image.Image:
     """Ordered (Bayer) dithering with palette snap."""
-    arr = np.array(img, dtype=np.float64)
+    arr = np.array(img, dtype=np.float32)
     has_alpha = arr.shape[2] == 4
     if has_alpha:
         alpha = arr[:, :, 3].copy()
@@ -483,9 +483,8 @@ def _bayer_dither(
 # ─────────────────────────────────────────────────────────────
 
 def warmup_numba() -> None:
-    """Pre-compile Floyd-Steinberg JIT kernel with minimal data."""
-    tiny = Image.fromarray(np.zeros((2, 2, 3), dtype=np.uint8))
-    _floyd_steinberg(tiny, [(0, 0, 0), (255, 255, 255)])
+    """Pre-compile Floyd-Steinberg JIT kernel with float32 data."""
+    _fs_core(np.zeros((2, 2, 3), dtype=np.float32), np.zeros((2, 3), dtype=np.float32))
 
 
 # ─────────────────────────────────────────────────────────────

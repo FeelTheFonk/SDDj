@@ -186,6 +186,26 @@ function PT.connect()
         end
         return
       end
+      if msg_type == WebSocketMessageType.BINARY then
+        -- Binary frame: [uint32 LE json_len][JSON metadata][raw RGBA bytes]
+        if #data < 4 then return end
+        local b1, b2, b3, b4 = string.byte(data, 1, 4)
+        local json_len = b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+        if #data < 4 + json_len then return end
+        local json_str = data:sub(5, 4 + json_len)
+        local ok, response = pcall(PT.json.decode, json_str)
+        if not ok then
+          PT.update_status("Binary JSON error: " .. tostring(response))
+          return
+        end
+        -- Attach raw image bytes directly (skip base64 entirely)
+        response._raw_image = data:sub(5 + json_len)
+        -- Any valid message from server proves it's alive — reset watchdog
+        PT.state.last_pong = os.clock()
+        local hok, herr = pcall(PT.handle_response, response)
+        if not hok then PT.update_status("Error: " .. tostring(herr)) end
+        return
+      end
       if msg_type == WebSocketMessageType.TEXT then
         if #data > PT.cfg.MAX_WS_MESSAGE_SIZE then
           PT.update_status("Message rejected: too large (" .. #data .. " bytes)")

@@ -1266,7 +1266,7 @@ function PT.trigger_qr_generate()
     req.source_image = src_b64
   end
 
-  PT.last_request = PT.deep_copy_request(req)
+  PT.last_request = PT.shallow_copy_request(req)
   PT.state.generating = true
   PT.state.gen_step_start = os.clock()
   PT.start_gen_timeout()

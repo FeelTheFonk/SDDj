@@ -117,7 +117,7 @@ def _print_summary() -> None:
 # ---------------------------------------------------------------------------
 
 def download_civitai_model() -> None:
-    """SD1.5 checkpoint from Civitai (direct HTTP, no HF)."""
+    """SD1.5 checkpoint from Civitai (direct HTTP, no HF). Supports HTTP Range resume."""
     import time
     import urllib.request
     from urllib.error import URLError
@@ -135,15 +135,38 @@ def download_civitai_model() -> None:
         _record(label, True, "cached")
         return
 
-    print("      [INFO] Establishing connection securely...")
-    req = urllib.request.Request(url, headers={"User-Agent": "SDDj/1.0 SOTA-Downloader"})
+    # Check for existing partial download (resume support)
+    existing_size = 0
+    if part_dest.exists():
+        existing_size = part_dest.stat().st_size
+        print(f"      [INFO] Resuming from {existing_size // (1024 * 1024)}MB ...")
+
     max_retries = 3
+    total_size = 0
     for attempt in range(max_retries):
         try:
+            req_headers = {"User-Agent": "SDDj/1.0 SOTA-Downloader"}
+            if existing_size > 0:
+                req_headers["Range"] = f"bytes={existing_size}-"
+            req = urllib.request.Request(url, headers=req_headers)
+
             with urllib.request.urlopen(req, timeout=30) as response:
-                total_size = int(response.headers.get("content-length", 0))
-                downloaded = 0
-                with open(part_dest, "wb") as f:
+                status = response.status
+                content_length = int(response.headers.get("content-length", 0))
+
+                if status == 206 and existing_size > 0:
+                    # Server supports Range — append to existing .part file
+                    total_size = existing_size + content_length
+                    downloaded = existing_size
+                    mode = "ab"
+                else:
+                    # Fresh download (server ignored Range or first attempt)
+                    total_size = content_length
+                    downloaded = 0
+                    existing_size = 0
+                    mode = "wb"
+
+                with open(part_dest, mode) as f:
                     while True:
                         chunk = response.read(CHUNK_SIZE)
                         if not chunk:
@@ -152,8 +175,8 @@ def download_civitai_model() -> None:
                         downloaded += len(chunk)
                         if total_size > 0:
                             pct = (downloaded / total_size) * 100
-                            mb_dl = downloaded // 1024 // 1024
-                            mb_tot = total_size // 1024 // 1024
+                            mb_dl = downloaded // (1024 * 1024)
+                            mb_tot = total_size // (1024 * 1024)
                             sys.stdout.write(
                                 f"\r      [DL] {pct:.1f}% ({mb_dl}MB / {mb_tot}MB)"
                             )
@@ -162,14 +185,17 @@ def download_civitai_model() -> None:
                     print()
                 break
         except (URLError, TimeoutError, OSError) as e:
+            # Update existing_size for next resume attempt
+            if part_dest.exists():
+                existing_size = part_dest.stat().st_size
             if attempt < max_retries - 1:
                 wait = 2 ** attempt
                 print(f"\n      [WARN] Network error ({e}), retrying in {wait}s...")
                 time.sleep(wait)
                 continue
-            if part_dest.exists():
-                part_dest.unlink()
+            # Keep .part file for resume on next script invocation
             print(f"\n      [WARN] Network failure after {max_retries} attempts: {e}")
+            print(f"      [INFO] Partial download preserved ({existing_size // (1024 * 1024)}MB) — re-run to resume.")
             _record(label, False, str(e))
             return
 
@@ -177,9 +203,10 @@ def download_civitai_model() -> None:
     if total_size > 0:
         actual_size = part_dest.stat().st_size
         if actual_size != total_size:
-            part_dest.unlink()
+            # Keep .part for resume rather than deleting
             msg = f"Size mismatch: expected {total_size}, got {actual_size}"
             print(f"      [WARN] {msg}")
+            print(f"      [INFO] Partial download preserved — re-run to resume.")
             _record(label, False, msg)
             return
 
@@ -433,6 +460,8 @@ def download_animatediff_lightning() -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     parser = argparse.ArgumentParser(description="Download SDDj models")
     parser.add_argument("--all", action="store_true", help="Download everything")
     parser.add_argument("--checkpoint", action="store_true",
@@ -462,23 +491,41 @@ def main() -> None:
     ]):
         args.all = True
 
+    # Sequential: base checkpoint and configs must complete first
     if args.all or args.checkpoint:
         download_civitai_model()
         download_base_configs()
+
+    # Collect independent downloads for parallel execution
+    parallel_tasks: list[tuple[str, callable]] = []
     if args.all or args.hyper_sd:
-        download_hyper_sd_lora()
+        parallel_tasks.append(("Hyper-SD LoRA", download_hyper_sd_lora))
     if args.all or args.loras:
-        download_pixel_loras()
+        parallel_tasks.append(("Pixel LoRAs", download_pixel_loras))
     if args.all or args.embeddings:
-        download_embeddings()
+        parallel_tasks.append(("Embeddings", download_embeddings))
     if args.all or args.controlnets:
-        download_controlnets()
+        parallel_tasks.append(("ControlNets", download_controlnets))
     if args.all or args.controlnets or args.qrcode_monster:
-        download_qrcode_monster()
+        parallel_tasks.append(("QR Monster", download_qrcode_monster))
     if args.all or args.animatediff:
-        download_animatediff()
+        parallel_tasks.append(("AnimateDiff", download_animatediff))
     if args.all or args.animatediff_lightning:
-        download_animatediff_lightning()
+        parallel_tasks.append(("AnimateDiff Lightning", download_animatediff_lightning))
+
+    if parallel_tasks:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {}
+            for name, func in parallel_tasks:
+                futures[executor.submit(func)] = name
+
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"    [FAIL] {name}: {e}")
+                    _record(name, False, str(e))
 
     _print_summary()
 

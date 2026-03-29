@@ -12,6 +12,9 @@ log = logging.getLogger("sddj.palette")
 
 _MAX_PALETTES = 100
 
+_palette_cache: dict[str, list[tuple[int, int, int]]] = {}
+_palette_mtimes: dict[str, float] = {}
+
 
 def _hex_to_rgb(h: str) -> tuple[int, int, int]:
     h = h.lstrip("#")
@@ -38,6 +41,9 @@ def load_palette(name: str) -> list[tuple[int, int, int]]:
     path = settings.palettes_dir / f"{name}.json"
     if not path.is_file():
         raise FileNotFoundError(f"Palette not found: {name}")
+    current_mtime = path.stat().st_mtime
+    if name in _palette_cache and _palette_mtimes.get(name) == current_mtime:
+        return list(_palette_cache[name])
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     if "colors" not in data or not isinstance(data["colors"], list):
@@ -45,7 +51,9 @@ def load_palette(name: str) -> list[tuple[int, int, int]]:
     colors = [_hex_to_rgb(c) for c in data["colors"]]
     if not colors:
         raise ValueError(f"Palette '{name}' has no colors")
-    return colors
+    _palette_cache[name] = colors
+    _palette_mtimes[name] = current_mtime
+    return list(colors)
 
 
 def hex_list_to_rgb(colors: list[str]) -> list[tuple[int, int, int]]:
@@ -67,6 +75,8 @@ def save_palette(name: str, colors: list[str]) -> None:
         raise ValueError(f"Maximum number of palettes ({_MAX_PALETTES}) reached")
     data = {"name": name, "colors": colors}
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    _palette_cache.pop(name, None)
+    _palette_mtimes.pop(name, None)
     log.info("Palette saved: %s (%d colors)", name, len(colors))
 
 
@@ -77,4 +87,6 @@ def delete_palette(name: str) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"Palette not found: {name}")
     path.unlink()
+    _palette_cache.pop(name, None)
+    _palette_mtimes.pop(name, None)
     log.info("Palette deleted: %s", name)

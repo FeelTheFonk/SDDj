@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import random
 from typing import Optional
 
 import torch
@@ -69,13 +70,15 @@ class LoRAFuser:
         if self._original_unet_state is None:
             raw_unet = _get_raw_module(pipe.unet)
             self._original_unet_state = {
-                k: v.cpu().clone() for k, v in raw_unet.state_dict().items()
+                k: v.to(torch.bfloat16).cpu() if v.is_floating_point() else v.cpu()
+                for k, v in raw_unet.state_dict().items()
             }
             log.info("UNet weight snapshot captured (CPU)")
         if self._original_te_state is None and hasattr(pipe, "text_encoder") and pipe.text_encoder is not None:
             raw_te = _get_raw_module(pipe.text_encoder)
             self._original_te_state = {
-                k: v.cpu().clone() for k, v in raw_te.state_dict().items()
+                k: v.to(torch.bfloat16).cpu() if v.is_floating_point() else v.cpu()
+                for k, v in raw_te.state_dict().items()
             }
             log.info("Text encoder weight snapshot captured (CPU)")
 
@@ -91,18 +94,22 @@ class LoRAFuser:
         """
         if self._original_unet_state is not None:
             raw_unet = _get_raw_module(pipe.unet)
-            device = next(raw_unet.parameters()).device
+            first_param = next(raw_unet.parameters())
+            device = first_param.device
+            # Cast bfloat16 snapshot back to model dtype before restoring
+            target_dtype = first_param.dtype
+            restored = {
+                k: v.to(target_dtype) if v.is_floating_point() else v
+                for k, v in self._original_unet_state.items()
+            }
             # assign=False (default): copies data INTO existing CUDA tensors.
             # Preserves tensor object identity → compiled graph refs stay valid.
-            raw_unet.load_state_dict(self._original_unet_state)
-            # Validate: all params AND buffers must be on the expected device
-            mismatched = [
-                k for k, t in itertools.chain(
-                    raw_unet.named_parameters(),
-                    raw_unet.named_buffers(),
-                )
-                if t.device != device
-            ]
+            raw_unet.load_state_dict(restored)
+            # Validate: sample-based device consistency check (avoids O(N) full scan)
+            all_params = list(itertools.chain(raw_unet.named_parameters(), raw_unet.named_buffers()))
+            sample_size = min(10, len(all_params))
+            sample = random.sample(all_params, sample_size) if len(all_params) > sample_size else all_params
+            mismatched = [k for k, t in sample if t.device != device]
             if mismatched:
                 log.warning(
                     "Device mismatch after UNet restore (%d tensors on wrong device), "
@@ -119,16 +126,20 @@ class LoRAFuser:
 
         if self._original_te_state is not None and hasattr(pipe, "text_encoder") and pipe.text_encoder is not None:
             raw_te = _get_raw_module(pipe.text_encoder)
-            te_device = next(raw_te.parameters()).device
-            raw_te.load_state_dict(self._original_te_state)
-            # Validate text encoder device consistency
-            te_mismatched = [
-                k for k, t in itertools.chain(
-                    raw_te.named_parameters(),
-                    raw_te.named_buffers(),
-                )
-                if t.device != te_device
-            ]
+            te_first_param = next(raw_te.parameters())
+            te_device = te_first_param.device
+            # Cast bfloat16 snapshot back to model dtype before restoring
+            te_target_dtype = te_first_param.dtype
+            te_restored = {
+                k: v.to(te_target_dtype) if v.is_floating_point() else v
+                for k, v in self._original_te_state.items()
+            }
+            raw_te.load_state_dict(te_restored)
+            # Validate: sample-based text encoder device consistency check
+            te_all_params = list(itertools.chain(raw_te.named_parameters(), raw_te.named_buffers()))
+            te_sample_size = min(10, len(te_all_params))
+            te_sample = random.sample(te_all_params, te_sample_size) if len(te_all_params) > te_sample_size else te_all_params
+            te_mismatched = [k for k, t in te_sample if t.device != te_device]
             if te_mismatched:
                 log.warning(
                     "Device mismatch after text encoder restore (%d tensors), "

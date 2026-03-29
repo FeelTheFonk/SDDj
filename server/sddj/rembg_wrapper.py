@@ -29,7 +29,22 @@ def _get_session():
     with _session_lock:
         if _session is None:
             from rembg import new_session
-            providers = ["CPUExecutionProvider"] if settings.rembg_on_cpu else None
+            providers = None
+            if not settings.rembg_on_cpu:
+                try:
+                    import onnxruntime
+                    available = onnxruntime.get_available_providers()
+                    ranked = []
+                    if "TensorrtExecutionProvider" in available:
+                        ranked.append("TensorrtExecutionProvider")
+                    if "CUDAExecutionProvider" in available:
+                        ranked.append("CUDAExecutionProvider")
+                    if ranked:
+                        providers = ranked
+                except Exception:
+                    pass
+            if not providers:
+                providers = ["CPUExecutionProvider"]
             _session = new_session(model_name=settings.rembg_model, providers=providers)
         return _session
 
@@ -48,5 +63,7 @@ def unload():
     with _session_lock:
         _session = None
     if not settings.rembg_on_cpu:
-        from .vram_utils import vram_cleanup
-        vram_cleanup()
+        import torch
+        if torch.cuda.is_available():
+            from .vram_utils import vram_cleanup
+            vram_cleanup()

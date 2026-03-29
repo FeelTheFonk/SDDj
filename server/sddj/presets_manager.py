@@ -18,10 +18,14 @@ class PresetsManager:
     def __init__(self, presets_dir: Path) -> None:
         self._dir = presets_dir
         self._dir.mkdir(parents=True, exist_ok=True)
+        self._list_cache: list[str] | None = None
 
     def list_presets(self) -> list[str]:
         """Return sorted list of available preset names."""
-        return sorted(p.stem for p in self._dir.glob("*.json"))
+        if self._list_cache is not None:
+            return list(self._list_cache)
+        self._list_cache = sorted(p.stem for p in self._dir.glob("*.json"))
+        return list(self._list_cache)
 
     def get_preset(self, name: str) -> dict:
         """Load and return a preset by name."""
@@ -38,10 +42,11 @@ class PresetsManager:
         """Save a preset (create or overwrite)."""
         validate_resource_name(name, "preset")
         path = self._dir / f"{name}.json"
-        if not path.is_file() and len(list(self._dir.glob("*.json"))) >= self._MAX_PRESETS:
+        if not path.is_file() and len(self.list_presets()) >= self._MAX_PRESETS:
             raise ValueError(f"Maximum number of presets ({self._MAX_PRESETS}) reached")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        self._list_cache = None
         log.info("Preset saved: %s", name)
 
     def delete_preset(self, name: str) -> None:
@@ -51,6 +56,7 @@ class PresetsManager:
         if not path.is_file():
             raise FileNotFoundError(f"Preset '{name}' not found")
         path.unlink()
+        self._list_cache = None
         log.info("Preset deleted: %s", name)
 
 

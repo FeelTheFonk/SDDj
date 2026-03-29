@@ -55,7 +55,7 @@ end
 
 function PT.save_to_output(resp, meta)
   if not PT.output.enabled then return end
-  if not resp or not resp.image then return end
+  if not resp or (not resp._raw_image and not resp.image) then return end
 
   local ok, err = pcall(function()
     local date_dir = PT.ensure_date_dir()
@@ -65,13 +65,13 @@ function PT.save_to_output(resp, meta)
     _output_counter = _output_counter + 1
     local base_name = time_str .. "_" .. string.format("%04d", _output_counter) .. "_s" .. seed_str
 
-    -- Reuse decoded bytes from import (no double decode)
-    local img_data = resp._decoded_bytes or PT.base64_decode(resp.image)
+    -- Reuse decoded bytes from import (no double decode); binary frame is fastest
+    local img_data = resp._raw_image or resp._decoded_bytes or PT.base64_decode(resp.image)
     if not img_data or #img_data == 0 then return end
 
     -- Save PNG (encoding-aware: handles both PNG and raw_rgba)
     local png_path = app.fs.joinPath(date_dir, base_name .. ".png")
-    if resp.encoding == "raw_rgba" and resp.width and resp.height then
+    if (resp.encoding == "raw_rgba" or resp._raw_image) and resp.width and resp.height then
       local img = Image(resp.width, resp.height, ColorMode.RGB)
       img.bytes = img_data
       img:saveAs(png_path)
@@ -107,7 +107,7 @@ function PT.save_animation_frame(resp)
   if not PT.output.enabled then return end
   if PT.state.cancel_pending then return end
   if not PT.dlg or not PT.dlg.data.save_output then return end
-  if not resp.image or resp.frame_index == nil then return end
+  if (not resp._raw_image and not resp.image) or resp.frame_index == nil then return end
 
   pcall(function()
     -- Create output dir on first frame
@@ -134,11 +134,11 @@ function PT.save_animation_frame(resp)
     local frame_name = string.format("frame_%05d.png", resp.frame_index + 1)
     local frame_path = app.fs.joinPath(PT.anim.output_dir, frame_name)
 
-    -- Reuse decoded bytes from import_animation_frame (B3: no double decode)
-    local img_data = resp._decoded_bytes or PT.base64_decode(resp.image)
+    -- Reuse decoded bytes from import_animation_frame (B3: no double decode); binary frame is fastest
+    local img_data = resp._raw_image or resp._decoded_bytes or PT.base64_decode(resp.image)
 
     if img_data and #img_data > 0 then
-      if resp.encoding == "raw_rgba" and resp.width and resp.height then
+      if (resp.encoding == "raw_rgba" or resp._raw_image) and resp.width and resp.height then
         -- Raw RGBA: create Image, save as PNG natively (raw bytes ≠ valid PNG)
         local img = Image(resp.width, resp.height, ColorMode.RGB)
         img.bytes = img_data

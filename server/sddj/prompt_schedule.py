@@ -209,6 +209,9 @@ class PromptSchedule:
         self.default_prompt = default_prompt
         self.total_frames = total_frames
         # Keyframes: sorted by frame, deduplicated (last wins per frame)
+        self._cached_frame_list: list[int] | None = None
+        self._cached_unique_prompts: set[str] | None = None
+        self._cached_unique_negatives: set[str] | None = None
         if keyframes:
             seen: dict[int, PromptKeyframe] = {}
             for kf in keyframes:
@@ -262,7 +265,9 @@ class PromptSchedule:
 
         # Find active keyframe (last kf where kf.frame <= frame_idx)
         # O(log n) via bisect instead of linear scan
-        frames = [kf.frame for kf in self.keyframes]
+        if self._cached_frame_list is None:
+            self._cached_frame_list = [kf.frame for kf in self.keyframes]
+        frames = self._cached_frame_list
         pos = bisect.bisect_right(frames, frame_idx)
         active_idx = pos - 1
 
@@ -404,6 +409,8 @@ class PromptSchedule:
 
     def get_unique_prompts(self) -> set[str]:
         """Return all unique positive prompts (for embedding pre-cache)."""
+        if self._cached_unique_prompts is not None:
+            return set(self._cached_unique_prompts)
         prompts = {self.default_prompt} if self.default_prompt else set()
         for kf in self.keyframes:
             if kf.prompt:
@@ -411,11 +418,16 @@ class PromptSchedule:
         for seg in self.segments:
             if seg.prompt:
                 prompts.add(seg.prompt)
-        return prompts
+        self._cached_unique_prompts = prompts
+        return set(prompts)
 
     def get_unique_negatives(self) -> set[str]:
         """Return all unique per-keyframe negative prompts."""
-        return {kf.negative_prompt for kf in self.keyframes if kf.negative_prompt}
+        if self._cached_unique_negatives is not None:
+            return set(self._cached_unique_negatives)
+        negs = {kf.negative_prompt for kf in self.keyframes if kf.negative_prompt}
+        self._cached_unique_negatives = negs
+        return set(negs)
 
     # ── Validation ──────────────────────────────────────────────
 

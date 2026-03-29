@@ -57,7 +57,7 @@ handlers.result = function(resp)
   PT.state.cancel_pending = false
   PT.timers.cancel_safety = PT.stop_timer(PT.timers.cancel_safety)
 
-  if not resp.image or resp.image == "" then
+  if not resp._raw_image and (not resp.image or resp.image == "") then
     PT.reset_loop_state()
     PT.update_status("Error: missing image in result response")
     PT.reset_ui_buttons()
@@ -79,6 +79,7 @@ handlers.result = function(resp)
     PT.save_to_output(resp, meta)
   end
   resp._decoded_bytes = nil  -- release decoded bytes for GC
+  resp._raw_image = nil      -- release binary frame data for GC
   resp.image = nil           -- release base64 string for GC
 
   -- Loop mode: schedule next generation
@@ -146,7 +147,7 @@ end
 
 local function _handle_streaming_frame(resp, progress_label)
   if PT.state.cancel_pending then return end
-  if not resp.image or resp.image == "" then
+  if not resp._raw_image and (not resp.image or resp.image == "") then
     PT.update_status("Error: missing image in frame response")
     return
   end
@@ -179,6 +180,7 @@ local function _handle_streaming_frame(resp, progress_label)
   PT.import_animation_frame(resp)
   PT.save_animation_frame(resp)
   resp._decoded_bytes = nil  -- release decoded bytes for GC
+  resp._raw_image = nil      -- release binary frame data for GC
 end
 
 -- ─── Animation Frame ────────────────────────────────────────
@@ -1065,6 +1067,9 @@ local _drain_timer = nil
 local function _schedule_drain()  -- forward declaration filled below
 end
 
+-- Frame response types eligible for transaction batching
+local _frame_types = { animation_frame = true, audio_reactive_frame = true }
+
 local function _drain_next()
   if #_response_queue == 0 then return end
   -- Guard: extension shutting down (exit() nil'd state or set connected=false)
@@ -1077,23 +1082,82 @@ local function _drain_next()
     return
   end
   -- Process up to DRAIN_BATCH_SIZE messages per tick to clear backlog faster
+  -- Consecutive frame responses are batched into a single app.transaction()
   local batch = math.min(#_response_queue, PT.cfg.DRAIN_BATCH_SIZE)
-  for _ = 1, batch do
+  local had_frames = false
+  local i = 1
+  while i <= batch do
     if #_response_queue == 0 then break end
-    local queued = table.remove(_response_queue, 1)
-    _processing = true
-    local ok, err = pcall(function()
-      local handler = handlers[queued.type]
-      if handler then
-        handler(queued)
-      elseif queued.type and queued.type ~= "" then
-        PT.update_status("Unknown response type: " .. tostring(queued.type))
+    local queued = _response_queue[1]
+    if _frame_types[queued.type] then
+      -- Count consecutive frame responses from front of queue
+      local run = 1
+      while run < (batch - i + 1) and run < #_response_queue do
+        local peek = _response_queue[run + 1]
+        if not peek or not _frame_types[peek.type] then break end
+        run = run + 1
       end
-    end)
-    _processing = false
-    if not ok then
-      pcall(PT.update_status, "Handler error: " .. tostring(err))
+      had_frames = true
+      if run > 1 then
+        -- Batch: wrap consecutive frames in a single outer transaction
+        local frame_items = {}
+        for _ = 1, run do
+          frame_items[#frame_items + 1] = table.remove(_response_queue, 1)
+        end
+        _processing = true
+        local ok, err = pcall(function()
+          app.transaction("SDDj Batch " .. run, function()
+            PT._in_batch_transaction = true
+            for _, fr in ipairs(frame_items) do
+              local handler = handlers[fr.type]
+              if handler then handler(fr) end
+            end
+          end)
+        end)
+        -- Always reset batch flag (even on error)
+        PT._in_batch_transaction = false
+        _processing = false
+        if not ok then
+          pcall(PT.update_status, "Batch handler error: " .. tostring(err))
+        end
+        i = i + run
+      else
+        -- Single frame: normal path (individual transaction inside handler)
+        local single = table.remove(_response_queue, 1)
+        _processing = true
+        local ok, err = pcall(function()
+          local handler = handlers[single.type]
+          if handler then handler(single) end
+        end)
+        _processing = false
+        if not ok then
+          pcall(PT.update_status, "Handler error: " .. tostring(err))
+        end
+        i = i + 1
+      end
+    else
+      -- Non-frame response: dispatch normally
+      local item = table.remove(_response_queue, 1)
+      _processing = true
+      local ok, err = pcall(function()
+        local handler = handlers[item.type]
+        if handler then
+          handler(item)
+        elseif item.type and item.type ~= "" then
+          PT.update_status("Unknown response type: " .. tostring(item.type))
+        end
+      end)
+      _processing = false
+      if not ok then
+        pcall(PT.update_status, "Handler error: " .. tostring(err))
+      end
+      i = i + 1
     end
+  end
+  -- After batch processing with frame data, hint incremental GC
+  -- to prevent large GC pauses from accumulating decoded image bytes
+  if had_frames then
+    collectgarbage("step", 200)
   end
   if #_response_queue > 0 then
     _schedule_drain()

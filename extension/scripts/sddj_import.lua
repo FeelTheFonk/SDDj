@@ -5,9 +5,23 @@
 
 return function(PT)
 
+-- Flag: when true, import_animation_frame skips its inner app.transaction()
+-- because the caller already wrapped the batch in an outer transaction.
+PT._in_batch_transaction = false
+
 -- ─── Decode helper: raw RGBA → Image via Image.bytes, or PNG fallback ───
 
 local function _decode_to_image(resp, decoded_bytes)
+  -- Binary frame fast path: raw bytes already available (no base64 decode needed)
+  if resp._raw_image then
+    local raw = resp._raw_image
+    if resp.width and resp.height then
+      local img = Image(resp.width, resp.height, ColorMode.RGB)
+      img.bytes = raw
+      return img, raw
+    end
+  end
+  -- Existing base64 decode path (text frame fallback)
   local raw = decoded_bytes or PT.base64_decode(resp.image)
   if not raw or #raw == 0 then return nil, nil end
 
@@ -190,7 +204,7 @@ function PT.import_animation_frame(resp)
     end
     if spr == nil then return end  -- no sprite and cancel pending: bail
 
-    app.transaction("SDDj Frame", function()
+    local function _do_frame_import()
       -- First frame: create layer and anchor position
       if resp.frame_index == 0 then
         PT.anim.layer = spr:newLayer()
@@ -225,7 +239,14 @@ function PT.import_animation_frame(resp)
       if layer_valid then
         spr:newCel(PT.anim.layer, spr.frames[frame_num], img, Point(0, 0))
       end
-    end)
+    end
+
+    -- Skip inner transaction when already inside an outer batch transaction
+    if PT._in_batch_transaction then
+      _do_frame_import()
+    else
+      app.transaction("SDDj Frame", _do_frame_import)
+    end
 
     PT.anim.frame_count = PT.anim.frame_count + 1
     PT.mark_frame_dirty()

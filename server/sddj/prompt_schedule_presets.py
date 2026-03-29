@@ -114,6 +114,8 @@ class PromptSchedulePresetsManager:
     def __init__(self, directory: Path) -> None:
         self._dir = Path(directory)
         self._dir.mkdir(parents=True, exist_ok=True)
+        self._preset_cache: dict[str, dict] = {}
+        self._preset_mtimes: dict[str, float] = {}
 
     @staticmethod
     def _validate_name(name: str) -> None:
@@ -143,7 +145,13 @@ class PromptSchedulePresetsManager:
         path = self._dir / f"{name}.json"
         if not path.is_file():
             raise FileNotFoundError(f"Preset not found: {name!r}")
-        return json.loads(path.read_text(encoding="utf-8"))
+        current_mtime = path.stat().st_mtime
+        if name in self._preset_cache and self._preset_mtimes.get(name) == current_mtime:
+            return dict(self._preset_cache[name])
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self._preset_cache[name] = data
+        self._preset_mtimes[name] = current_mtime
+        return dict(data)
 
     def get_preset_resolved(self, name: str, total_frames: int) -> dict:
         """Load a preset and resolve ratio-based keyframes to absolute frames."""
@@ -168,6 +176,8 @@ class PromptSchedulePresetsManager:
             json.dumps(data, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+        self._preset_cache.pop(name, None)
+        self._preset_mtimes.pop(name, None)
         log.info("Saved prompt schedule preset: %s", name)
 
     def delete_preset(self, name: str) -> None:
@@ -179,4 +189,6 @@ class PromptSchedulePresetsManager:
         if not path.is_file():
             raise FileNotFoundError(f"Preset not found: {name!r}")
         path.unlink()
+        self._preset_cache.pop(name, None)
+        self._preset_mtimes.pop(name, None)
         log.info("Deleted prompt schedule preset: %s", name)

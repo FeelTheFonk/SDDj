@@ -6,7 +6,7 @@ return function(PT)
 
 -- ─── Constants ──────────────────────────────────────────────
 
-PT.VERSION = "0.9.73"
+PT.VERSION = "0.9.74"
 
 PT.cfg = {
   DEFAULT_SERVER_URL      = "ws://127.0.0.1:9876/ws",
@@ -22,7 +22,7 @@ PT.cfg = {
   -- Safety limits
   MAX_WS_MESSAGE_SIZE     = 50 * 1024 * 1024,   -- 50 MB (matches server ws_max_size)
   MAX_BASE64_SIZE         = 100 * 1024 * 1024,   -- 100 MB max base64 input
-  DRAIN_BATCH_SIZE        = 4,                    -- messages per drain tick
+  DRAIN_BATCH_SIZE        = 32,                   -- messages per drain tick
   MAX_QUEUE_SIZE          = 2000,                 -- response queue ceiling
 }
 

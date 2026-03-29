@@ -10,6 +10,10 @@ import cv2
 import numpy as np
 from PIL import Image
 
+# ── Cached matrices (computed once, reused across frames) ─────
+_K_INV_CACHE: dict[tuple[int, int, float], np.ndarray] = {}
+_REF_LAB_CACHE: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+
 
 def round8(v: int) -> int:
     """Round to nearest multiple of 8 (SD1.5 VAE requirement), clamped 8–2048."""
@@ -52,6 +56,16 @@ def encode_image_b64(image: Image.Image, compress_level: int = 0) -> str:
     buf = BytesIO()
     image.save(buf, format="PNG", compress_level=compress_level)
     return b64encode(buf.getvalue()).decode("ascii")
+
+
+def encode_image_raw_bytes(image: Image.Image) -> bytes:
+    """Return raw RGBA pixel bytes for binary frame transport.
+
+    No base64, no PNG compression — raw pixels for zero-copy binary WS frames.
+    """
+    if image.mode != "RGBA":
+        image = image.convert("RGBA")
+    return image.tobytes()
 
 
 def encode_image_raw_b64(image: Image.Image) -> str:
@@ -176,11 +190,11 @@ def apply_motion_warp(
     cos_a = math.cos(math.radians(eff_rot)) * inv_zoom
     sin_a = math.sin(math.radians(eff_rot)) * inv_zoom
 
-    # 2x3 affine matrix
+    # 2x3 affine matrix (float32 sufficient for affine precision)
     M = np.array([
         [cos_a, -sin_a, (1.0 - cos_a) * cx + sin_a * cy + eff_tx],
         [sin_a,  cos_a, -sin_a * cx + (1.0 - cos_a) * cy + eff_ty],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     # Convert PIL -> numpy (preserve alpha if present)
     arr = np.array(image)
@@ -241,26 +255,29 @@ def apply_perspective_tilt(
         [1, 0,            0],
         [0, math.cos(ax), -math.sin(ax)],
         [0, math.sin(ax),  math.cos(ax)],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     # Rotation around Y axis (yaw)
     Ry = np.array([
         [ math.cos(ay), 0, math.sin(ay)],
         [ 0,            1, 0],
         [-math.sin(ay), 0, math.cos(ay)],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     R = Ry @ Rx
 
-    # Camera intrinsic matrix (pinhole model)
-    K = np.array([
-        [fv, 0,  cx],
-        [0,  fv, cy],
-        [0,  0,  1],
-    ], dtype=np.float64)
+    # Camera intrinsic matrix + cached inverse
+    cache_key = (w, h, fv)
+    if cache_key in _K_INV_CACHE:
+        K_inv = _K_INV_CACHE[cache_key]
+        K = np.array([[fv, 0, cx], [0, fv, cy], [0, 0, 1]], dtype=np.float32)
+    else:
+        K = np.array([[fv, 0, cx], [0, fv, cy], [0, 0, 1]], dtype=np.float32)
+        K_inv = np.linalg.inv(K)
+        _K_INV_CACHE[cache_key] = K_inv
 
     # Homography: H = K · R · K⁻¹
-    H = K @ R @ np.linalg.inv(K)
+    H = K @ R @ K_inv
 
     arr = np.array(image)
     warped = cv2.warpPerspective(
@@ -300,13 +317,25 @@ def match_color_lab(
         ref_arr = ref_arr[:, :, :3]
 
     img_lab = cv2.cvtColor(img_arr, cv2.COLOR_RGB2LAB).astype(np.float32)
-    ref_lab = cv2.cvtColor(ref_arr, cv2.COLOR_RGB2LAB).astype(np.float32)
+
+    # Cache reference frame LAB stats (same reference across animation frames)
+    ref_key = id(reference)
+    if ref_key in _REF_LAB_CACHE:
+        ref_means, ref_stds = _REF_LAB_CACHE[ref_key]
+    else:
+        ref_lab = cv2.cvtColor(ref_arr, cv2.COLOR_RGB2LAB).astype(np.float32)
+        ref_means = np.array([ref_lab[:, :, ch].mean() for ch in range(3)])
+        ref_stds = np.array([ref_lab[:, :, ch].std() for ch in range(3)])
+        _REF_LAB_CACHE[ref_key] = (ref_means, ref_stds)
+        if len(_REF_LAB_CACHE) > 8:
+            oldest = next(iter(_REF_LAB_CACHE))
+            del _REF_LAB_CACHE[oldest]
 
     for ch in range(3):
         img_mean = img_lab[:, :, ch].mean()
         img_std = img_lab[:, :, ch].std()
-        ref_mean = ref_lab[:, :, ch].mean()
-        ref_std = ref_lab[:, :, ch].std()
+        ref_mean = ref_means[ch]
+        ref_std = ref_stds[ch]
         if img_std < 1e-6 or ref_std < 1e-6:
             continue
         img_lab[:, :, ch] = (

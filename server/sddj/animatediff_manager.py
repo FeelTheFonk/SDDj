@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import logging
-from typing import Optional
+from typing import ClassVar, Optional
 
 import torch
 from diffusers import (
@@ -73,6 +74,8 @@ def strip_peft_from_unet(unet) -> None:
 class AnimateDiffManager:
     """Manages AnimateDiff motion adapter and pipeline lifecycle."""
 
+    _ADAPTER_CACHE: ClassVar[dict[str, object]] = {}
+
     def __init__(self) -> None:
         self.motion_adapter: Optional[MotionAdapter] = None
         self.pipe: Optional[AnimateDiffPipeline] = None
@@ -81,25 +84,25 @@ class AnimateDiffManager:
         self.controlnet_mode: Optional[GenerationMode] = None
         self._peft_stripped: bool = False
         self._lightning_sched_config: Optional[dict] = None
+        self._lightning_scheduler_instance = None
 
     def _apply_lightning_scheduler(self, pipe) -> None:
         """Apply EulerDiscreteScheduler override for AnimateDiff-Lightning.
 
-        Caches the scheduler config on first call to avoid redundant
-        from_config() parsing on subsequent ensure_*() calls.
+        Caches a full scheduler instance on first call and deep-copies it
+        on subsequent calls, avoiding redundant from_config() parsing.
         """
         if not settings.is_animatediff_lightning:
             return
-        if self._lightning_sched_config is None:
-            sched = EulerDiscreteScheduler.from_config(
+        if self._lightning_scheduler_instance is None:
+            self._lightning_scheduler_instance = EulerDiscreteScheduler.from_config(
                 pipe.scheduler.config,
                 timestep_spacing="trailing",
                 beta_schedule="linear",
                 clip_sample=False,
             )
-            self._lightning_sched_config = dict(sched.config)
-            log.info("Lightning scheduler config cached")
-        pipe.scheduler = EulerDiscreteScheduler.from_config(self._lightning_sched_config)
+            log.info("Lightning scheduler instance cached")
+        pipe.scheduler = copy.deepcopy(self._lightning_scheduler_instance)
 
     def _apply_freeu_if_enabled(self, pipe) -> None:
         """Apply FreeU unless explicitly disabled for Lightning."""
@@ -113,8 +116,13 @@ class AnimateDiffManager:
         if self.motion_adapter is not None and self.pipe is not None:
             return self.pipe
 
+        cache_key = f"{settings.animatediff_model}_{getattr(settings, 'animatediff_lightning_steps', '')}"
+
         try:
-            if settings.is_animatediff_lightning:
+            if cache_key in type(self)._ADAPTER_CACHE:
+                log.info("Using cached motion adapter: %s", cache_key)
+                self.motion_adapter = type(self)._ADAPTER_CACHE[cache_key]
+            elif settings.is_animatediff_lightning:
                 step = settings.animatediff_lightning_steps
                 repo = settings.animatediff_model
                 ckpt = f"animatediff_lightning_{step}step_diffusers.safetensors"
@@ -122,6 +130,7 @@ class AnimateDiffManager:
                 self.motion_adapter = MotionAdapter().to("cuda", torch.float16)
                 ckpt_path = hf_hub_download(repo, ckpt, local_files_only=True)
                 self.motion_adapter.load_state_dict(load_file(ckpt_path, device="cuda"))
+                type(self)._ADAPTER_CACHE[cache_key] = self.motion_adapter
             else:
                 log.info("Loading AnimateDiff motion adapter: %s", settings.animatediff_model)
                 self.motion_adapter = MotionAdapter.from_pretrained(
@@ -129,6 +138,7 @@ class AnimateDiffManager:
                     torch_dtype=torch.float16,
                     local_files_only=True,
                 ).to("cuda")
+                type(self)._ADAPTER_CACHE[cache_key] = self.motion_adapter
 
             unet = get_uncompiled_unet(base_pipe)
             if not self._peft_stripped:
@@ -331,4 +341,5 @@ class AnimateDiffManager:
         self.controlnet_mode = None
         self._peft_stripped = False
         self._lightning_sched_config = None
+        self._lightning_scheduler_instance = None
         vram_cleanup()

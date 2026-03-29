@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import atexit
 import itertools
+import json as _json_module
 import logging
 import os
+import struct
 import sys
 import threading
 import time
@@ -49,9 +51,18 @@ from .protocol import (
     ExportMp4ErrorResponse,
 )
 from . import __version__
-from . import lora_manager, palette_manager, ti_manager
+from . import lora_manager, palette_manager
 from .postprocess import warmup_numba
-from .auto_calibrate import recommend_preset
+
+
+def _get_ti_manager():
+    from . import ti_manager
+    return ti_manager
+
+
+def _get_recommend_preset():
+    from .auto_calibrate import recommend_preset
+    return recommend_preset
 
 logging.basicConfig(
     level=logging.INFO,
@@ -325,7 +336,12 @@ def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop,
     the engine thread waiting for completion. This eliminates the GPU idle time
     that occurred when .result(timeout) would stall the diffusion thread for
     every frame callback.
+
+    Progress-type responses are throttled (every 2nd sent) to reduce WS overhead.
+    Frame/result callbacks are never dropped.
     """
+    _progress_counter = [0]
+
     def callback(response) -> None:
         try:
             try:
@@ -333,6 +349,10 @@ def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop,
                     return
             except AttributeError:
                 return
+            if getattr(response, "type", None) == "progress":
+                _progress_counter[0] += 1
+                if _progress_counter[0] % 2 != 0:
+                    return
             asyncio.run_coroutine_threadsafe(_send(websocket, response), loop)
         except Exception as e:
             log.debug("Frame callback send failed: %s", e)
@@ -377,7 +397,7 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             ))
 
         elif req.action == Action.LIST_EMBEDDINGS:
-            items = ti_manager.list_embeddings()
+            items = _get_ti_manager().list_embeddings()
             await _send(websocket, ListResponse(list_type="embeddings", items=items))
 
         elif req.action == Action.GENERATE_PROMPT:
@@ -650,19 +670,27 @@ async def _handle_delete_palette(websocket: WebSocket, req: Request) -> None:
 
 
 async def _handle_cleanup(websocket: WebSocket) -> None:
-    # Best-effort check: locked() is racy but acceptable here — we only use it
-    # as a courtesy guard and never enter the lock afterward.
-    if _generate_lock is not None and _generate_lock.locked():
-        await _send(websocket, ErrorResponse(
-            code="GPU_BUSY",
-            message="Cannot cleanup while a generation is in progress"))
-        return
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, engine.cleanup_resources)
-    await _send(websocket, CleanupResponse(
-        message=result["message"],
-        freed_mb=result["freed_mb"],
-    ))
+    if _generate_lock is None:
+        raise RuntimeError("Server not fully initialized")
+    acquired = False
+    try:
+        try:
+            await asyncio.wait_for(_generate_lock.acquire(), timeout=0.05)
+            acquired = True
+        except asyncio.TimeoutError:
+            await _send(websocket, ErrorResponse(
+                code="GPU_BUSY",
+                message="Cannot cleanup while a generation is in progress"))
+            return
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, engine.cleanup_resources)
+        await _send(websocket, CleanupResponse(
+            message=result["message"],
+            freed_mb=result["freed_mb"],
+        ))
+    finally:
+        if acquired:
+            _generate_lock.release()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -719,7 +747,7 @@ async def _handle_analyze_audio(websocket: WebSocket, req: Request) -> None:
             if parts[0] not in ("global",) and parts[0] not in stem_names:
                 stem_names.append(parts[0])
 
-        recommended = recommend_preset(analysis)
+        recommended = _get_recommend_preset()(analysis)
 
         await _send(websocket, AudioAnalysisResponse(
             duration=analysis.duration,
@@ -1117,10 +1145,24 @@ async def _handle_generate_audio_reactive(
     ))
 
 
+def _json_dumps_compact(obj: dict) -> str:
+    """Compact JSON serialization (no whitespace) for binary frame metadata."""
+    return _json_module.dumps(obj, separators=(",", ":"))
+
+
 async def _send(websocket: WebSocket, response) -> None:
     try:
-        text = response.model_dump_json()
-        await websocket.send_text(text)
+        raw_bytes = getattr(response, '_raw_bytes', None)
+        if raw_bytes is not None:
+            # Binary frame: [uint32 LE meta_len][JSON metadata][raw image bytes]
+            meta = response.model_dump(exclude={"image"})
+            meta_json = _json_dumps_compact(meta)
+            meta_bytes = meta_json.encode("utf-8")
+            await websocket.send_bytes(
+                struct.pack("<I", len(meta_bytes)) + meta_bytes + raw_bytes
+            )
+        else:
+            await websocket.send_text(response.model_dump_json())
     except (WebSocketDisconnect, RuntimeError):
         pass  # Client already disconnected or connection closing
 
