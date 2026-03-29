@@ -7,7 +7,6 @@ import atexit
 import itertools
 import logging
 import os
-import signal
 import sys
 import threading
 import time
@@ -672,13 +671,10 @@ async def _handle_cleanup(websocket: WebSocket) -> None:
 
 async def _handle_shutdown(websocket: WebSocket, ws_id: int) -> None:
     """Graceful server shutdown triggered by client."""
-    # Refuse if a generation is in progress
+    # Cancel any running generation before shutdown (don't refuse)
     if _generate_lock is not None and _generate_lock.locked():
-        await _send(websocket, ErrorResponse(
-            code="GPU_BUSY",
-            message="Cannot shutdown while a generation is in progress",
-        ))
-        return
+        engine.cancel()
+        log.info("WS shutdown: cancelling active generation")
 
     log.info("Shutdown requested by client ws_id=%d", ws_id)
     await _send(websocket, ShutdownResponse())
@@ -1152,8 +1148,12 @@ async def health_check() -> JSONResponse:
 @app.post("/shutdown")
 async def http_shutdown() -> JSONResponse:
     """HTTP shutdown endpoint — used by start.ps1 for graceful stop."""
+    # Cancel any active generation first (never refuse shutdown)
     if _generate_lock is not None and _generate_lock.locked():
-        return JSONResponse({"error": "GPU_BUSY"}, status_code=503)
+        engine.cancel()
+        log.info("HTTP shutdown: cancelling active generation")
+        # Give the generation thread a moment to respond to cancel
+        await asyncio.sleep(1.0)
 
     log.info("HTTP shutdown requested")
     for ws in list(_active_connections):
@@ -1167,24 +1167,13 @@ async def http_shutdown() -> JSONResponse:
     return JSONResponse({"status": "shutting_down"})
 
 
-def _request_shutdown() -> None:
-    """Platform-safe uvicorn shutdown.
+_server_instance: uvicorn.Server | None = None
 
-    On POSIX, SIGINT triggers uvicorn's graceful shutdown handler.
-    On Windows, os.kill(SIGINT) sends CTRL_C_EVENT to the entire console
-    group, which can crash parent processes (Aseprite, PowerShell).
-    We use SIGBREAK on Windows (only targets the current process) and
-    fall back to sys.exit(0) if SIGBREAK is unavailable.
-    """
-    pid = os.getpid()
-    if sys.platform == "win32":
-        sig = getattr(signal, "SIGBREAK", None)
-        if sig is not None:
-            os.kill(pid, sig)
-        else:
-            os._exit(0)
-    else:
-        os.kill(pid, signal.SIGINT)
+
+def _request_shutdown() -> None:
+    """Request uvicorn graceful shutdown — signal-free, platform-safe."""
+    if _server_instance is not None:
+        _server_instance.should_exit = True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1192,13 +1181,16 @@ def _request_shutdown() -> None:
 # ─────────────────────────────────────────────────────────────
 
 def main() -> None:
-    uvicorn.run(
+    global _server_instance
+    config = uvicorn.Config(
         "sddj.server:app",
         host=settings.host,
         port=settings.port,
         log_level="info",
         ws_max_size=50 * 1024 * 1024,  # 50MB max WebSocket message
     )
+    _server_instance = uvicorn.Server(config)
+    _server_instance.run()
 
 
 if __name__ == "__main__":

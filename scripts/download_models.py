@@ -52,6 +52,25 @@ def temporary_online_mode():
 
 
 # ---------------------------------------------------------------------------
+# HF cache probe — zero-network existence check
+# ---------------------------------------------------------------------------
+
+def _hf_file_cached(repo_id: str, filename: str, *, repo_type: str = "model") -> bool:
+    """Return True if *filename* is already in the local HF hub cache."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        result = try_to_load_from_cache(repo_id, filename, repo_type=repo_type)
+        return isinstance(result, str)  # str path → cached; None → not cached
+    except Exception:
+        return False
+
+
+def _hf_snapshot_cached(repo_id: str, sentinel: str = "config.json") -> bool:
+    """Fast probe: True if a snapshot_download repo is already locally cached."""
+    return _hf_file_cached(repo_id, sentinel)
+
+
+# ---------------------------------------------------------------------------
 # Result tracking
 # ---------------------------------------------------------------------------
 
@@ -184,7 +203,11 @@ def download_civitai_model() -> None:
 
 def download_base_configs() -> None:
     label = "SD1.5 architecture configs"
-    print(f"    [DL] Precaching {label} for offline generation...")
+    print(f"    [DL] Precaching {label} for offline generation\u2026")
+    if _hf_snapshot_cached("runwayml/stable-diffusion-v1-5", "model_index.json"):
+        print("      [SKIP] configs already cached.")
+        _record(label, True, "cached")
+        return
     try:
         from huggingface_hub import snapshot_download
 
@@ -207,6 +230,10 @@ def download_base_configs() -> None:
 def download_hyper_sd_lora() -> None:
     label = "Hyper-SD LoRA"
     print(f"    [DL] {label}: ByteDance/Hyper-SD ...")
+    if _hf_file_cached("ByteDance/Hyper-SD", "Hyper-SD15-8steps-CFG-lora.safetensors"):
+        print("      [SKIP] Hyper-SD LoRA already cached.")
+        _record(label, True, "cached")
+        return
     try:
         from huggingface_hub import hf_hub_download
 
@@ -312,6 +339,9 @@ def download_controlnets() -> None:
     }
     all_ok = True
     for name, repo in models.items():
+        if _hf_snapshot_cached(repo):
+            print(f"      [SKIP] {name} already cached.")
+            continue
         print(f"      [DL] {repo} ...")
         try:
             from huggingface_hub import snapshot_download
@@ -331,6 +361,10 @@ def download_controlnets() -> None:
 def download_qrcode_monster() -> None:
     label = "ControlNet QR Code Monster v2"
     print(f"    [DL] {label} ...")
+    if _hf_snapshot_cached("monster-labs/control_v1p_sd15_qrcode_monster"):
+        print(f"      [SKIP] {label} already cached.")
+        _record(label, True, "cached")
+        return
     try:
         from huggingface_hub import snapshot_download
 
@@ -350,6 +384,10 @@ def download_qrcode_monster() -> None:
 def download_animatediff() -> None:
     label = "AnimateDiff motion adapter"
     print(f"    [DL] {label} ...")
+    if _hf_snapshot_cached("ByteDance/AnimateDiff-Lightning"):
+        print(f"      [SKIP] {label} already cached.")
+        _record(label, True, "cached")
+        return
     try:
         from huggingface_hub import snapshot_download
 
@@ -368,13 +406,18 @@ def download_animatediff() -> None:
 def download_animatediff_lightning() -> None:
     label = "AnimateDiff-Lightning checkpoints"
     print(f"    [DL] {label} ...")
+    repo = "ByteDance/AnimateDiff-Lightning"
     try:
         from huggingface_hub import hf_hub_download
 
+        all_cached = True
         with temporary_online_mode():
-            repo = "ByteDance/AnimateDiff-Lightning"
             for step in (2, 4, 8):
                 fn = f"animatediff_lightning_{step}step_diffusers.safetensors"
+                if _hf_file_cached(repo, fn):
+                    print(f"      [SKIP] {fn} already cached.")
+                    continue
+                all_cached = False
                 print(f"      [DL] {fn} ...")
                 hf_hub_download(repo, filename=fn)
                 print(f"      [OK] {fn}")

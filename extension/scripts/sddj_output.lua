@@ -322,6 +322,19 @@ function PT.apply_metadata(meta)
   if meta.fixed_subject then
     PT.dlg:modify{ id = "fixed_subject", text = meta.fixed_subject }
   end
+  if meta.subject_position then
+    pcall(PT.dlg.modify, PT.dlg, { id = "subject_position", option = meta.subject_position })
+  end
+  -- Lock Custom state
+  if meta.lock_custom ~= nil then
+    PT.dlg:modify{ id = "lock_custom", selected = meta.lock_custom }
+  end
+  if meta.fixed_custom then
+    PT.dlg:modify{ id = "fixed_custom", text = meta.fixed_custom }
+  end
+  if meta.custom_position then
+    pcall(PT.dlg.modify, PT.dlg, { id = "custom_position", option = meta.custom_position })
+  end
 
   PT.update_status("Metadata loaded (seed=" .. tostring(meta.seed or "?") .. ")")
 end
@@ -353,11 +366,16 @@ function PT.build_generation_meta(resp)
     meta.post_process = req.post_process
     meta.output_size = tostring(req.width or 512) .. "x" .. tostring(req.height or 512)
   end
-  -- Lock Subject state for reproducibility
+  -- Lock Subject/Custom state for reproducibility
   if PT.dlg then
     meta.lock_subject = PT.dlg.data.lock_subject or false
     local subj = PT.dlg.data.fixed_subject or ""
     if subj ~= "" then meta.fixed_subject = subj end
+    meta.subject_position = PT.dlg.data.subject_position or "prefix"
+    meta.lock_custom = PT.dlg.data.lock_custom or false
+    local cust = PT.dlg.data.fixed_custom or ""
+    if cust ~= "" then meta.fixed_custom = cust end
+    meta.custom_position = PT.dlg.data.custom_position or "suffix"
   end
   return meta
 end
@@ -402,11 +420,16 @@ function PT.build_animation_meta(resp)
       meta.modulation_preset = req.modulation_preset
     end
   end
-  -- Lock Subject state for reproducibility
+  -- Lock Subject/Custom state for reproducibility
   if PT.dlg then
     meta.lock_subject = PT.dlg.data.lock_subject or false
     local subj = PT.dlg.data.fixed_subject or ""
     if subj ~= "" then meta.fixed_subject = subj end
+    meta.subject_position = PT.dlg.data.subject_position or "prefix"
+    meta.lock_custom = PT.dlg.data.lock_custom or false
+    local cust = PT.dlg.data.fixed_custom or ""
+    if cust ~= "" then meta.fixed_custom = cust end
+    meta.custom_position = PT.dlg.data.custom_position or "suffix"
   end
   return meta
 end

@@ -15,6 +15,9 @@ local _FIELD_SCHEMA = {
   { "negative_prompt",     "text" },
   { "seed",                "text" },
   { "fixed_subject",       "text" },
+  { "fixed_custom",        "text" },
+  { "subject_position",    "option" },
+  { "custom_position",     "option" },
   { "mode",                "option" },
   { "output_size",         "option" },
   { "output_mode",         "option" },
@@ -30,6 +33,7 @@ local _FIELD_SCHEMA = {
   { "randomness",          "value" },
   { "use_neg_ti",          "bool" },
   { "lock_subject",        "bool" },
+  { "lock_custom",         "bool" },
   { "randomize_before",    "bool" },
   { "loop_check",          "bool" },
   { "random_loop_check",   "bool" },
@@ -292,6 +296,12 @@ function PT.apply_settings(s)
     local restored_dsl = dlg.data.generate_prompt_schedule_dsl or ""
     if restored_dsl ~= "" then PT.update_schedule_state(restored_dsl) end
   end
+
+  -- Cache encoded JSON for exit() fallback (covers crash-before-any-save edge case)
+  pcall(function()
+    local ok, encoded = pcall(PT.json.encode, s)
+    if ok then PT._last_encoded_settings = encoded end
+  end)
 end
 
 end

@@ -576,6 +576,10 @@ handlers.preset = function(resp)
   end
   if d.lock_subject ~= nil then PT.dlg:modify{ id = "lock_subject", selected = d.lock_subject } end
   if d.fixed_subject then PT.dlg:modify{ id = "fixed_subject", text = d.fixed_subject } end
+  if d.subject_position then pcall(PT.dlg.modify, PT.dlg, { id = "subject_position", option = d.subject_position }) end
+  if d.lock_custom ~= nil then PT.dlg:modify{ id = "lock_custom", selected = d.lock_custom } end
+  if d.fixed_custom then PT.dlg:modify{ id = "fixed_custom", text = d.fixed_custom } end
+  if d.custom_position then pcall(PT.dlg.modify, PT.dlg, { id = "custom_position", option = d.custom_position }) end
   if d.randomize_before ~= nil then PT.dlg:modify{ id = "randomize_before", selected = d.randomize_before } end
   PT.update_status("Preset '" .. tostring(resp.name or "?") .. "' loaded")
 end
@@ -1026,6 +1030,8 @@ function PT.start_refresh_timer()
   local ok, t = pcall(Timer, {
     interval = 0.033,  -- ~30fps visual refresh
     ontick = function()
+      -- Guard: extension shutting down
+      if not PT.dlg then _frame_dirty = false; return end
       if _frame_dirty then
         _frame_dirty = false
         pcall(app.refresh)
@@ -1061,7 +1067,11 @@ end
 
 local function _drain_next()
   if #_response_queue == 0 then return end
-  -- If cancel was requested between ticks, flush remaining queue
+  -- Guard: extension shutting down (exit() nil'd state or set connected=false)
+  if not PT.state or not PT.state.connected then
+    for i = #_response_queue, 1, -1 do _response_queue[i] = nil end
+    return
+  end
   if PT.state.cancel_pending then
     PT.clear_response_queue()
     return

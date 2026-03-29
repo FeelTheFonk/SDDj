@@ -92,15 +92,67 @@ function PT.build_post_process()
   return pp
 end
 
--- ─── Lock Subject ─────────────────────────────────────────
+-- ─── Locked Fields & Prompt Injection ─────────────────────
 
 function PT.build_locked_fields()
   if not PT.dlg then return {} end
   local d = PT.dlg.data
-  if not d.lock_subject then return {} end
-  local subj = (d.fixed_subject or ""):match("^%s*(.-)%s*$")  -- trim
-  if subj == "" then return {} end
-  return { subject = subj }
+  local fields = {}
+  if d.lock_subject then
+    local subj = (d.fixed_subject or ""):match("^%s*(.-)%s*$")
+    if subj ~= "" then fields.subject = subj end
+  end
+  if d.lock_custom then
+    local cust = (d.fixed_custom or ""):match("^%s*(.-)%s*$")
+    if cust ~= "" then fields.custom = cust end
+  end
+  return fields
+end
+
+-- Inject locked fields into a prompt string based on position settings.
+-- Returns the effective prompt with Subject/Custom prepended or appended.
+function PT.inject_locked_prompt(prompt)
+  if not PT.dlg then return prompt end
+  local d = PT.dlg.data
+  local result = prompt or ""
+
+  -- Collect insertions by position
+  local prefixes = {}
+  local suffixes = {}
+
+  -- Subject
+  if d.lock_subject then
+    local subj = (d.fixed_subject or ""):match("^%s*(.-)%s*$")
+    if subj ~= "" and not result:find(subj, 1, true) then
+      local pos = d.subject_position or "prefix"
+      if pos == "prefix" then
+        prefixes[#prefixes + 1] = subj
+      elseif pos == "suffix" then
+        suffixes[#suffixes + 1] = subj
+      end
+      -- "off" = don't inject
+    end
+  end
+
+  -- Custom
+  if d.lock_custom then
+    local cust = (d.fixed_custom or ""):match("^%s*(.-)%s*$")
+    if cust ~= "" and not result:find(cust, 1, true) then
+      local pos = d.custom_position or "suffix"
+      if pos == "prefix" then
+        prefixes[#prefixes + 1] = cust
+      elseif pos == "suffix" then
+        suffixes[#suffixes + 1] = cust
+      end
+    end
+  end
+
+  -- Build final prompt (avoid trailing/leading commas when result is empty)
+  local parts = {}
+  if #prefixes > 0 then parts[#parts + 1] = table.concat(prefixes, ", ") end
+  if result ~= "" then parts[#parts + 1] = result end
+  if #suffixes > 0 then parts[#parts + 1] = table.concat(suffixes, ", ") end
+  return table.concat(parts, ", ")
 end
 
 -- ─── Prompt Schedule Helper ───────────────────────────────
@@ -146,16 +198,9 @@ function PT.build_audio_reactive_request()
   local tag_name = d.audio_tag or ""
   if tag_name == "" then tag_name = nil end
 
-  -- Inject fixed_subject into prompt for audio-linked prompt generation.
-  -- The server parses base_prompt to extract and lock the subject; ensure
-  -- the user's explicit subject override is present in the prompt text.
+  -- Inject locked fields (Subject/Custom) based on position settings
   local locked = PT.build_locked_fields()
-  local effective_prompt = d.prompt
-  if locked.subject then
-    if not effective_prompt:find(locked.subject, 1, true) then
-      effective_prompt = locked.subject .. ", " .. effective_prompt
-    end
-  end
+  local effective_prompt = PT.inject_locked_prompt(d.prompt)
 
   -- Build modulation slots from UI (6 slots)
   local slots = {}
@@ -282,7 +327,7 @@ function PT.build_generate_request()
   local gw, gh = PT.parse_size()
   local req = {
     action           = "generate",
-    prompt           = PT.dlg.data.prompt,
+    prompt           = PT.inject_locked_prompt(PT.dlg.data.prompt),
     negative_prompt  = PT.dlg.data.negative_prompt,
     mode             = PT.dlg.data.mode,
     width            = gw,
@@ -309,14 +354,8 @@ function PT.build_animation_request()
   local tag_name = d.anim_tag or ""
   if tag_name == "" then tag_name = nil end
 
-  -- Lock Subject: inject fixed subject into animation prompt
-  local locked = PT.build_locked_fields()
-  local effective_prompt = d.prompt
-  if locked.subject then
-    if not effective_prompt:find(locked.subject, 1, true) then
-      effective_prompt = locked.subject .. ", " .. effective_prompt
-    end
-  end
+  -- Inject locked fields (Subject/Custom) based on position settings
+  local effective_prompt = PT.inject_locked_prompt(d.prompt)
 
   -- Prompt schedule via global DSL
   local fps = 24

@@ -216,6 +216,10 @@ local function build_tab_generate()
         randomness = dlg.data.randomness,
         lock_subject = dlg.data.lock_subject,
         fixed_subject = dlg.data.fixed_subject,
+        subject_position = dlg.data.subject_position,
+        lock_custom = dlg.data.lock_custom,
+        fixed_custom = dlg.data.fixed_custom,
+        custom_position = dlg.data.custom_position,
         randomize_before = dlg.data.randomize_before,
       }
       PT.send({ action = "save_preset", preset_name = pname, preset_data = preset_data })
@@ -313,6 +317,30 @@ local function build_tab_generate()
     label = "Subject",
     text = "",
     hexpand = true,
+  }
+  dlg:combobox{
+    id = "subject_position",
+    label = "Position",
+    options = { "prefix", "suffix", "off" },
+    option = "prefix",
+  }
+
+  dlg:check{
+    id = "lock_custom",
+    label = "Lock Custom",
+    selected = false,
+  }
+  dlg:entry{
+    id = "fixed_custom",
+    label = "Custom",
+    text = "",
+    hexpand = true,
+  }
+  dlg:combobox{
+    id = "custom_position",
+    label = "Position",
+    options = { "prefix", "suffix", "off" },
+    option = "suffix",
   }
 
   dlg:entry{
@@ -500,7 +528,6 @@ local function build_tab_postprocess()
     id = "pixel_size",
     label = "Target (128px)",
     min = 8, max = 512, value = 128,
-    enabled = false,
     onchange = onchange_sync("pixel_size"),
   }
 
@@ -520,7 +547,6 @@ local function build_tab_postprocess()
     id = "colors",
     label = "Colors (32)",
     min = 2, max = 256, value = 32,
-    enabled = false,
     onchange = onchange_sync("colors"),
   }
 
@@ -529,7 +555,6 @@ local function build_tab_postprocess()
     label = "Quantize",
     options = { "kmeans", "median_cut", "octree" },
     option = "kmeans",
-    enabled = false,
   }
 
   dlg:combobox{
@@ -537,7 +562,6 @@ local function build_tab_postprocess()
     label = "Dithering",
     options = { "none", "floyd_steinberg", "bayer_2x2", "bayer_4x4", "bayer_8x8" },
     option = "none",
-    enabled = false,
   }
 
   dlg:combobox{
@@ -557,7 +581,6 @@ local function build_tab_postprocess()
     label = "Preset",
     options = { "pico8" },
     option = "pico8",
-    enabled = false,
   }
 
   dlg:entry{
@@ -565,7 +588,6 @@ local function build_tab_postprocess()
     label = "Custom Hex",
     text = "",
     hexpand = true,
-    enabled = false,
   }
 
   dlg:button{
@@ -610,6 +632,14 @@ local function build_tab_postprocess()
     label = "Remove BG",
     selected = false,
   }
+
+  -- Initial disabled state (must be set AFTER widget creation — Aseprite bug)
+  dlg:modify{ id = "pixel_size", enabled = false }
+  dlg:modify{ id = "colors", enabled = false }
+  dlg:modify{ id = "quantize_method", enabled = false }
+  dlg:modify{ id = "dither", enabled = false }
+  dlg:modify{ id = "palette_name", enabled = false }
+  dlg:modify{ id = "palette_custom_colors", enabled = false }
 end
 
 -- ─── Tab: Animation ─────────────────────────────────────────
@@ -685,8 +715,10 @@ local function build_tab_animation()
     id = "anim_freeinit_iters",
     label = "FreeInit Iters",
     min = 1, max = 3, value = 2,
-    enabled = false,
   }
+
+  -- Initial disabled state (must be set AFTER widget creation — Aseprite bug)
+  dlg:modify{ id = "anim_freeinit_iters", enabled = false }
 end
 
 -- ─── Tab: Audio ───────────────────────────────────────────
@@ -790,7 +822,6 @@ local function build_tab_audio()
     id = "audio_freeinit_iters",
     label = "FreeInit Iters",
     min = 1, max = 3, value = 2,
-    enabled = false,
   }
 
   -- Choreography
@@ -959,7 +990,6 @@ local function build_tab_audio()
     label = "Expr Preset",
     options = { "(manual)" },
     option = "(manual)",
-    enabled = false,
     onchange = function()
       local sel = dlg.data.audio_expr_preset
       if sel == "(manual)" then return end
@@ -971,7 +1001,7 @@ local function build_tab_audio()
 
   -- Expression entry fields (data-driven)
   for _, e in ipairs(EXPR_FIELDS) do
-    dlg:entry{ id = e[1], label = e[2], text = "", hexpand = true, enabled = false }
+    dlg:entry{ id = e[1], label = e[2], text = "", hexpand = true }
   end
 
   dlg:check{
@@ -995,7 +1025,6 @@ local function build_tab_audio()
   dlg:button{
     id = "export_mp4_btn",
     text = "Export MP4",
-    enabled = false,
     hexpand = true,
     onclick = function()
       local out_dir = PT.audio.last_output_dir or PT.anim.output_dir
@@ -1019,6 +1048,14 @@ local function build_tab_audio()
       })
     end,
   }
+
+  -- Initial disabled state (must be set AFTER widget creation — Aseprite bug)
+  dlg:modify{ id = "audio_freeinit_iters", enabled = false }
+  dlg:modify{ id = "audio_expr_preset", enabled = false }
+  for _, e in ipairs(EXPR_FIELDS) do
+    dlg:modify{ id = e[1], enabled = false }
+  end
+  dlg:modify{ id = "export_mp4_btn", enabled = false }
 end
 
 -- ─── Tab: QR Code ───────────────────────────────────────────
@@ -1267,7 +1304,6 @@ local function build_actions_panel()
   dlg:button{
     id = "action_btn",
     text = "GENERATE",
-    enabled = false,
     hexpand = true,
     onclick = function()
       if PT.state.generating or PT.state.animating then return end
@@ -1311,7 +1347,6 @@ local function build_actions_panel()
   dlg:button{
     id = "cancel_btn",
     text = "CANCEL",
-    enabled = false,
     hexpand = true,
     onclick = function()
       PT.state.pending_action = nil
@@ -1394,6 +1429,9 @@ local function build_actions_panel()
     option = "random",
   }
 
+  -- Initial disabled state (must be set AFTER widget creation — Aseprite bug)
+  dlg:modify{ id = "action_btn", enabled = false }
+  dlg:modify{ id = "cancel_btn", enabled = false }
 end
 
 -- ─── Main Build ─────────────────────────────────────────────
@@ -1404,7 +1442,26 @@ function PT.build_dialog()
     resizeable = true,
     onclose = function()
       pcall(PT.save_settings)
-      pcall(PT.disconnect)
+      -- Stop all PT.timers (heartbeat, connect, gen_timeout, loop, etc.)
+      if PT.timers then
+        for key, timer in pairs(PT.timers) do
+          if timer then pcall(function() timer:stop() end) end
+          PT.timers[key] = nil
+        end
+      end
+      -- Stop module-private timers (not in PT.timers table)
+      if PT.stop_refresh_timer then pcall(PT.stop_refresh_timer) end
+      if PT.clear_response_queue then pcall(PT.clear_response_queue) end
+      -- Disarm connection + WebSocket immediately
+      if PT.state then
+        PT.state.connected = false
+        PT.state.connecting = false
+      end
+      if PT.reconnect then
+        PT.reconnect.manual_disconnect = true
+      end
+      -- Abandon WebSocket reference (no close, no sendText)
+      PT.ws_handle = nil
       PT.dlg = nil
     end,
   }

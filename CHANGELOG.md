@@ -1,4 +1,31 @@
 # Changelog
+## [0.9.73] — 2026-03
+### Lockable Fields, Prefix/Suffix Injection & Widget Freeze Fix
+New custom lockable field with positional prompt injection, HuggingFace cache bypass, and systemic fix for Aseprite's `enabled = false` constructor bug affecting 38 widgets.
+
+#### Added
+- **Custom lockable field**: New "Custom" entry below Subject in the Generate tab — lockable via checkbox, supports free-text (LoRA triggers, style tags, etc.). Full pipeline: dialog → settings → request → handler → metadata.
+- **Prefix/Suffix position selector**: Both Subject and Custom locked fields now have a position combobox (`prefix` / `suffix` / `off`) controlling where the locked text is injected into the prompt.
+- **Centralized `inject_locked_prompt()`**: Single function handles prefix/suffix injection for all 3 request builders (generate, animation, audio), replacing ad-hoc subject injection.
+- **HuggingFace cache probe**: `_hf_file_cached()` / `_hf_snapshot_cached()` using `try_to_load_from_cache()` — all 9 download functions now skip network calls when models are already cached. Eliminates unnecessary HTTP HEAD requests on every `setup.ps1` run.
+
+#### Fixed
+- **Post-processing sliders frozen (CRITICAL)**: Aseprite's `dlg:slider` / `dlg:combobox` / `dlg:entry` / `dlg:button` with `enabled = false` in the constructor creates permanently unresponsive widgets. Moved all 13 constructor occurrences across 4 tab builders to `dlg:modify` calls after widget creation. Affects: `pixel_size`, `colors`, `quantize_method`, `dither`, `palette_name`, `palette_custom_colors`, `anim_freeinit_iters`, `audio_freeinit_iters`, `audio_expr_preset`, all EXPR_FIELDS entries, `export_mp4_btn`, `action_btn`, `cancel_btn`.
+- **Empty prompt comma artifacts**: `inject_locked_prompt()` with an empty prompt and active prefix/suffix produced trailing/leading commas (e.g. `"cat, "` instead of `"cat"`). Replaced concatenation with parts-based join.
+- **Aseprite freeze on exit (CRITICAL)**: `ws_handle:close()` in `onclose` and `exit()` performed a blocking WebSocket close handshake on the UI thread. If the server was shutting down or unresponsive, Aseprite froze indefinitely. Replaced with fire-and-forget `ws_handle = nil` — OS tears down the TCP socket on process exit.
+- **Server PowerShell window persisted after exit**: `-NoExit` flag on the server's PowerShell window kept it alive after Python exited. Removed.
+- **Launcher never detected Aseprite closing**: `Read-Host` blocked the launcher indefinitely, requiring manual Enter press. Replaced with a 500ms-polling process monitor that auto-triggers shutdown when Aseprite exits, server crashes, or user presses any key.
+- **Server shutdown fragile on Windows**: `_request_shutdown()` used `os.kill(SIGBREAK)` with `os._exit(0)` fallback — non-deterministic and platform-dependent. Replaced with `uvicorn.Server.should_exit = True` (documented, signal-free, platform-safe).
+- **Heartbeat race during shutdown**: Timer callbacks could fire between `onclose` (dialog destroyed) and `exit()` (timers stopped), causing the pong watchdog to call `ws_handle:close()` and freeze Aseprite. Fixed by stopping all timers and disarming connection state in `onclose`.
+- **Settings fallback non-atomic write**: `exit()` fallback settings save used `os.remove` + `io.open` (data loss on crash). Replaced with `.tmp` + `os.rename` atomic pattern, matching `save_settings()`.
+
+#### Improved
+- **`exit()` teardown ordering**: Reordered from (cancel → save → shutdown → close → timers → cleanup) to (timers → disarm → cancel → save → shutdown → abandon → cleanup). Timers stopped first prevents all callback-during-teardown races.
+- **Launcher monitoring**: Detects server crashes with exit code reporting, handles missing Aseprite gracefully (keypress fallback).
+
+#### Cleanup
+- Removed `import signal` from `server.py` (no longer needed).
+- Removed blank line artifact in imports.
 
 ## [0.9.72] — 2026-03
 ### Prompt Schedule DSL Hardening & Exhaustive Testing

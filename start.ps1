@@ -77,7 +77,7 @@ if ($running) {
         "`$Host.UI.RawUI.WindowTitle='SDDj Server'; Set-Location -LiteralPath `"$ServerDir`"; uv run run.py"
     ))
     
-    $serverProc = Start-Process pwsh -ArgumentList "-NoExit", "-EncodedCommand", "$EncodedCommand" -WindowStyle Minimized -PassThru
+    $serverProc = Start-Process pwsh -ArgumentList "-EncodedCommand", "$EncodedCommand" -WindowStyle Minimized -PassThru
 
     Write-Host "  ${D}Waiting for engine to load (~30s load + ~30s warmup)...${R}"
 
@@ -111,7 +111,7 @@ Write-Host ""
 $asePath = Join-Path -Path (Join-Path -Path $Root -ChildPath "bin\aseprite") -ChildPath "aseprite.exe"
 if (Test-Path -Path $asePath) {
     Write-Host "  ${D}Launching Aseprite...${R}"
-    $null = Start-Process -FilePath $asePath
+    $aseProc = Start-Process -FilePath $asePath -PassThru
     Ok "Aseprite launched"
 } else {
     Warn "Aseprite not found at bin\aseprite"
@@ -120,7 +120,27 @@ if (Test-Path -Path $asePath) {
 
 Write-Host "`n  ${D}$('-' * 36)${R}`n  ${W}Server:${R}  ${C}ws://127.0.0.1:9876/ws${R}"
 Write-Host "  ${W}Action:${R}  Connect in SDDj dialog`n  ${D}$('-' * 36)${R}`n"
-Read-Host "  Press Enter to stop the server"
+
+# --- Monitor: auto-shutdown when Aseprite exits ---
+Write-Host "  ${D}Monitoring... (close Aseprite or press any key to stop)${R}"
+while ($true) {
+    Start-Sleep -Milliseconds 500
+    # Aseprite exited?
+    if ($null -ne $aseProc -and $aseProc.HasExited) {
+        Write-Host "`n  ${D}Aseprite closed  shutting down...${R}"
+        break
+    }
+    # Server crashed?
+    if ($null -ne $serverProc -and $serverProc.HasExited) {
+        Warn "Server process exited unexpectedly (code $($serverProc.ExitCode))"
+        break
+    }
+    # User pressed a key?
+    if ([Console]::KeyAvailable) {
+        $null = [Console]::ReadKey($true)
+        break
+    }
+}
 
 # --- Shutdown (SOTA Graceful + Surgical Kill) ---
 Write-Host "`n  ${D}Stopping server...${R}"

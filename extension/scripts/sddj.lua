@@ -89,34 +89,7 @@ function exit(plugin)
   local pt = _PT
   _PT = nil  -- prevent re-entry from nested event pumping
 
-  -- Cancel any in-progress generation
-  if pt.state and (pt.state.generating or pt.state.animating) then
-    pcall(function() pt.send({ action = "cancel" }) end)
-  end
-
-  -- Save settings before exit
-  if pt.save_settings then pcall(pt.save_settings) end
-  -- Fallback: if dlg was already nil (destroyed by onclose), write cached settings
-  if not pt.dlg and pt._last_encoded_settings and pt.cfg then
-    pcall(function()
-      pcall(os.remove, pt.cfg.SETTINGS_FILE)
-      local f = io.open(pt.cfg.SETTINGS_FILE, "w")
-      if f then f:write(pt._last_encoded_settings); f:close() end
-    end)
-  end
-
-  -- Send shutdown to server (auto-stop)
-  if pt.state and pt.state.connected and pt.ws_handle then
-    pcall(function() pt.ws_handle:sendText('{"action":"shutdown"}') end)
-  end
-
-  -- Disconnect WebSocket
-  if pt.ws_handle then
-    pcall(function() pt.ws_handle:close() end)
-    pt.ws_handle = nil
-  end
-
-  -- Stop all named timers
+  -- 1. Stop ALL timers FIRST (prevent callbacks during teardown)
   if pt.timers then
     for key, timer in pairs(pt.timers) do
       if timer then pcall(function() timer:stop() end) end
@@ -124,7 +97,47 @@ function exit(plugin)
     end
   end
 
-  -- Clean up session temp files
+  -- 1b. Stop module-private timers (not in PT.timers table)
+  -- _refresh_timer (30fps app.refresh) and _drain_timer (1ms response drain)
+  -- are local variables in sddj_handler.lua, only reachable via these functions.
+  if pt.stop_refresh_timer then pcall(pt.stop_refresh_timer) end
+  if pt.clear_response_queue then pcall(pt.clear_response_queue) end
+
+  -- 2. Disarm connection state (prevents heartbeat/reconnect callbacks)
+  if pt.state then
+    pt.state.connected = false
+    pt.state.connecting = false
+  end
+  if pt.reconnect then
+    pt.reconnect.manual_disconnect = true
+  end
+
+  -- 4. Save settings (primary path via dlg, fallback via cached JSON)
+  if pt.save_settings then pcall(pt.save_settings) end
+  if not pt.dlg and pt._last_encoded_settings and pt.cfg then
+    pcall(function()
+      -- Atomic fallback: .tmp then rename (matches save_settings pattern)
+      local tmp = pt.cfg.SETTINGS_FILE .. ".tmp"
+      local f = io.open(tmp, "w")
+      if f then
+        f:write(pt._last_encoded_settings); f:close()
+        pcall(os.remove, pt.cfg.SETTINGS_FILE)
+        os.rename(tmp, pt.cfg.SETTINGS_FILE)
+      end
+    end)
+  end
+
+  -- 5. (removed) — NO sendText(shutdown) or sendText(cancel) at exit.
+  -- Server detects client disconnect via TCP FIN/RST (server.py l.266-269).
+  -- start.ps1 handles graceful shutdown via HTTP POST /shutdown.
+  -- sendText() can block indefinitely on Windows Winsock if TCP buffer full
+  -- or server unreachable — this was the root cause of the Aseprite hang.
+
+  -- 6. Abandon WebSocket — do NOT call close() (may block indefinitely)
+  -- OS tears down TCP socket on process exit; server detects disconnect.
+  pt.ws_handle = nil
+
+  -- 7. Clean up session temp files
   if pt.cleanup_session_temp_files then
     pcall(pt.cleanup_session_temp_files)
   end
