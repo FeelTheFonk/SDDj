@@ -134,47 +134,45 @@ function PT.sync_ui_conditional_states()
     pcall(dlg.modify, dlg, { id = "randomness", label = "Randomness (" .. v .. suffix .. ")" })
   end
 
-  -- Post Process
-  -- pcall(dlg.modify, dlg, { id = "pixel_size", enabled = (d.pixelate == true) }) -- Aseprite slider disabled bug
+  -- Post Process (visibility: works around Aseprite slider disabled rendering bug)
+  pcall(dlg.modify, dlg, { id = "pixel_size", visible = (d.pixelate == true) })
   
   local qen = (d.quantize_enabled == true)
-  -- pcall(dlg.modify, dlg, { id = "colors", enabled = qen }) -- Aseprite slider disabled bug
-  pcall(dlg.modify, dlg, { id = "quantize_method", enabled = qen })
-  pcall(dlg.modify, dlg, { id = "dither", enabled = qen })
+  pcall(dlg.modify, dlg, { id = "colors", visible = qen })
+  pcall(dlg.modify, dlg, { id = "quantize_method", visible = qen })
+  pcall(dlg.modify, dlg, { id = "dither", visible = qen })
   
   local pm = d.palette_mode or "auto"
-  pcall(dlg.modify, dlg, { id = "palette_name", enabled = (pm == "preset") })
-  pcall(dlg.modify, dlg, { id = "palette_custom_colors", enabled = (pm == "custom") })
+  pcall(dlg.modify, dlg, { id = "palette_name", visible = (pm == "preset") })
+  pcall(dlg.modify, dlg, { id = "palette_custom_colors", visible = (pm == "custom") })
 
-  -- Animation / Audio
-  if d.anim_freeinit ~= nil then
-    -- pcall(dlg.modify, dlg, { id = "anim_freeinit_iters", enabled = (d.anim_freeinit == true) })
-  end
-  if d.audio_freeinit ~= nil then
-    -- pcall(dlg.modify, dlg, { id = "audio_freeinit_iters", enabled = (d.audio_freeinit == true) })
-  end
+  -- Animation / Audio (visibility fix)
+  pcall(dlg.modify, dlg, { id = "anim_freeinit_iters", visible = (d.anim_freeinit == true) })
+  pcall(dlg.modify, dlg, { id = "audio_freeinit_iters", visible = (d.audio_freeinit == true) })
   
-  if d.audio_use_expressions ~= nil then
-    local expr_en = (d.audio_use_expressions == true)
-    pcall(dlg.modify, dlg, { id = "audio_expr_preset", enabled = expr_en })
+  -- Audio advanced sections visibility
+  if d.audio_advanced ~= nil then
+    local show = (d.audio_advanced == true)
+    pcall(dlg.modify, dlg, { id = "audio_use_expressions", visible = show })
+    pcall(dlg.modify, dlg, { id = "audio_random_seed", visible = show })
+    pcall(dlg.modify, dlg, { id = "audio_choreography", visible = show })
+    
+    local show_expr = show and (d.audio_use_expressions == true)
+    pcall(dlg.modify, dlg, { id = "audio_expr_preset", visible = show_expr })
     for _, field in ipairs(EXPR_FIELDS) do
-      pcall(dlg.modify, dlg, { id = field[1], enabled = expr_en })
+      pcall(dlg.modify, dlg, { id = field[1], visible = show_expr })
     end
   end
 
+  -- Modulation slots (full visibility toggle including slider widgets)
   local count = d.mod_slot_count or 2
   for i = 1, 6 do
-    local en = (i <= count)
+    local vis = (i <= count)
     local p = "mod" .. i .. "_"
     pcall(function()
-      dlg:modify{ id = p .. "enable", enabled = en }
-      dlg:modify{ id = p .. "invert", enabled = en }
-      dlg:modify{ id = p .. "source", enabled = en }
-      dlg:modify{ id = p .. "target", enabled = en }
-      -- dlg:modify{ id = p .. "min", enabled = en } -- sliders disable bug
-      -- dlg:modify{ id = p .. "max", enabled = en }
-      -- dlg:modify{ id = p .. "attack", enabled = en }
-      -- dlg:modify{ id = p .. "release", enabled = en }
+      for _, s in ipairs({ "enable", "invert", "source", "target", "min", "max", "attack", "release" }) do
+        dlg:modify{ id = p .. s, visible = vis }
+      end
     end)
   end
   
@@ -206,6 +204,7 @@ local function build_connection_section()
   dlg:button{
     id = "connect_btn",
     text = "Connect",
+    hexpand = true,
     onclick = function()
       if PT.state.connected then
         PT.disconnect()
@@ -215,6 +214,7 @@ local function build_connection_section()
       end
     end,
   }
+  dlg:newrow()
   dlg:button{
     id = "refresh_btn",
     text = "Refresh Resources",
@@ -317,7 +317,9 @@ local function build_tab_generate()
     onclick = function()
       local sel = dlg.data.preset_name
       if sel and sel ~= "(none)" then
-        PT.send({ action = "delete_preset", preset_name = sel })
+        if app.alert{ title = "Delete Preset", text = "Delete preset '" .. sel .. "'?", buttons = { "Delete", "Cancel" } } == 1 then
+          PT.send({ action = "delete_preset", preset_name = sel })
+        end
       end
     end,
   }
@@ -351,16 +353,7 @@ local function build_tab_generate()
     },
     option = "txt2img",
     onchange = function()
-      local m = dlg.data.mode
-      if m == "inpaint" then
-        dlg:modify{ id = "mode", label = "Mode (needs mask)" }
-      elseif m == "controlnet_qrcode" then
-        dlg:modify{ id = "mode", label = "Mode (QR)" }
-      elseif m == "img2img" or m:find("controlnet_") then
-        dlg:modify{ id = "mode", label = "Mode (needs layer)" }
-      else
-        dlg:modify{ id = "mode", label = "Mode" }
-      end
+      PT.sync_ui_conditional_states()
     end,
   }
 
@@ -504,12 +497,11 @@ local function build_tab_generate()
 
   dlg:separator{ text = "Prompt Schedule" }
 
-  -- DSL text entry (shows first line / summary; edit via popup)
+  -- DSL text entry (data store, edit via popup)
   dlg:entry{
     id = "generate_prompt_schedule_dsl",
-    label = "Schedule",
     text = "",
-    hexpand = true,
+    visible = false,
     onchange = function()
       PT.update_schedule_state(dlg.data.generate_prompt_schedule_dsl)
     end,
@@ -540,7 +532,8 @@ local function build_tab_generate()
   -- Parse status label
   dlg:label{
     id = "schedule_status",
-    text = "No schedule",
+    label = "Schedule",
+    text = "None",
   }
 
   -- Action buttons row
@@ -605,9 +598,9 @@ local function build_tab_postprocess()
     id = "pixelate",
     label = "Pixelate",
     selected = false,
-    -- onchange = function()
-    --   dlg:modify{ id = "pixel_size", enabled = dlg.data.pixelate }
-    -- end,
+    onchange = function()
+      pcall(function() dlg:modify{ id = "pixel_size", visible = dlg.data.pixelate } end)
+    end,
   }
 
   dlg:slider{
@@ -622,10 +615,7 @@ local function build_tab_postprocess()
     label = "Quantize Colors",
     selected = false,
     onchange = function()
-      local en = dlg.data.quantize_enabled
-      -- dlg:modify{ id = "colors", enabled = en }
-      dlg:modify{ id = "quantize_method", enabled = en }
-      dlg:modify{ id = "dither", enabled = en }
+      PT.sync_ui_conditional_states()
     end,
   }
 
@@ -656,9 +646,7 @@ local function build_tab_postprocess()
     options = { "auto", "preset", "custom" },
     option = "auto",
     onchange = function()
-      local m = dlg.data.palette_mode
-      dlg:modify{ id = "palette_name", enabled = (m == "preset") }
-      dlg:modify{ id = "palette_custom_colors", enabled = (m == "custom") }
+      PT.sync_ui_conditional_states()
     end,
   }
 
@@ -786,9 +774,9 @@ local function build_tab_animation()
     id = "anim_freeinit",
     label = "FreeInit",
     selected = false,
-    -- onchange = function()
-    --   dlg:modify{ id = "anim_freeinit_iters", enabled = dlg.data.anim_freeinit }
-    -- end,
+    onchange = function()
+      pcall(function() dlg:modify{ id = "anim_freeinit_iters", visible = dlg.data.anim_freeinit } end)
+    end,
   }
 
   dlg:slider{
@@ -893,9 +881,9 @@ local function build_tab_audio()
     id = "audio_freeinit",
     text = "FreeInit (1st chunk)",
     selected = false,
-    -- onchange = function()
-    --   dlg:modify{ id = "audio_freeinit_iters", enabled = dlg.data.audio_freeinit }
-    -- end,
+    onchange = function()
+      pcall(function() dlg:modify{ id = "audio_freeinit_iters", visible = dlg.data.audio_freeinit } end)
+    end,
   }
   dlg:slider{
     id = "audio_freeinit_iters",
@@ -965,10 +953,10 @@ local function build_tab_audio()
       PT.sync_slider_label("mod_slot_count")
       local count = dlg.data.mod_slot_count
       for i = 1, 6 do
-        local en = (i <= count)
+        local vis = (i <= count)
         local p = "mod" .. i .. "_"
-        for _, s in ipairs({ "enable", "invert", "source", "target" }) do -- sliders disable bug
-          dlg:modify{ id = p .. s, enabled = en }
+        for _, s in ipairs({ "enable", "invert", "source", "target", "min", "max", "attack", "release" }) do
+          pcall(function() dlg:modify{ id = p .. s, visible = vis } end)
         end
       end
     end,
@@ -1038,11 +1026,11 @@ local function build_tab_audio()
     }
   end
 
-  -- Initial: disable slots beyond default count (2)
+  -- Initial: hide slots beyond default count (2)
   for i = 3, 6 do
     local p = "mod" .. i .. "_"
-    for _, s in ipairs({ "enable", "invert", "source", "target" }) do -- sliders disable bug
-      dlg:modify{ id = p .. s, enabled = false }
+    for _, s in ipairs({ "enable", "invert", "source", "target", "min", "max", "attack", "release" }) do
+      pcall(function() dlg:modify{ id = p .. s, visible = false } end)
     end
   end
 
@@ -1050,6 +1038,16 @@ local function build_tab_audio()
     id = "audio_advanced",
     text = "Advanced",
     selected = false,
+    onchange = function()
+      local show = dlg.data.audio_advanced
+      pcall(function() dlg:modify{ id = "audio_use_expressions", visible = show } end)
+      pcall(function() dlg:modify{ id = "audio_expr_preset", visible = show } end)
+      for _, e in ipairs(EXPR_FIELDS) do
+        pcall(function() dlg:modify{ id = e[1], visible = show } end)
+      end
+      pcall(function() dlg:modify{ id = "audio_random_seed", visible = show } end)
+      pcall(function() dlg:modify{ id = "audio_choreography", visible = show } end)
+    end,
   }
 
   dlg:check{
@@ -1057,11 +1055,7 @@ local function build_tab_audio()
     text = "Custom Expressions",
     selected = false,
     onchange = function()
-      local en = dlg.data.audio_use_expressions
-      dlg:modify{ id = "audio_expr_preset", enabled = en }
-      for _, e in ipairs(EXPR_FIELDS) do
-        dlg:modify{ id = e[1], enabled = en }
-      end
+      PT.sync_ui_conditional_states()
     end,
   }
   dlg:combobox{
@@ -1131,6 +1125,15 @@ local function build_tab_audio()
   -- Conditional states handled by PT.sync_ui_conditional_states() at dialog build complete
   -- Action button: must start disabled (not a conditional state)
   dlg:modify{ id = "export_mp4_btn", enabled = false }
+
+  -- Initial: hide advanced sections (expressions, choreography)
+  pcall(function() dlg:modify{ id = "audio_use_expressions", visible = false } end)
+  pcall(function() dlg:modify{ id = "audio_expr_preset", visible = false } end)
+  for _, e in ipairs(EXPR_FIELDS) do
+    pcall(function() dlg:modify{ id = e[1], visible = false } end)
+  end
+  pcall(function() dlg:modify{ id = "audio_random_seed", visible = false } end)
+  pcall(function() dlg:modify{ id = "audio_choreography", visible = false } end)
 end
 
 -- ─── Tab: QR Code ───────────────────────────────────────────
@@ -1374,6 +1377,33 @@ local function build_actions_panel()
   local dlg = PT.dlg
 
   dlg:separator{ text = "Actions", hexpand = true }
+
+  -- Visual progress bar (canvas: fills proportionally to progress_pct)
+  dlg:canvas{
+    id = "progress_bar",
+    width = 300,
+    height = 10,
+    hexpand = true,
+    onpaint = function(ev)
+      local gc = ev.context
+      local w, h = gc.width, gc.height
+      -- Background track
+      gc.color = Color{ r = 32, g = 32, b = 38, a = 255 }
+      gc:fillRect(Rectangle(0, 0, w, h))
+      -- Fill bar
+      local pct = PT.state.progress_pct or 0
+      if pct > 0 then
+        local r = math.floor(50 + (1 - pct / 100) * 20)
+        local g = math.floor(110 + (pct / 100) * 70)
+        local b = math.floor(200 + (pct / 100) * 55)
+        gc.color = Color{ r = r, g = g, b = b, a = 255 }
+        gc:fillRect(Rectangle(0, 0, math.max(1, math.floor(w * pct / 100)), h))
+      end
+      -- Border
+      gc.color = Color{ r = 60, g = 60, b = 70, a = 255 }
+      gc:strokeRect(Rectangle(0, 0, w, h))
+    end,
+  }
 
   -- Contextual action button: text and behavior change based on active tab
   dlg:button{

@@ -46,6 +46,8 @@ handlers.progress = function(resp)
     frame_ctx = " [F" .. (resp.frame_index + 1) .. "/" .. resp.total_frames .. "]"
   end
   PT.update_status(resp.step .. "/" .. resp.total .. " (" .. pct .. "%)" .. frame_ctx .. eta_str)
+  PT.state.progress_pct = pct
+  pcall(function() PT.dlg:repaint() end)
 end
 
 -- ─── Generation Result ──────────────────────────────────────
@@ -53,6 +55,7 @@ end
 handlers.result = function(resp)
   PT.state.generating = false
   PT.state.gen_step_start = nil
+  PT.state.progress_pct = 0
   PT.stop_gen_timeout()
   PT.state.cancel_pending = false
   PT.timers.cancel_safety = PT.stop_timer(PT.timers.cancel_safety)
@@ -176,11 +179,14 @@ local function _handle_streaming_frame(resp, progress_label)
       end
     end
     PT.update_status(progress_label .. " " .. idx .. "/" .. total .. " (" .. pct .. "%)" .. eta_str)
+    PT.state.progress_pct = pct
+    pcall(function() PT.dlg:repaint() end)
   end
   PT.import_animation_frame(resp)
   PT.save_animation_frame(resp)
   resp._decoded_bytes = nil  -- release decoded bytes for GC
   resp._raw_image = nil      -- release binary frame data for GC
+  resp.image = nil           -- release base64 string for GC
 end
 
 -- ─── Animation Frame ────────────────────────────────────────
@@ -250,6 +256,7 @@ end
 local function _handle_streaming_complete(resp, opts)
   PT.state.animating = false
   PT.state.gen_step_start = nil
+  PT.state.progress_pct = 0
   PT.stop_gen_timeout()
   PT.state.cancel_pending = false
   PT.timers.cancel_safety = PT.stop_timer(PT.timers.cancel_safety)
@@ -339,6 +346,7 @@ handlers.error = function(resp)
   local was_audio_gen = PT.audio.generating
   PT.state.generating = false
   PT.state.animating = false
+  PT.state.progress_pct = 0
   PT.audio.generating = false
   PT.audio.analyzing = false
   PT.reset_loop_state()
@@ -744,16 +752,7 @@ handlers.modulation_preset_detail = function(resp)
 
   -- Inverse scaling: convert actual parameter values to slider % (0-100)
   local function to_pct(target, val)
-    if target == "cfg_scale" then return val / 30.0 * 100
-    elseif target == "seed_offset" then return val / 1000.0 * 100
-    elseif target == "controlnet_scale" then return val / 2.0 * 100
-    elseif target == "frame_cadence" then return (val - 1.0) / 7.0 * 100
-    elseif target == "motion_x" or target == "motion_y" then return (val + 5.0) / 10.0 * 100
-    elseif target == "motion_zoom" then return (val - 0.92) / 0.16 * 100
-    elseif target == "motion_rotation" then return (val + 2.0) / 4.0 * 100
-    elseif target == "motion_tilt_x" or target == "motion_tilt_y" then return (val + 3.0) / 6.0 * 100
-    else return val * 100  -- denoise_strength, noise_amplitude, palette_shift
-    end
+    return PT.inverse_scale_mod_value(target, val)
   end
 
   -- Suppress auto-switch to (custom) during hydration
@@ -1063,6 +1062,7 @@ end
 -- app.transaction() or dlg:modify() pump the event loop internally.
 
 local _response_queue = {}
+local _queue_head = 1
 local _processing = false
 local _drain_timer = nil
 
@@ -1073,10 +1073,10 @@ end
 local _frame_types = { animation_frame = true, audio_reactive_frame = true }
 
 local function _drain_next()
-  if #_response_queue == 0 then return end
+  if _queue_head > #_response_queue then return end
   -- Guard: extension shutting down (exit() nil'd state or set connected=false)
   if not PT.state or not PT.state.connected then
-    for i = #_response_queue, 1, -1 do _response_queue[i] = nil end
+    PT.clear_response_queue()
     return
   end
   if PT.state.cancel_pending then
@@ -1085,17 +1085,18 @@ local function _drain_next()
   end
   -- Process up to DRAIN_BATCH_SIZE messages per tick to clear backlog faster
   -- Consecutive frame responses are batched into a single app.transaction()
-  local batch = math.min(#_response_queue, PT.cfg.DRAIN_BATCH_SIZE)
+  local q_len = #_response_queue - _queue_head + 1
+  local batch = math.min(q_len, PT.cfg.DRAIN_BATCH_SIZE)
   local had_frames = false
   local i = 1
   while i <= batch do
-    if #_response_queue == 0 then break end
-    local queued = _response_queue[1]
+    if _queue_head > #_response_queue then break end
+    local queued = _response_queue[_queue_head]
     if _frame_types[queued.type] then
       -- Count consecutive frame responses from front of queue
       local run = 1
-      while run < (batch - i + 1) and run < #_response_queue do
-        local peek = _response_queue[run + 1]
+      while run < (batch - i + 1) and (_queue_head + run) <= #_response_queue do
+        local peek = _response_queue[_queue_head + run]
         if not peek or not _frame_types[peek.type] then break end
         run = run + 1
       end
@@ -1104,7 +1105,9 @@ local function _drain_next()
         -- Batch: wrap consecutive frames in a single outer transaction
         local frame_items = {}
         for _ = 1, run do
-          frame_items[#frame_items + 1] = table.remove(_response_queue, 1)
+          frame_items[#frame_items + 1] = _response_queue[_queue_head]
+          _response_queue[_queue_head] = nil
+          _queue_head = _queue_head + 1
         end
         _processing = true
         local ok, err = pcall(function()
@@ -1125,7 +1128,9 @@ local function _drain_next()
         i = i + run
       else
         -- Single frame: normal path (individual transaction inside handler)
-        local single = table.remove(_response_queue, 1)
+        local single = _response_queue[_queue_head]
+        _response_queue[_queue_head] = nil
+        _queue_head = _queue_head + 1
         _processing = true
         local ok, err = pcall(function()
           local handler = handlers[single.type]
@@ -1139,7 +1144,9 @@ local function _drain_next()
       end
     else
       -- Non-frame response: dispatch normally
-      local item = table.remove(_response_queue, 1)
+      local item = _response_queue[_queue_head]
+      _response_queue[_queue_head] = nil
+      _queue_head = _queue_head + 1
       _processing = true
       local ok, err = pcall(function()
         local handler = handlers[item.type]
@@ -1161,7 +1168,16 @@ local function _drain_next()
   if had_frames then
     collectgarbage("step", 200)
   end
-  if #_response_queue > 0 then
+  -- Compact queue if head advanced far enough
+  if _queue_head > 100 then
+    local new_q = {}
+    for idx = _queue_head, #_response_queue do
+      new_q[#new_q + 1] = _response_queue[idx]
+    end
+    _response_queue = new_q
+    _queue_head = 1
+  end
+  if _queue_head <= #_response_queue then
     _schedule_drain()
   end
 end
@@ -1183,8 +1199,10 @@ end
 
 function PT.handle_response(resp)
   if _processing then
-    if #_response_queue >= PT.cfg.MAX_QUEUE_SIZE then
-      table.remove(_response_queue, 1)  -- drop oldest to prevent OOM
+    local q_len = #_response_queue - _queue_head + 1
+    if q_len >= PT.cfg.MAX_QUEUE_SIZE then
+      _response_queue[_queue_head] = nil
+      _queue_head = _queue_head + 1  -- drop oldest to prevent OOM
     end
     _response_queue[#_response_queue + 1] = resp
     return
@@ -1204,13 +1222,15 @@ function PT.handle_response(resp)
   end
   -- If messages queued during processing, drain via timer
   -- (one per event loop turn — allows repaint between messages)
-  if #_response_queue > 0 then
+  if _queue_head <= #_response_queue then
     _schedule_drain()
   end
 end
 
 function PT.clear_response_queue()
-  for i = #_response_queue, 1, -1 do _response_queue[i] = nil end
+  for i = _queue_head, #_response_queue do _response_queue[i] = nil end
+  _response_queue = {}
+  _queue_head = 1
   if _drain_timer then
     pcall(function() _drain_timer:stop() end)
     _drain_timer = nil

@@ -71,7 +71,7 @@ function PT.start_gen_timeout(override_seconds)
         PT.state.gen_step_start = nil
         PT.stop_refresh_timer()
         PT.clear_response_queue()
-        PT.reset_sequence()
+        PT.finalize_sequence()
         -- Reset anim tracking fields
         PT.anim.last_frame_index = -1
         PT.anim.decode_failures = 0
@@ -305,6 +305,8 @@ function PT.reset_ui_buttons(opts)
   PT.update_action_button(PT.dlg.data.main_tabs or "tab_gen")
   PT.dlg:modify{ id = "action_btn", enabled = gen_enabled }
   PT.dlg:modify{ id = "cancel_btn", enabled = opts.cancel or false }
+  PT.state.progress_pct = 0
+  pcall(function() PT.dlg:repaint() end)
 end
 
 -- ─── Send ───────────────────────────────────────────────────

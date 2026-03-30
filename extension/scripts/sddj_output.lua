@@ -214,17 +214,18 @@ function PT.open_output_dir()
   if not app.fs.isDirectory(dir) then
     app.fs.makeDirectory(dir)
   end
-  -- Sanitize: strip shell metacharacters to prevent command injection
-  local safe_dir = dir:gsub('["%&|`;%$%%<>%(%)]', "")
+  -- Sanitize: strict allowlist for safe path characters to prevent command injection
+  local safe_dir = dir:gsub('[^%w%s:/\\\\%-_.()%[%]]', "")
   if package.config:sub(1, 1) == "\\" then
-    -- Windows
+    -- OS-native explorer open
     safe_dir = safe_dir:gsub("/", "\\")
-    os.execute('explorer "' .. safe_dir .. '"')
+    -- start "" ensures spaces in path are correctly handled and not seen as Window Title
+    os.execute('start "" "' .. safe_dir .. '"')
   else
     local is_mac = false
     local ok, handle = pcall(io.popen, "uname -s")
     if ok and handle then
-      is_mac = handle:read("*l") == "Darwin"
+      is_mac = handle:read("*l"):match("Darwin")
       handle:close()
     end
     if is_mac then

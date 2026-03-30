@@ -205,4 +205,15 @@ function PT.scale_mod_value(target, pct)
   return def[1] + t * (def[2] - def[1])
 end
 
+--- Inverse: convert a real parameter value back to 0-100% slider range.
+-- @param target string  PARAM_DEFS key
+-- @param val number  real value
+-- @return number  percentage 0..100, clamped and rounded
+function PT.inverse_scale_mod_value(target, val)
+  local def = PT.PARAM_DEFS[target]
+  if not def then return math.max(0, math.min(100, math.floor(val * 100 + 0.5))) end
+  if def[2] == def[1] then return 50 end
+  return math.max(0, math.min(100, math.floor(((val - def[1]) / (def[2] - def[1])) * 100 + 0.5)))
+end
+
 end
