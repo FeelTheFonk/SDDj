@@ -446,7 +446,11 @@ end
 
 handlers.prompt_result = function(resp)
   if not PT.dlg or not resp.prompt then return end
-  PT.dlg:modify{ id = "prompt", text = resp.prompt }
+  
+  -- Inject lock_custom (and subject if not present) into server-generated prompt so UI aligns perfectly
+  local final_prompt = PT.inject_locked_prompt(resp.prompt)
+  PT.dlg:modify{ id = "prompt", text = final_prompt }
+
   if resp.negative_prompt and resp.negative_prompt ~= "" then
     PT.dlg:modify{ id = "negative_prompt", text = resp.negative_prompt }
   end
@@ -961,15 +965,16 @@ end
 handlers.randomized_schedule = function(resp)
   if not PT.dlg or not resp then return end
 
-  local dsl = resp.dsl_text or ""
-
-  -- Fallback: reconstruct DSL from keyframes if dsl_text is empty
-  if dsl == "" and resp.keyframes and #resp.keyframes > 0 then
+  -- Always reconstruct DSL from keyframes to properly inject lock_custom/lock_subject into every frame
+  local dsl = ""
+  if resp.keyframes and #resp.keyframes > 0 then
     local lines = {}
     for _, kf in ipairs(resp.keyframes) do
       lines[#lines + 1] = "[" .. (kf.frame or 0) .. "]"
-      if kf.prompt and kf.prompt ~= "" then
-        lines[#lines + 1] = kf.prompt
+      -- Inject locked fields into the keyframe prompt even if originally empty
+      local injected_prompt = PT.inject_locked_prompt(kf.prompt or "")
+      if injected_prompt ~= "" then
+        lines[#lines + 1] = injected_prompt
       end
       if kf.negative_prompt and kf.negative_prompt ~= "" then
         lines[#lines + 1] = "-- " .. kf.negative_prompt

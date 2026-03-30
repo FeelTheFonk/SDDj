@@ -1,4 +1,18 @@
 # Changelog
+
+## [0.9.78] — 2026-03
+
+### Full Lock Custom & Subject Alignment
+Achieved 100% UI and Generation alignment for locked prompting mechanisms, removing blind spots across all standard, bulk, and scheduled randomization modes.
+
+#### Added
+- **Visual Editor Tooltips**: The Schedule Randomizer dialog now openly reflects the exact `Lock Custom` position (`suffix` / `prefix`) and its designated string.
+
+#### Fixed
+- **UI Prompt Desync**: `Lock Custom` fields are now seamlessly woven into the server's returned text immediately following a single "Randomize" request, syncing the visual UI field instantly with the active Generation constraints.
+- **Schedule Empty Keyframe Resolution**: Resolved a blind-spot edge case where an artificially blank keyframe assigned by a standard schedule randomization bypassed prefix/suffix text injections. All keyframes, empty or full, now conform to the active `lock_custom` state.
+- **Animation Request Parsing**: DSL Parsers processing scheduled routines (e.g. Audio-Reactive or standard Animation) natively validate and hard-inject the `lock_custom` string into all evaluated frames moments before execution over the Socket, cementing zero-omission prompt consistency.
+
 ## [0.9.77] — 2026-03
 ### Centralized UI Synchronization
 Single source of truth for all conditional widget states, eliminating desync after programmatic updates.

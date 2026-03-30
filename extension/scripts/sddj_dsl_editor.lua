@@ -652,6 +652,11 @@ function PT.open_schedule_randomizer()
     lock_info = "Locked: " .. d.fixed_subject
   end
   rdlg:label{ text = "Subject: " .. lock_info }
+  
+  if d.lock_custom and d.fixed_custom and d.fixed_custom ~= "" then
+    local c_pos = d.custom_position or "suffix"
+    rdlg:label{ text = "Custom: Locked (" .. c_pos .. "): " .. d.fixed_custom }
+  end
   rdlg:label{ text = "Total frames: " .. (d.anim_frames or 100) }
 
   rdlg:separator{ text = "Preview" }

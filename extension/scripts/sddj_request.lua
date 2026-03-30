@@ -172,6 +172,10 @@ function PT.extract_prompt_schedule(total_frames, fps)
   
   local success, sched = pcall(PT.dsl_parser.parse, dsl_text, total_frames, fps)
   if success and sched and #sched.keyframes > 0 then
+    -- Inject locked fields (custom/subject) into every keyframe, even empty ones
+    for _, kf in ipairs(sched.keyframes) do
+      kf.prompt = PT.inject_locked_prompt(kf.prompt or "")
+    end
     return sched
   elseif not success then
     app.alert("Syntax error in Prompt Schedule DSL. Please check your formatting.\n\n" .. tostring(sched))
