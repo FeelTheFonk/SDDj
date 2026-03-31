@@ -1,6 +1,6 @@
 [project]
 name = "sddj-server"
-version = "0.9.80"
+version = "1.0.0-rc1"
 description = "Local SOTA generation and animation server for Aseprite via Stable Diffusion"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
@@ -70,5 +70,7 @@ filterwarnings = [
     "ignore:n_fft=.*too large:UserWarning:librosa",
     # librosa pitch tuning warning on silence / very short signals
     "ignore:Trying to estimate tuning:UserWarning:librosa",
+    # rembg uses deprecated Pillow 'mode' parameter (fixed upstream in rembg 3.x)
+    "ignore:'mode' parameter is deprecated:DeprecationWarning",
 ]
 

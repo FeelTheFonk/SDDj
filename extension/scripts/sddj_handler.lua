@@ -551,6 +551,7 @@ handlers.preset = function(resp)
           PT.dlg:modify{ id = "pixel_size", value = px.target_size }
           PT.dlg:modify{ id = "pixel_size", label = "Target (" .. px.target_size .. "px)" }
         end
+        if px.method then pcall(PT.dlg.modify, PT.dlg, { id = "pixelate_method", option = px.method }) end
       else
         PT.dlg:modify{ id = "pixelate", selected = px }
       end

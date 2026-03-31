@@ -136,6 +136,7 @@ function PT.sync_ui_conditional_states()
 
   -- Post Process (visibility: works around Aseprite slider disabled rendering bug)
   pcall(dlg.modify, dlg, { id = "pixel_size", visible = (d.pixelate == true) })
+  pcall(dlg.modify, dlg, { id = "pixelate_method", visible = (d.pixelate == true) })
   
   local qen = (d.quantize_enabled == true)
   pcall(dlg.modify, dlg, { id = "colors", visible = qen })
@@ -342,20 +343,6 @@ local function build_tab_generate()
     end,
   }
 
-  dlg:combobox{
-    id = "mode",
-    label = "Mode",
-    options = {
-      "txt2img", "img2img", "inpaint",
-      "controlnet_openpose", "controlnet_canny",
-      "controlnet_scribble", "controlnet_lineart",
-      "controlnet_qrcode",
-    },
-    option = "txt2img",
-    onchange = function()
-      PT.sync_ui_conditional_states()
-    end,
-  }
 
   dlg:combobox{
     id = "lora_name",
@@ -494,99 +481,6 @@ local function build_tab_generate()
     min = 1, max = 12, value = 2,
     onchange = onchange_sync("clip_skip"),
   }
-
-  dlg:separator{ text = "Prompt Schedule" }
-
-  -- DSL text entry (data store, edit via popup)
-  dlg:entry{
-    id = "generate_prompt_schedule_dsl",
-    text = "",
-    visible = false,
-    onchange = function()
-      PT.update_schedule_state(dlg.data.generate_prompt_schedule_dsl)
-    end,
-  }
-
-  -- Visual timeline canvas
-  dlg:canvas{
-    id = "schedule_timeline",
-    width = 300,
-    height = 30,
-    hexpand = true,
-    vexpand = false,
-    onpaint = function(ev)
-      -- Cache canvas width for click handler (ev.context only in onpaint)
-      PT.schedule_timeline_width = ev.context.width
-      PT.schedule_timeline_height = ev.context.height
-      if PT.paint_schedule_timeline then
-        PT.paint_schedule_timeline(ev)
-      end
-    end,
-    onmousedown = function(ev)
-      if PT.on_timeline_click then
-        PT.on_timeline_click(ev)
-      end
-    end,
-  }
-
-  -- Parse status label
-  dlg:label{
-    id = "schedule_status",
-    label = "Schedule",
-    text = "None",
-  }
-
-  -- Action buttons row
-  dlg:button{
-    id = "schedule_edit_btn",
-    text = "Edit...",
-    onclick = function()
-      if PT.open_schedule_editor then
-        PT.open_schedule_editor()
-      end
-    end,
-  }
-  dlg:button{
-    id = "schedule_presets_btn",
-    text = "Presets",
-    onclick = function()
-      if PT.open_schedule_presets then
-        PT.open_schedule_presets()
-      end
-    end,
-  }
-  dlg:button{
-    id = "schedule_random_btn",
-    text = "Random",
-    onclick = function()
-      if not PT.state.connected then
-        app.alert("Connect to the server first.")
-        return
-      end
-      -- Confirm before replacing an existing schedule
-      local dsl = dlg.data.generate_prompt_schedule_dsl or ""
-      if dsl ~= "" and not dsl:match("^%s*$") then
-        if app.alert{
-          title = "Replace Schedule?",
-          text = "The current prompt schedule will be replaced.",
-          buttons = { "Replace", "Cancel" }
-        } ~= 1 then
-          return
-        end
-      end
-      if PT.open_schedule_randomizer then
-        PT.open_schedule_randomizer()
-      end
-    end,
-  }
-  dlg:button{
-    id = "schedule_clear_btn",
-    text = "Clear",
-    onclick = function()
-      dlg:modify{ id = "generate_prompt_schedule_dsl", text = "" }
-      PT.update_schedule_state("")
-    end,
-  }
 end
 
 -- ─── Tab: Post-Process ──────────────────────────────────────
@@ -599,7 +493,9 @@ local function build_tab_postprocess()
     label = "Pixelate",
     selected = false,
     onchange = function()
-      pcall(function() dlg:modify{ id = "pixel_size", visible = dlg.data.pixelate } end)
+      local vis = dlg.data.pixelate
+      pcall(function() dlg:modify{ id = "pixel_size", visible = vis } end)
+      pcall(function() dlg:modify{ id = "pixelate_method", visible = vis } end)
     end,
   }
 
@@ -608,6 +504,13 @@ local function build_tab_postprocess()
     label = "Target (128px)",
     min = 8, max = 512, value = 128,
     onchange = onchange_sync("pixel_size"),
+  }
+
+  dlg:combobox{
+    id = "pixelate_method",
+    label = "Pixel Mode",
+    options = { "nearest", "box" },
+    option = "nearest",
   }
 
   dlg:check{
@@ -629,7 +532,7 @@ local function build_tab_postprocess()
   dlg:combobox{
     id = "quantize_method",
     label = "Quantize",
-    options = { "kmeans", "median_cut", "octree" },
+    options = { "kmeans", "median_cut", "octree", "octree_lab" },
     option = "kmeans",
   }
 
@@ -783,6 +686,101 @@ local function build_tab_animation()
     id = "anim_freeinit_iters",
     label = "FreeInit Iters",
     min = 1, max = 3, value = 2,
+  }
+
+  -- ─── Prompt Schedule (frame-based prompt evolution) ────────
+
+  dlg:separator{ text = "Prompt Schedule" }
+
+  -- DSL text entry (data store, edit via popup)
+  dlg:entry{
+    id = "generate_prompt_schedule_dsl",
+    text = "",
+    visible = false,
+    onchange = function()
+      PT.update_schedule_state(dlg.data.generate_prompt_schedule_dsl)
+    end,
+  }
+
+  -- Visual timeline canvas
+  dlg:canvas{
+    id = "schedule_timeline",
+    width = 300,
+    height = 30,
+    hexpand = true,
+    vexpand = false,
+    onpaint = function(ev)
+      -- Cache canvas width for click handler (ev.context only in onpaint)
+      PT.schedule_timeline_width = ev.context.width
+      PT.schedule_timeline_height = ev.context.height
+      if PT.paint_schedule_timeline then
+        PT.paint_schedule_timeline(ev)
+      end
+    end,
+    onmousedown = function(ev)
+      if PT.on_timeline_click then
+        PT.on_timeline_click(ev)
+      end
+    end,
+  }
+
+  -- Parse status label
+  dlg:label{
+    id = "schedule_status",
+    label = "Schedule",
+    text = "None",
+  }
+
+  -- Action buttons row
+  dlg:button{
+    id = "schedule_edit_btn",
+    text = "Edit...",
+    onclick = function()
+      if PT.open_schedule_editor then
+        PT.open_schedule_editor()
+      end
+    end,
+  }
+  dlg:button{
+    id = "schedule_presets_btn",
+    text = "Presets",
+    onclick = function()
+      if PT.open_schedule_presets then
+        PT.open_schedule_presets()
+      end
+    end,
+  }
+  dlg:button{
+    id = "schedule_random_btn",
+    text = "Random",
+    onclick = function()
+      if not PT.state.connected then
+        app.alert("Connect to the server first.")
+        return
+      end
+      -- Confirm before replacing an existing schedule
+      local dsl = dlg.data.generate_prompt_schedule_dsl or ""
+      if dsl ~= "" and not dsl:match("^%s*$") then
+        if app.alert{
+          title = "Replace Schedule?",
+          text = "The current prompt schedule will be replaced.",
+          buttons = { "Replace", "Cancel" }
+        } ~= 1 then
+          return
+        end
+      end
+      if PT.open_schedule_randomizer then
+        PT.open_schedule_randomizer()
+      end
+    end,
+  }
+  dlg:button{
+    id = "schedule_clear_btn",
+    text = "Clear",
+    onclick = function()
+      dlg:modify{ id = "generate_prompt_schedule_dsl", text = "" }
+      PT.update_schedule_state("")
+    end,
   }
 
   -- Conditional states handled by PT.sync_ui_conditional_states() at dialog build complete
@@ -1524,6 +1522,21 @@ local function build_actions_panel()
       local name = names[v] or ""
       local suffix = name ~= "" and (" — " .. name) or ""
       dlg:modify{ id = "randomness", label = "Randomness (" .. v .. suffix .. ")" }
+    end,
+  }
+
+  dlg:combobox{
+    id = "mode",
+    label = "Mode",
+    options = {
+      "txt2img", "img2img", "inpaint",
+      "controlnet_openpose", "controlnet_canny",
+      "controlnet_scribble", "controlnet_lineart",
+      "controlnet_qrcode",
+    },
+    option = "txt2img",
+    onchange = function()
+      PT.sync_ui_conditional_states()
     end,
   }
 

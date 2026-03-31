@@ -78,6 +78,7 @@ function PT.build_post_process()
     pixelate = {
       enabled = d.pixelate,
       target_size = d.pixel_size,
+      method = d.pixelate_method or "nearest",
     },
     quantize_enabled = d.quantize_enabled,
     quantize_method = d.quantize_method,

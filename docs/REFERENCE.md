@@ -199,10 +199,10 @@ All messages are JSON. Maximum 5 concurrent connections.
   "lora": { "name": "pixelart_redmond", "weight": 1.0 },
   "negative_ti": [{ "name": "EasyNegative", "weight": 1.0 }],
   "post_process": {
-    "pixelate": { "enabled": true, "target_size": 128 },
-    "quantize_method": "kmeans",
+    "pixelate": { "enabled": true, "target_size": 128, "method": "box" },
+    "quantize_method": "octree_lab",
     "quantize_colors": 32,
-    "dither": "none",
+    "dither": "floyd_steinberg",
     "palette": { "mode": "auto" },
     "remove_bg": false
   }

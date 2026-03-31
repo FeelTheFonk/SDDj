@@ -47,6 +47,7 @@ local _FIELD_SCHEMA = {
   { "palette_name",        "option" },
   { "palette_custom_colors", "text" },
   { "pixelate",            "bool" },
+  { "pixelate_method",     "option" },
   { "quantize_enabled",    "bool" },
   { "remove_bg",           "bool" },
   -- Animation tab

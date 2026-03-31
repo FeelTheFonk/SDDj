@@ -168,7 +168,7 @@ The actual seed used is shown in the status bar after generation and in the laye
 
 ### Prompt Scheduling (Timeline DSL)
 
-Instead of a single static prompt, you can define **Keyframes** in the Prompt Schedule box (available in Generate, Animation, and Audio modes) to evolve your subject over time. The Timeline DSL accepts raw frames, seconds, and percentages.
+Instead of a single static prompt, you can define **Keyframes** in the Prompt Schedule box (located in the **Animation** tab, but applicable to ALL generation modes) to evolve your subject over time. The Timeline DSL accepts raw frames, seconds, and percentages.
 
 **Syntax Example:**
 ```
@@ -240,10 +240,10 @@ flowchart LR
 | # | Stage | Key Settings | Notes |
 |---|-------|-------------|-------|
 | 1 | **Background Removal** | `Remove BG` checkbox | u2net model on CPU (doesn't compete for VRAM) |
-| 2 | **Pixelate** | Target size: 8–512 px (longest edge) | **NEAREST** interpolation only. 32 = retro, 64 = classic, **128 = default**, 512 = disabled |
-| 3 | **Color Quantize** | Method: **KMeans** / Median Cut / Octree. Colors: 2–256 | KMeans = best grouping. Classic pixel art: 8–32 colors |
+| 2 | **Pixelate** | Target size: 8–512 px (longest edge). Method: **NEAREST** / **BOX** | 32 = retro, 64 = classic, **128 = default**. Nearest is sharp point-sampling; Box averages areas to preserve thin details. |
+| 3 | **Color Quantize** | Method: **KMeans** / Median Cut / Octree / **Octree LAB**. Colors: 2–256 | KMeans provides best grouping. **Octree LAB** extracts perceptually uniform CIELAB palettes. Classic pixel art: 8–32 colors |
 | 4 | **Palette Enforce** | Auto / Preset / Custom hex | CIELAB perceptual distance. See [Recipes — Color Control](RECIPES.md#color-control) for palette list |
-| 5 | **Dithering** | None / Floyd-Steinberg / Bayer 2×2 / 4×4 / 8×8 | Floyd-Steinberg accelerated via Numba JIT (~2s first compile) |
+| 5 | **Dithering** | None / Floyd-Steinberg / Bayer 2×2 / 4×4 / 8×8 | Now fully **CIELAB-aware** and **Alpha-aware** (doesn't dither transparent BG). Floyd-Steinberg accelerated via Numba JIT. |
 | 6 | **Alpha Cleanup** | Automatic when Remove BG is on | Binarizes alpha: fully opaque or fully transparent |
 
 ---

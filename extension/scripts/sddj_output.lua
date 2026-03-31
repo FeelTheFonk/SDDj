@@ -298,6 +298,7 @@ function PT.apply_metadata(meta)
           PT.dlg:modify{ id = "pixel_size", value = pp.pixelate.target_size }
           PT.sync_slider_label("pixel_size")
         end
+        if pp.pixelate.method then pcall(PT.dlg.modify, PT.dlg, { id = "pixelate_method", option = pp.pixelate.method }) end
       end
     end
     if pp.quantize_enabled ~= nil then PT.dlg:modify{ id = "quantize_enabled", selected = pp.quantize_enabled } end

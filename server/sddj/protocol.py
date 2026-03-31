@@ -70,6 +70,12 @@ class QuantizeMethod(str, Enum):
     KMEANS = "kmeans"
     OCTREE = "octree"
     MEDIAN_CUT = "median_cut"
+    OCTREE_LAB = "octree_lab"
+
+
+class PixelateMethod(str, Enum):
+    NEAREST = "nearest"
+    BOX = "box"
 
 
 class DitherMode(str, Enum):
@@ -115,6 +121,7 @@ class EmbeddingSpec(BaseModel):
 class PixelateSpec(BaseModel):
     enabled: bool = False
     target_size: int = Field(128, ge=8, le=512)
+    method: PixelateMethod = PixelateMethod.NEAREST
 
 
 class PaletteSpec(BaseModel):

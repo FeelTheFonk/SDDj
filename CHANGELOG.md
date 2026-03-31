@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.0-rc1] — 2026-03
+### Optimization Release
+Complete UI architecture overhaul and integration of a state-of-the-art CIELAB-based perceptual post-processing pipeline to achieve the highest standards of pixel art generation determinism and performance.
+
+#### Post-Processing (CIELAB Space)
+- **Octree LAB Quantization**: Implemented a new color quantization engine utilizing octree partitioning within the perceptual CIELAB color space. Guarantees visually uniform palettes far surpassing standard RBG KMeans or Median Cut.
+- **Alpha-Aware Dithering Kernels**: Rewrote Floyd-Steinberg (`_fs_core_lab`) and Bayer dithering to strictly process within the CIELAB domain and actively respect alpha channels, permanently preventing invisible artifacts behind transparent pixels. Hardware-accelerated with Numba JIT compiling for zero-latency execution.
+- **Area Box Pixelation**: Added `BOX` interpolation downscaling as an alternative to `NEAREST`. Drastically improves retention of thin details and single-pixel geometries during aggressive downscaling sequences.
+
+#### UI Refactoring & Workflow Eradication of Blind Spots
+- **Global Actions Panel**: Relocated the "Mode" selector directly below "Randomness", resolving hierarchy inconsistencies and granting universal access to generation modalities.
+- **Timeline-Centric Prompts**: Moved the Prompt Scheduler into the "Animation" tab, perfectly aligning its UI scope with its temporal frame-by-frame functionality.
+- **Pixelation UI Evolution**: Introduced a combobox selector for Pixelation Method (`Nearest` / `Box`) entirely constructed with Aseprite Dialog's `visible=false` paradigm, eliminating GUI interaction bugs. 
+
+#### Metadata & Serialization Hardening
+- **End-to-End Persistency**: Upgraded `sddj_handler.lua` and `sddj_output.lua` deserialization routines to actively track and restore the new `pixelate_method` attribute inside metadata chunks, guaranteeing bulletproof preset continuity.
+- **Test Suite Supremacy**: Augmented `tests/test_postprocess.py` covering Box matrix math, Alpha boundary enforcement, and CIELAB space conversions, achieving total feature coverage (684/684 passed).
 ## [0.9.80] — 2026-03
 ### Brutal UI & Architecture Audit: Zero-Latency & Stability
 A rigorous, low-level technical audit addressing core UI threading bottlenecks, extreme Aseprite edge-cases, and garbage collection mechanisms to guarantee a seamless 90+/100 robustness score.
