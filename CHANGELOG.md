@@ -1,4 +1,13 @@
 # Changelog
+## [0.9.85] — 2026-04
+### [Title]
+
+#### Added
+- 
+
+#### Fixed
+- 
+
 
 ## [0.9.84] — 2026-04
 ### Pre-Release Audit — Full-Stack Hardening (86 findings)
