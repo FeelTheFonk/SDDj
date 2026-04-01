@@ -52,8 +52,10 @@ end
 
 function PT.start_gen_timeout(override_seconds)
   PT.stop_gen_timeout()
+  local timeout = override_seconds or PT.cfg.GEN_TIMEOUT
+  if not timeout or timeout <= 0 then timeout = PT.cfg.GEN_TIMEOUT end
   local ok, t = pcall(Timer, {
-    interval = override_seconds or PT.cfg.GEN_TIMEOUT,
+    interval = timeout,
     ontick = function()
       PT.stop_gen_timeout()
       if PT.state.generating or PT.state.animating then
@@ -169,7 +171,7 @@ function PT.connect()
         PT.reconnect.attempts = 0
         PT.set_connected(true)
         PT.update_status("Connected")
-        pcall(function() PT.ws_handle:sendText(PT.json.encode({ action = "ping" })) end)
+        pcall(function() PT.ws_handle:sendText('{"action":"ping"}') end)
         -- Always re-request resources on (re)connect
         PT.request_resources()
         return
@@ -186,7 +188,21 @@ function PT.connect()
         end
         return
       end
+      if msg_type == WebSocketMessageType.ERROR then
+        PT.state.connecting = false
+        PT.set_connected(false)
+        PT.ws_handle = nil
+        PT.update_status("Connection error")
+        if not PT.reconnect.manual_disconnect then
+          PT.schedule_reconnect()
+        end
+        return
+      end
       if msg_type == WebSocketMessageType.BINARY then
+        if #data > PT.cfg.MAX_WS_MESSAGE_SIZE then
+          PT.update_status("Binary message too large (" .. #data .. " bytes)")
+          return
+        end
         -- Binary frame: [uint32 LE json_len][JSON metadata][raw RGBA bytes]
         if #data < 4 then return end
         local b1, b2, b3, b4 = string.byte(data, 1, 4)
@@ -248,7 +264,7 @@ function PT.connect()
 
   -- Connection timeout
   PT.stop_connect_timer()
-  PT.timers.connect = Timer{
+  local ok, t = pcall(Timer, {
     interval = PT.cfg.CONNECT_TIMEOUT,
     ontick = function()
       PT.stop_connect_timer()
@@ -262,8 +278,8 @@ function PT.connect()
         end
       end
     end,
-  }
-  PT.timers.connect:start()
+  })
+  if ok and t then PT.timers.connect = t; t:start() end
 end
 
 function PT.disconnect()
@@ -274,10 +290,6 @@ function PT.disconnect()
   if PT.ws_handle then pcall(function() PT.ws_handle:close() end); PT.ws_handle = nil end
   PT.set_connected(false)
   PT.res.requested = false
-  PT.state.generating = false
-  PT.state.animating = false
-  PT.reset_loop_state()
-  PT.stop_gen_timeout()
   PT.update_status("Disconnected")
 end
 
@@ -286,6 +298,10 @@ end
 function PT.schedule_reconnect()
   PT.timers.reconnect = PT.stop_timer(PT.timers.reconnect)
   if PT.reconnect.manual_disconnect then return end
+  if PT.reconnect.attempts >= (PT.cfg.RECONNECT_MAX_ATTEMPTS or 20) then
+    PT.update_status("Server unreachable — auto-reconnect stopped")
+    return
+  end
   PT.reconnect.attempts = PT.reconnect.attempts + 1
   local delay = math.min(
     PT.cfg.RECONNECT_BASE_DELAY * (2 ^ (PT.reconnect.attempts - 1)),

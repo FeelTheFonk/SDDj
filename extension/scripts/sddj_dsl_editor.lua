@@ -11,7 +11,7 @@ return function(PT)
 -- ─── Transition choices ──────────────────────────────────────
 
 local TRANSITIONS = {
-  "hard_cut", "linear_blend", "ease_in", "ease_out",
+  "hard_cut", "blend", "linear_blend", "ease_in", "ease_out",
   "ease_in_out", "cubic", "slerp",
 }
 
@@ -192,15 +192,20 @@ function PT.open_schedule_editor()
   local d = PT.dlg.data
   local dsl_text = d.generate_prompt_schedule_dsl or ""
   local total_frames = d.anim_frames or 100
-  local fps = 24
+  local fps = (d.anim_duration and d.anim_duration > 0) and math.max(1, math.floor(1000 / d.anim_duration)) or 24
 
   local kfs = dsl_to_keyframes(dsl_text, total_frames, fps)
   local kf_count_raw = #kfs
   local kf_count = kf_count_raw
   local truncated = false
+  local truncated_dsl_tail = nil
   if kf_count > 8 then
     kf_count = 8
     truncated = true
+    -- Preserve the DSL text for keyframes 9+ so Apply doesn't discard them
+    local truncated_kfs = {}
+    for i = 9, kf_count_raw do truncated_kfs[#truncated_kfs + 1] = kfs[i] end
+    truncated_dsl_tail = keyframes_to_dsl(truncated_kfs)
   end
 
   -- Build the editor dialog
@@ -268,6 +273,10 @@ function PT.open_schedule_editor()
     onclick = function()
       local cur = read_keyframes_from_dialog(edlg, kf_count)
       local dsl = keyframes_to_dsl(cur)
+      -- Append truncated keyframes (9+) that were not shown in the editor
+      if truncated and truncated_dsl_tail then
+        dsl = dsl .. truncated_dsl_tail
+      end
       PT.dlg:modify{ id = "generate_prompt_schedule_dsl", text = dsl }
       PT.update_schedule_state(dsl)
       edlg:close()
@@ -297,6 +306,7 @@ PT.schedule_data = PT.schedule_data or {
 }
 
 --- Re-parse the current DSL text and update state + timeline.
+--- O-05: Single parse call — result reused for both keyframe extraction and validation.
 function PT.update_schedule_state(dsl_text)
   dsl_text = dsl_text or ""
   local total_frames = 100
@@ -304,28 +314,53 @@ function PT.update_schedule_state(dsl_text)
   if PT.dlg then
     local d = PT.dlg.data
     total_frames = d.anim_frames or 100
-    fps = 24
+    fps = (d.anim_duration and d.anim_duration > 0) and math.max(1, math.floor(1000 / d.anim_duration)) or 24
   end
 
-  local kfs = dsl_to_keyframes(dsl_text, total_frames, fps)
-  PT.schedule_data.keyframes = kfs
-  PT.schedule_data.total_frames = total_frames
-
-  -- Local validation via Lua parser
+  -- Parse once, reuse for keyframes + validation (avoid double parse)
   if PT.dsl_parser and dsl_text ~= "" then
-    local ok, result = pcall(PT.dsl_parser.validate, dsl_text, total_frames, fps)
+    local ok, result = pcall(PT.dsl_parser.parse, dsl_text, total_frames, fps, nil, false)
     if ok and result then
-      PT.schedule_data.valid = result.valid
-      PT.schedule_data.error_count = #(result.errors or {})
-      PT.schedule_data.warning_count = #(result.warnings or {})
-      PT.schedule_data.errors = result.errors or {}
-      PT.schedule_data.warnings = result.warnings or {}
+      -- Extract keyframes from parse result (same transform as dsl_to_keyframes)
+      local kfs = {}
+      if result.keyframes and #result.keyframes > 0 then
+        for _, kf in ipairs(result.keyframes) do
+          kfs[#kfs + 1] = {
+            frame = kf.frame or 0,
+            prompt = kf.prompt or "",
+            negative = kf.negative_prompt or "",
+            transition = kf.transition or "hard_cut",
+            transition_frames = kf.transition_frames or 0,
+            weight = math.floor((kf.weight or 1.0) * 100),
+            denoise = kf.denoise_strength and math.floor(kf.denoise_strength * 100) or nil,
+            cfg = kf.cfg_scale and math.floor(kf.cfg_scale * 10) or nil,
+            steps = kf.steps or nil,
+          }
+        end
+      end
+      PT.schedule_data.keyframes = kfs
+      PT.schedule_data.total_frames = total_frames
+
+      -- Validation from the same parse result
+      local errs = result.errors or {}
+      local warns = result.warnings or {}
+      PT.schedule_data.valid = #errs == 0
+      PT.schedule_data.error_count = #errs
+      PT.schedule_data.warning_count = #warns
+      PT.schedule_data.errors = errs
+      PT.schedule_data.warnings = warns
     else
+      PT.schedule_data.keyframes = dsl_to_keyframes(dsl_text, total_frames, fps)
+      PT.schedule_data.total_frames = total_frames
       PT.schedule_data.valid = true
       PT.schedule_data.error_count = 0
       PT.schedule_data.warning_count = 0
+      PT.schedule_data.errors = {}
+      PT.schedule_data.warnings = {}
     end
   else
+    PT.schedule_data.keyframes = dsl_to_keyframes(dsl_text, total_frames, fps)
+    PT.schedule_data.total_frames = total_frames
     PT.schedule_data.valid = true
     PT.schedule_data.error_count = 0
     PT.schedule_data.warning_count = 0
@@ -538,7 +573,10 @@ function PT.open_schedule_presets()
       end
       if PT.state and PT.state.connected then
         local dsl_text = PT.dlg.data.generate_prompt_schedule_dsl or ""
-        local kfs_data = dsl_to_keyframes(dsl_text, 100, 24)
+        local dd = PT.dlg.data
+        local save_total = dd.anim_frames or 100
+        local save_fps = (dd.anim_duration and dd.anim_duration > 0) and math.max(1, math.floor(1000 / dd.anim_duration)) or 24
+        local kfs_data = dsl_to_keyframes(dsl_text, save_total, save_fps)
         -- Convert to server format
         local server_kfs = {}
         for _, kf in ipairs(kfs_data) do
@@ -573,6 +611,9 @@ function PT.open_schedule_presets()
     end,
   }
 
+  -- NOTE: Aseprite API limitation — combobox options cannot be updated after
+  -- dialog creation. The preset list will not visually refresh until the
+  -- dialog is closed and reopened. The server-side list is still updated.
   pdlg:button{
     id = "refresh_btn",
     text = "Refresh",
@@ -665,15 +706,13 @@ function PT.open_schedule_randomizer()
 
   rdlg:separator{}
 
-  local generated = false
   rdlg:button{
     id = "generate_btn",
     text = "Generate Random Schedule",
     focus = true,
     onclick = function()
-      if generated then return end
-      generated = true
-      rdlg:modify{ id = "generate_btn", enabled = false }
+      -- M-19: No permanent disable — allow retry if generation fails.
+      -- The dialog closes on send, preventing accidental double-clicks.
 
       local locked = PT.build_locked_fields()
       local total_frames = d.anim_frames or 100

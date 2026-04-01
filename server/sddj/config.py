@@ -169,7 +169,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode='after')
     def _warn_missing_dirs(self):
-        for name in ("models_dir", "checkpoints_dir", "loras_dir", "embeddings_dir", "palettes_dir", "presets_dir", "prompts_data_dir"):
+        for name in ("models_dir", "checkpoints_dir", "loras_dir", "embeddings_dir", "palettes_dir", "presets_dir", "prompt_schedules_dir", "prompts_data_dir"):
             d = getattr(self, name)
             if not d.is_dir():
                 log.warning("Directory does not exist: %s=%s", name, d)

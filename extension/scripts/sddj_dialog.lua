@@ -107,6 +107,7 @@ function PT.sync_ui_conditional_states()
   if not PT.dlg then return end
   if PT._ui_transaction_depth and PT._ui_transaction_depth > 0 then return end
   PT._ui_transaction_depth = (PT._ui_transaction_depth or 0) + 1
+  local ok, err = pcall(function()
 
   local dlg = PT.dlg
   local d = dlg.data
@@ -137,12 +138,12 @@ function PT.sync_ui_conditional_states()
   -- Post Process (visibility: works around Aseprite slider disabled rendering bug)
   pcall(dlg.modify, dlg, { id = "pixel_size", visible = (d.pixelate == true) })
   pcall(dlg.modify, dlg, { id = "pixelate_method", visible = (d.pixelate == true) })
-  
+
   local qen = (d.quantize_enabled == true)
   pcall(dlg.modify, dlg, { id = "colors", visible = qen })
   pcall(dlg.modify, dlg, { id = "quantize_method", visible = qen })
   pcall(dlg.modify, dlg, { id = "dither", visible = qen })
-  
+
   local pm = d.palette_mode or "auto"
   pcall(dlg.modify, dlg, { id = "palette_name", visible = (pm == "preset") })
   pcall(dlg.modify, dlg, { id = "palette_custom_colors", visible = (pm == "custom") })
@@ -150,14 +151,14 @@ function PT.sync_ui_conditional_states()
   -- Animation / Audio (visibility fix)
   pcall(dlg.modify, dlg, { id = "anim_freeinit_iters", visible = (d.anim_freeinit == true) })
   pcall(dlg.modify, dlg, { id = "audio_freeinit_iters", visible = (d.audio_freeinit == true) })
-  
+
   -- Audio advanced sections visibility
   if d.audio_advanced ~= nil then
     local show = (d.audio_advanced == true)
     pcall(dlg.modify, dlg, { id = "audio_use_expressions", visible = show })
     pcall(dlg.modify, dlg, { id = "audio_random_seed", visible = show })
     pcall(dlg.modify, dlg, { id = "audio_choreography", visible = show })
-    
+
     local show_expr = show and (d.audio_use_expressions == true)
     pcall(dlg.modify, dlg, { id = "audio_expr_preset", visible = show_expr })
     for _, field in ipairs(EXPR_FIELDS) do
@@ -176,14 +177,16 @@ function PT.sync_ui_conditional_states()
       end
     end)
   end
-  
+
   -- Audio max frames label
   if d.audio_max_frames ~= nil then
     pcall(dlg.modify, dlg, { id = "audio_max_frames",
       label = d.audio_max_frames == 0 and "Max Frames (0=all)" or ("Max Frames (" .. d.audio_max_frames .. ")") })
   end
 
+  end)
   PT._ui_transaction_depth = PT._ui_transaction_depth - 1
+  if not ok then error(err) end
 end
 
 -- ─── Connection Section ─────────────────────────────────────
@@ -287,6 +290,7 @@ local function build_tab_generate()
       name_dlg:button{ id = "ok", text = "Save" }
       name_dlg:button{ id = "cancel", text = "Cancel" }
       name_dlg:show()
+      if not name_dlg.data.ok then return end
       local pname = name_dlg.data.pname or ""
       if pname == "" then return end
       local gw, gh = PT.parse_size()
@@ -326,7 +330,7 @@ local function build_tab_generate()
   }
   dlg:button{
     id = "load_meta_btn",
-    text = "Load",
+    text = "Load JSON",
     onclick = function()
       local ok, path = pcall(app.fs.fileDialog, {
         title = "Load Generation Metadata",
@@ -412,7 +416,7 @@ local function build_tab_generate()
   dlg:entry{
     id = "negative_prompt",
     label = "Neg. Prompt",
-    text = "blurry, antialiased, smooth gradient, photorealistic, 3d render, soft edges, low quality, worst quality",
+    text = PT.cfg.DEFAULT_NEGATIVE_PROMPT,
     hexpand = true,
   }
 
@@ -433,9 +437,9 @@ local function build_tab_generate()
     id = "output_size",
     label = "Size",
     options = {
-      "512x512", "512x768", "768x512", "768x768",
-      "384x384", "256x256", "128x128", "96x96",
-      "64x64",
+      "64x64", "96x96", "128x128", "256x256",
+      "384x384", "512x512", "512x768", "768x512",
+      "768x768", "1024x1024",
     },
     option = "512x512",
   }
@@ -493,9 +497,7 @@ local function build_tab_postprocess()
     label = "Pixelate",
     selected = false,
     onchange = function()
-      local vis = dlg.data.pixelate
-      pcall(function() dlg:modify{ id = "pixel_size", visible = vis } end)
-      pcall(function() dlg:modify{ id = "pixelate_method", visible = vis } end)
+      PT.sync_ui_conditional_states()
     end,
   }
 
@@ -585,6 +587,7 @@ local function build_tab_postprocess()
       name_dlg:button{ id = "ok", text = "Save" }
       name_dlg:button{ id = "cancel", text = "Cancel" }
       name_dlg:show()
+      if not name_dlg.data.ok then return end
       local pname = name_dlg.data.pname or ""
       if pname ~= "" then
         PT.send({ action = "save_palette", palette_save_name = pname, palette_save_colors = colors })
@@ -678,7 +681,7 @@ local function build_tab_animation()
     label = "FreeInit",
     selected = false,
     onchange = function()
-      pcall(function() dlg:modify{ id = "anim_freeinit_iters", visible = dlg.data.anim_freeinit } end)
+      PT.sync_ui_conditional_states()
     end,
   }
 
@@ -864,9 +867,7 @@ local function build_tab_audio()
     label = "Max Frames (0=all)",
     min = 0, max = 10800, value = 0,
     onchange = function()
-      local v = dlg.data.audio_max_frames
-      dlg:modify{ id = "audio_max_frames",
-        label = v == 0 and "Max Frames (0=all)" or ("Max Frames (" .. v .. ")") }
+      PT.sync_ui_conditional_states()
     end,
   }
   dlg:combobox{
@@ -880,7 +881,7 @@ local function build_tab_audio()
     text = "FreeInit (1st chunk)",
     selected = false,
     onchange = function()
-      pcall(function() dlg:modify{ id = "audio_freeinit_iters", visible = dlg.data.audio_freeinit } end)
+      PT.sync_ui_conditional_states()
     end,
   }
   dlg:slider{
@@ -949,14 +950,7 @@ local function build_tab_audio()
     min = 1, max = 6, value = 2,
     onchange = function()
       PT.sync_slider_label("mod_slot_count")
-      local count = dlg.data.mod_slot_count
-      for i = 1, 6 do
-        local vis = (i <= count)
-        local p = "mod" .. i .. "_"
-        for _, s in ipairs({ "enable", "invert", "source", "target", "min", "max", "attack", "release" }) do
-          pcall(function() dlg:modify{ id = p .. s, visible = vis } end)
-        end
-      end
+      PT.sync_ui_conditional_states()
     end,
   }
 
@@ -1037,14 +1031,7 @@ local function build_tab_audio()
     text = "Advanced",
     selected = false,
     onchange = function()
-      local show = dlg.data.audio_advanced
-      pcall(function() dlg:modify{ id = "audio_use_expressions", visible = show } end)
-      pcall(function() dlg:modify{ id = "audio_expr_preset", visible = show } end)
-      for _, e in ipairs(EXPR_FIELDS) do
-        pcall(function() dlg:modify{ id = e[1], visible = show } end)
-      end
-      pcall(function() dlg:modify{ id = "audio_random_seed", visible = show } end)
-      pcall(function() dlg:modify{ id = "audio_choreography", visible = show } end)
+      PT.sync_ui_conditional_states()
     end,
   }
 
@@ -1363,8 +1350,9 @@ function PT.update_action_button(tab)
   }
   PT.dlg:modify{ id = "action_btn", text = texts[tab] or "GENERATE" }
   -- Loop controls: supported in gen/pp/anim always, audio when analyzed, never QR
-  local loop_enabled = (tab ~= "tab_qr")
-  if tab == "tab_audio" then loop_enabled = PT.audio.analyzed end
+  -- Also disabled during active generation/animation
+  local loop_enabled = (tab ~= "tab_qr") and not PT.state.generating and not PT.state.animating
+  if tab == "tab_audio" then loop_enabled = PT.audio.analyzed and not PT.state.generating and not PT.state.animating end
   PT.dlg:modify{ id = "loop_check", enabled = loop_enabled }
   PT.dlg:modify{ id = "random_loop_check", enabled = loop_enabled }
 end
@@ -1407,6 +1395,7 @@ local function build_actions_panel()
   dlg:button{
     id = "action_btn",
     text = "GENERATE",
+    focus = true,
     hexpand = true,
     onclick = function()
       if PT.state.generating or PT.state.animating then return end

@@ -122,7 +122,15 @@ function exit(plugin)
       if f then
         f:write(pt._last_encoded_settings); f:close()
         pcall(os.remove, pt.cfg.SETTINGS_FILE)
-        os.rename(tmp, pt.cfg.SETTINGS_FILE)
+        local rename_ok, rename_err = os.rename(tmp, pt.cfg.SETTINGS_FILE)
+        if not rename_ok then
+          -- Fallback: direct write
+          local f2 = io.open(pt.cfg.SETTINGS_FILE, "w")
+          if f2 then
+            f2:write(pt._last_encoded_settings)
+            f2:close()
+          end
+        end
       end
     end)
   end

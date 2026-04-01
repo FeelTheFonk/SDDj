@@ -98,6 +98,8 @@ local _FIELD_SCHEMA = {
   { "expr_motion_tilt_y",  "text" },
   -- Schedule
   { "generate_prompt_schedule_dsl", "text" },
+  -- UI state
+  { "main_tabs",            "option" },
   -- QR Code tab
   { "qr_use_source",         "bool" },
   { "qr_denoise",            "value" },
@@ -227,25 +229,7 @@ function PT.apply_settings(s)
   -- Centralized sync of all conditional widget states, labels, and mode hints
   PT.sync_ui_conditional_states()
 
-  -- Migration v0.7.5→v0.7.7: copy shared sliders to dedicated pipeline sliders
-  if s.anim_steps == nil and s.steps then
-    dlg:modify{ id = "anim_steps", value = s.steps }
-  end
-  if s.anim_cfg == nil and s.cfg_scale then
-    dlg:modify{ id = "anim_cfg", value = s.cfg_scale }
-    dlg:modify{ id = "anim_cfg", label = string.format("CFG (%.1f)", s.cfg_scale / 10.0) }
-  end
-  if s.audio_steps == nil and s.steps then
-    dlg:modify{ id = "audio_steps", value = s.steps }
-  end
-  if s.audio_cfg == nil and s.cfg_scale then
-    dlg:modify{ id = "audio_cfg", value = s.cfg_scale }
-    dlg:modify{ id = "audio_cfg", label = string.format("CFG (%.1f)", s.cfg_scale / 10.0) }
-  end
-  if s.audio_denoise == nil and s.denoise then
-    dlg:modify{ id = "audio_denoise", value = s.denoise }
-    dlg:modify{ id = "audio_denoise", label = string.format("Strength (%.2f)", s.denoise / 100.0) }
-  end
+  -- Legacy migration v0.7.x removed in v0.9.84 (all users past v0.7.7)
 
   -- Restore non-dialog state
   PT.schedule_last_profile = s.schedule_last_profile or "dynamic"

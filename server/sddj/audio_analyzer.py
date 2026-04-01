@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from math import exp
 from pathlib import Path
 
+import numba
 import numpy as np
 
 log = logging.getLogger("sddj.audio")
@@ -130,7 +131,7 @@ def _resample_to_fps(feature: np.ndarray, orig_fps: float, target_fps: float,
         from scipy.interpolate import PchipInterpolator
         return np.clip(PchipInterpolator(orig_times, feature)(target_times), 0.0, None).astype(np.float32)
 
-    # Downsampling (vectorized max-pooling to preserve onset transients)
+    # O-14: Downsampling (vectorized max-pooling to preserve onset transients)
     dt_half = 1.0 / (2.0 * target_fps)
     starts = np.searchsorted(orig_times, target_times - dt_half, side='left')
     ends = np.searchsorted(orig_times, target_times + dt_half, side='right')
@@ -141,9 +142,20 @@ def _resample_to_fps(feature: np.ndarray, orig_fps: float, target_fps: float,
         nearest = np.argmin(np.abs(orig_times[:, None] - target_times[None, empty_mask]), axis=0)
         resampled[empty_mask] = feature[nearest]
     # For frames with valid windows, take the max (preserves transient peaks)
+    # O-14: Use np.maximum.reduceat for vectorized max-pool
     non_empty = np.where(~empty_mask)[0]
-    for i in non_empty:
-        resampled[i] = feature[starts[i]:ends[i]].max()
+    if len(non_empty) > 0:
+        ne_starts = starts[non_empty]
+        ne_ends = ends[non_empty]
+        # Build flat index array for reduceat: concatenate all windows
+        slices = [np.arange(s, e) for s, e in zip(ne_starts, ne_ends)]
+        flat_indices = np.concatenate(slices)
+        # Compute reduceat offsets (cumulative lengths of each window)
+        lengths = ne_ends - ne_starts
+        offsets = np.zeros(len(lengths), dtype=np.intp)
+        np.cumsum(lengths[:-1], out=offsets[1:])
+        pool_max = np.maximum.reduceat(feature[flat_indices], offsets)
+        resampled[non_empty] = pool_max
     return resampled
 
 
@@ -188,10 +200,29 @@ def _apply_kweight(y: np.ndarray, sr: int) -> np.ndarray:
 # SMOOTHING
 # ─────────────────────────────────────────────────────────────
 
+@numba.njit(cache=True)
+def _ema_asymmetric_core(arr, attack_alpha, release_alpha):
+    """O-13: Numba-accelerated asymmetric EMA kernel (fast attack, slow release)."""
+    n = len(arr)
+    out = np.empty(n, dtype=np.float32)
+    if n == 0:
+        return out
+    out[0] = arr[0]
+    for i in range(1, n):
+        if arr[i] > out[i - 1]:
+            out[i] = out[i - 1] + attack_alpha * (arr[i] - out[i - 1])
+        else:
+            out[i] = out[i - 1] + release_alpha * (arr[i] - out[i - 1])
+    return out
+
+
 def smooth_features_ema(features: dict[str, np.ndarray],
                         attack_frames: int = 2,
                         release_frames: int = 8) -> dict[str, np.ndarray]:
-    """Apply asymmetric EMA smoothing (fast attack, slow release)."""
+    """Apply asymmetric EMA smoothing (fast attack, slow release).
+
+    O-13: Inner loop vectorized via Numba @njit kernel.
+    """
     attack_frames = max(1, attack_frames)
     release_frames = max(1, release_frames)
     attack_alpha = 1.0 - exp(-1.0 / attack_frames)
@@ -199,17 +230,12 @@ def smooth_features_ema(features: dict[str, np.ndarray],
 
     result = {}
     for name, arr in features.items():
-        smoothed = np.empty_like(arr)
         if len(arr) == 0:
-            result[name] = smoothed
+            result[name] = np.empty_like(arr)
             continue
-        smoothed[0] = arr[0]
-        for i in range(1, len(arr)):
-            if arr[i] > smoothed[i - 1]:
-                smoothed[i] = smoothed[i - 1] + attack_alpha * (arr[i] - smoothed[i - 1])
-            else:
-                smoothed[i] = smoothed[i - 1] + release_alpha * (arr[i] - smoothed[i - 1])
-        result[name] = smoothed
+        result[name] = _ema_asymmetric_core(
+            arr.astype(np.float32), attack_alpha, release_alpha,
+        )
     return result
 
 

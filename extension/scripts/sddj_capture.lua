@@ -7,6 +7,11 @@ return function(PT)
 function PT.capture_active_layer()
   local spr = app.sprite
   if spr == nil then return nil end
+  local max_cap = PT.cfg.MAX_CAPTURE_SIZE or 4096
+  if spr.width > max_cap or spr.height > max_cap then
+    PT.update_status("Capture rejected: sprite exceeds " .. max_cap .. "px limit")
+    return nil
+  end
   if spr.width > 2048 or spr.height > 2048 then
     PT.update_status("Warning: large sprite — capture may be slow")
   end
@@ -34,18 +39,26 @@ function PT.capture_mask()
   local spr = app.sprite
   if spr == nil or app.frame == nil then return nil end
 
-  -- Strategy A: active selection
+  -- Strategy A: active selection (bytes-based for performance)
   local sel = spr.selection
   if sel and not sel.isEmpty then
-    local mask_img = Image(spr.width, spr.height, ColorMode.GRAY)
+    local mw, mh = spr.width, spr.height
+    local mask_img = Image(mw, mh, ColorMode.GRAY)
     mask_img:clear(Color{ gray = 0 })
-    for y = sel.bounds.y, sel.bounds.y + sel.bounds.height - 1 do
-      for x = sel.bounds.x, sel.bounds.x + sel.bounds.width - 1 do
-        if sel:contains(x, y) then
-          mask_img:drawPixel(x, y, Color{ gray = 255 })
+    local mask_buf = {}
+    local white = string.char(255)
+    local black = string.char(0)
+    for y = 0, mh - 1 do
+      local in_sel_y = (y >= sel.bounds.y and y < sel.bounds.y + sel.bounds.height)
+      for x = 0, mw - 1 do
+        if in_sel_y and x >= sel.bounds.x and x < sel.bounds.x + sel.bounds.width and sel:contains(x, y) then
+          mask_buf[#mask_buf + 1] = white
+        else
+          mask_buf[#mask_buf + 1] = black
         end
       end
     end
+    mask_img.bytes = table.concat(mask_buf)
     return PT.image_to_base64(mask_img)
   end
 
@@ -86,24 +99,36 @@ function PT.capture_mask()
       if ok_bytes and src_bytes then
         local w, h = img.width, img.height
         local byte = string.byte
-        -- Pre-fill mask buffer with zeroes (GRAY = 1 byte per pixel)
-        local mask_data = {}
+        -- Pre-fill mask buffer with zeroes via string.rep (avoids 4M-entry table)
         local zero = string.char(0)
-        for i = 1, mask_w * mask_h do
-          mask_data[i] = zero
-        end
-        local white = string.char(255)
-        for y = 0, h - 1 do
-          local row_offset = y * w * 4  -- RGBA = 4 bytes per pixel
-          for x = 0, w - 1 do
-            local a = byte(src_bytes, row_offset + x * 4 + 4)  -- Alpha channel (1-indexed: +4)
-            if a and a > 0 then
-              local mx = x + ox
-              local my = y + oy
-              if mx >= 0 and mx < mask_w and my >= 0 and my < mask_h then
-                mask_data[my * mask_w + mx + 1] = white
+        local white_ch = string.char(255)
+        local mask_data = {}
+        -- Collect only non-zero pixel positions, build mask row-by-row
+        for my = 0, mask_h - 1 do
+          local row_parts = {}
+          local src_y = my - oy
+          if src_y >= 0 and src_y < h then
+            local row_offset = src_y * w * 4
+            local last_x = 0
+            for mx = 0, mask_w - 1 do
+              local src_x = mx - ox
+              if src_x >= 0 and src_x < w then
+                local a = byte(src_bytes, row_offset + src_x * 4 + 4)
+                if a and a > 0 then
+                  if mx > last_x then
+                    row_parts[#row_parts + 1] = string.rep(zero, mx - last_x)
+                  end
+                  row_parts[#row_parts + 1] = white_ch
+                  last_x = mx + 1
+                end
               end
             end
+            if last_x < mask_w then
+              row_parts[#row_parts + 1] = string.rep(zero, mask_w - last_x)
+            end
+            mask_data[#mask_data + 1] = table.concat(row_parts)
+          else
+            mask_data[#mask_data + 1] = string.rep(zero, mask_w)
           end
         end
         mask_img.bytes = table.concat(mask_data)

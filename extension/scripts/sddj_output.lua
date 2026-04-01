@@ -214,21 +214,29 @@ function PT.open_output_dir()
   if not app.fs.isDirectory(dir) then
     app.fs.makeDirectory(dir)
   end
-  -- Sanitize: strict allowlist for safe path characters to prevent command injection
-  local safe_dir = dir:gsub('[^%w%s:/\\\\%-_.()%[%]]', "")
+  -- Sanitize: strict allowlist, then use explorer directly (avoids cmd.exe metachar injection)
+  local safe_dir = dir:gsub('[^%w%s:/\\%-_.]', "")
   if package.config:sub(1, 1) == "\\" then
-    -- OS-native explorer open
     safe_dir = safe_dir:gsub("/", "\\")
-    -- start "" ensures spaces in path are correctly handled and not seen as Window Title
-    os.execute('start "" "' .. safe_dir .. '"')
+    os.execute('explorer "' .. safe_dir .. '"')
   else
-    local is_mac = false
-    local ok, handle = pcall(io.popen, "uname -s")
-    if ok and handle then
-      is_mac = handle:read("*l"):match("Darwin")
-      handle:close()
+    -- Cache OS detection (avoid process spawn per click)
+    if not PT._cached_os then
+      if app.os and app.os.macos then
+        PT._cached_os = "Darwin"
+      elseif app.os and app.os.windows then
+        PT._cached_os = "Windows"
+      else
+        local ok, handle = pcall(io.popen, "uname -s")
+        if ok and handle then
+          PT._cached_os = handle:read("*l") or "Linux"
+          handle:close()
+        else
+          PT._cached_os = "Linux"
+        end
+      end
     end
-    if is_mac then
+    if PT._cached_os == "Darwin" then
       os.execute('open "' .. safe_dir .. '"')
     else
       os.execute('xdg-open "' .. safe_dir .. '"')
@@ -252,38 +260,41 @@ end
 
 function PT.apply_metadata(meta)
   if not meta or not PT.dlg then return end
-  
+
   PT._ui_transaction_depth = (PT._ui_transaction_depth or 0) + 1
+  local ok, err = pcall(function()
+
+  local dlg = PT.dlg
 
   -- Text fields
-  if meta.prompt then PT.dlg:modify{ id = "prompt", text = meta.prompt } end
-  if meta.negative_prompt then PT.dlg:modify{ id = "negative_prompt", text = meta.negative_prompt } end
-  if meta.seed then PT.dlg:modify{ id = "seed", text = tostring(meta.seed) } end
+  if meta.prompt then dlg:modify{ id = "prompt", text = meta.prompt } end
+  if meta.negative_prompt then dlg:modify{ id = "negative_prompt", text = meta.negative_prompt } end
+  if meta.seed then dlg:modify{ id = "seed", text = tostring(meta.seed) } end
 
   -- Combobox fields (pcall: option may not exist in current list)
-  if meta.mode then pcall(PT.dlg.modify, PT.dlg, { id = "mode", option = meta.mode }) end
-  if meta.output_size then pcall(PT.dlg.modify, PT.dlg, { id = "output_size", option = meta.output_size }) end
+  if meta.mode then pcall(dlg.modify, dlg, { id = "mode", option = meta.mode }) end
+  if meta.output_size then pcall(dlg.modify, dlg, { id = "output_size", option = meta.output_size }) end
 
   -- Slider fields (requires inverse scaling)
-  if meta.steps then PT.dlg:modify{ id = "steps", value = meta.steps } end
+  if meta.steps then dlg:modify{ id = "steps", value = meta.steps } end
   if meta.cfg_scale then
     local v = math.floor(meta.cfg_scale * 10)
-    PT.dlg:modify{ id = "cfg_scale", value = v }
+    dlg:modify{ id = "cfg_scale", value = v }
     PT.sync_slider_label("cfg_scale")
   end
-  if meta.clip_skip then PT.dlg:modify{ id = "clip_skip", value = meta.clip_skip } end
+  if meta.clip_skip then dlg:modify{ id = "clip_skip", value = meta.clip_skip } end
   if meta.denoise_strength then
     local v = math.floor(meta.denoise_strength * 100)
-    PT.dlg:modify{ id = "denoise", value = v }
+    dlg:modify{ id = "denoise", value = v }
     PT.sync_slider_label("denoise")
   end
 
   -- LoRA
   if meta.lora and meta.lora.name then
-    pcall(PT.dlg.modify, PT.dlg, { id = "lora_name", option = meta.lora.name })
+    pcall(dlg.modify, dlg, { id = "lora_name", option = meta.lora.name })
     if meta.lora.weight then
       local v = math.floor(meta.lora.weight * 100)
-      PT.dlg:modify{ id = "lora_weight", value = v }
+      dlg:modify{ id = "lora_weight", value = v }
       PT.sync_slider_label("lora_weight")
     end
   end
@@ -293,59 +304,64 @@ function PT.apply_metadata(meta)
     local pp = meta.post_process
     if pp.pixelate ~= nil then
       if type(pp.pixelate) == "table" then
-        if pp.pixelate.enabled ~= nil then PT.dlg:modify{ id = "pixelate", selected = pp.pixelate.enabled } end
+        if pp.pixelate.enabled ~= nil then dlg:modify{ id = "pixelate", selected = pp.pixelate.enabled } end
         if pp.pixelate.target_size then
-          PT.dlg:modify{ id = "pixel_size", value = pp.pixelate.target_size }
+          dlg:modify{ id = "pixel_size", value = pp.pixelate.target_size }
           PT.sync_slider_label("pixel_size")
         end
-        if pp.pixelate.method then pcall(PT.dlg.modify, PT.dlg, { id = "pixelate_method", option = pp.pixelate.method }) end
+        if pp.pixelate.method then pcall(dlg.modify, dlg, { id = "pixelate_method", option = pp.pixelate.method }) end
       end
     end
-    if pp.quantize_enabled ~= nil then PT.dlg:modify{ id = "quantize_enabled", selected = pp.quantize_enabled } end
-    if pp.quantize_colors then PT.dlg:modify{ id = "colors", value = pp.quantize_colors } end
-    if pp.quantize_method then pcall(PT.dlg.modify, PT.dlg, { id = "quantize_method", option = pp.quantize_method }) end
-    if pp.dither then pcall(PT.dlg.modify, PT.dlg, { id = "dither", option = pp.dither }) end
-    if pp.remove_bg ~= nil then PT.dlg:modify{ id = "remove_bg", selected = pp.remove_bg } end
+    if pp.quantize_enabled ~= nil then dlg:modify{ id = "quantize_enabled", selected = pp.quantize_enabled } end
+    if pp.quantize_colors then dlg:modify{ id = "colors", value = pp.quantize_colors } end
+    if pp.quantize_method then pcall(dlg.modify, dlg, { id = "quantize_method", option = pp.quantize_method }) end
+    if pp.dither then pcall(dlg.modify, dlg, { id = "dither", option = pp.dither }) end
+    if pp.remove_bg ~= nil then dlg:modify{ id = "remove_bg", selected = pp.remove_bg } end
     if pp.palette then
-      if pp.palette.mode then pcall(PT.dlg.modify, PT.dlg, { id = "palette_mode", option = pp.palette.mode }) end
-      if pp.palette.name then pcall(PT.dlg.modify, PT.dlg, { id = "palette_name", option = pp.palette.name }) end
+      if pp.palette.mode then pcall(dlg.modify, dlg, { id = "palette_mode", option = pp.palette.mode }) end
+      if pp.palette.name then pcall(dlg.modify, dlg, { id = "palette_name", option = pp.palette.name }) end
     end
   end
 
   -- Animation-specific fields
-  if meta.method then pcall(PT.dlg.modify, PT.dlg, { id = "anim_method", option = meta.method }) end
-  if meta.frame_count then PT.dlg:modify{ id = "anim_frames", value = meta.frame_count } end
-  if meta.seed_strategy then pcall(PT.dlg.modify, PT.dlg, { id = "anim_seed_strategy", option = meta.seed_strategy }) end
+  if meta.method then pcall(dlg.modify, dlg, { id = "anim_method", option = meta.method }) end
+  if meta.frame_count then dlg:modify{ id = "anim_frames", value = meta.frame_count } end
+  if meta.seed_strategy then pcall(dlg.modify, dlg, { id = "anim_seed_strategy", option = meta.seed_strategy }) end
   if meta.tag_name then
     if meta.action == "generate_audio_reactive" then
-      pcall(function() PT.dlg:modify{ id = "audio_tag", text = meta.tag_name } end)
+      pcall(function() dlg:modify{ id = "audio_tag", text = meta.tag_name } end)
     else
-      PT.dlg:modify{ id = "anim_tag", text = meta.tag_name }
+      dlg:modify{ id = "anim_tag", text = meta.tag_name }
     end
   end
 
   -- Lock Subject state
   if meta.lock_subject ~= nil then
-    PT.dlg:modify{ id = "lock_subject", selected = meta.lock_subject }
+    dlg:modify{ id = "lock_subject", selected = meta.lock_subject }
   end
   if meta.fixed_subject then
-    PT.dlg:modify{ id = "fixed_subject", text = meta.fixed_subject }
+    dlg:modify{ id = "fixed_subject", text = meta.fixed_subject }
   end
   if meta.subject_position then
-    pcall(PT.dlg.modify, PT.dlg, { id = "subject_position", option = meta.subject_position })
+    pcall(dlg.modify, dlg, { id = "subject_position", option = meta.subject_position })
   end
   -- Lock Custom state
   if meta.lock_custom ~= nil then
-    PT.dlg:modify{ id = "lock_custom", selected = meta.lock_custom }
+    dlg:modify{ id = "lock_custom", selected = meta.lock_custom }
   end
   if meta.fixed_custom then
-    PT.dlg:modify{ id = "fixed_custom", text = meta.fixed_custom }
+    dlg:modify{ id = "fixed_custom", text = meta.fixed_custom }
   end
   if meta.custom_position then
-    pcall(PT.dlg.modify, PT.dlg, { id = "custom_position", option = meta.custom_position })
+    pcall(dlg.modify, dlg, { id = "custom_position", option = meta.custom_position })
   end
 
+  end)
   PT._ui_transaction_depth = PT._ui_transaction_depth - 1
+  if not ok then
+    -- Log but don't crash — sync must still run
+    print("[SDDj] apply_metadata error: " .. tostring(err))
+  end
 
   -- Centralized sync of all conditional widget states after data injection
   PT.sync_ui_conditional_states()

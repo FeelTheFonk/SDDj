@@ -6,7 +6,7 @@ return function(PT)
 
 -- ─── Constants ──────────────────────────────────────────────
 
-PT.VERSION = "0.9.83"
+PT.VERSION = "0.9.84"
 
 PT.cfg = {
   DEFAULT_SERVER_URL      = "ws://127.0.0.1:9876/ws",
@@ -19,7 +19,10 @@ PT.cfg = {
   DIRTY_STEP_DIVISOR      = 32,
   RECONNECT_BASE_DELAY    = 2.0,
   RECONNECT_MAX_DELAY     = 30.0,
+  RECONNECT_MAX_ATTEMPTS  = 20,
+  DEFAULT_NEGATIVE_PROMPT = "blurry, bad quality, worst quality, jpeg artifacts",
   -- Safety limits
+  MAX_CAPTURE_SIZE        = 4096,                 -- max sprite dimension for capture
   MAX_WS_MESSAGE_SIZE     = 50 * 1024 * 1024,   -- 50 MB (matches server ws_max_size)
   MAX_BASE64_SIZE         = 100 * 1024 * 1024,   -- 100 MB max base64 input
   DRAIN_BATCH_SIZE        = 32,                   -- messages per drain tick
@@ -108,6 +111,7 @@ PT.audio = {
   features         = {},
   stems_available  = false,
   stems            = {},
+  expression_presets = {},
   mod_presets       = {},
   bpm              = 0,
   lufs             = -24,

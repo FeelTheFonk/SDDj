@@ -319,7 +319,7 @@ function PT.build_audio_reactive_request()
     width             = gw,
     height            = gh,
     seed              = PT.parse_seed(),
-    steps             = clamp(d.audio_steps, 1, 150),
+    steps             = clamp(d.audio_steps, 1, 100),
     cfg_scale         = clamp(d.audio_cfg / 10.0, 0, 30),
     clip_skip         = clamp(d.clip_skip, 1, 12),
     denoise_strength  = clamp(d.audio_denoise / 100.0, 0, 1),
@@ -345,12 +345,12 @@ function PT.build_generate_request()
     width            = gw,
     height           = gh,
     seed             = PT.parse_seed(),
-    steps            = clamp(PT.dlg.data.steps, 1, 150),
+    steps            = clamp(PT.dlg.data.steps, 1, 100),
     cfg_scale        = clamp(PT.dlg.data.cfg_scale / 10.0, 0, 30),
     clip_skip        = clamp(PT.dlg.data.clip_skip, 1, 12),
     denoise_strength = clamp(PT.dlg.data.denoise / 100.0, 0, 1),
     post_process     = PT.build_post_process(),
-    prompt_schedule  = PT.extract_prompt_schedule(1, 24),
+    prompt_schedule  = nil,  -- O-06: skip schedule parse for single-image
   }
   PT.attach_lora(req)
   PT.attach_neg_ti(req)
@@ -371,7 +371,9 @@ function PT.build_animation_request()
 
   -- Prompt schedule via global DSL
   local fps = 24
-  if d.anim_duration then fps = math.floor(1000 / d.anim_duration) end
+  if d.anim_duration and d.anim_duration > 0 then
+    fps = 1000.0 / d.anim_duration
+  end
   local prompt_schedule = PT.extract_prompt_schedule(d.anim_frames or 100, fps)
 
   local req = {
@@ -382,11 +384,11 @@ function PT.build_animation_request()
     mode = d.mode,
     width = gw, height = gh,
     seed = PT.parse_seed(),
-    steps = clamp(d.anim_steps, 1, 150),
+    steps = clamp(d.anim_steps, 1, 100),
     cfg_scale = clamp(d.anim_cfg / 10.0, 0, 30),
     clip_skip = clamp(d.clip_skip, 1, 12),
     denoise_strength = clamp(d.anim_denoise / 100.0, 0, 1),
-    frame_count = clamp(d.anim_frames, 1, 1000),
+    frame_count = clamp(d.anim_frames, 2, 256),
     frame_duration_ms = d.anim_duration,
     seed_strategy = d.anim_seed_strategy,
     tag_name = tag_name,
@@ -411,12 +413,12 @@ function PT.build_qr_request()
   local req = {
     action                        = "generate",
     mode                          = "controlnet_qrcode",
-    prompt                        = d.prompt,
+    prompt                        = PT.inject_locked_prompt(d.prompt),
     negative_prompt               = d.negative_prompt,
     width                         = gw,
     height                        = gh,
     seed                          = PT.parse_seed(),
-    steps                         = clamp(d.qr_steps or 20, 1, 150),
+    steps                         = clamp(d.qr_steps or 20, 1, 100),
     cfg_scale                     = clamp(d.qr_cfg / 10.0, 0, 30),
     clip_skip                     = clamp(d.clip_skip, 1, 12),
     denoise_strength              = use_source and clamp(d.qr_denoise / 100.0, 0, 1) or 1.0,

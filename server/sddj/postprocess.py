@@ -177,26 +177,30 @@ def _quantize_kmeans(
         rgb = arr
 
     h, w, _ = rgb.shape
-    pixels = rgb.reshape(-1, 3).astype(np.float32)
-    n_pixels = len(pixels)
+    # O-18: Defer float32 copy until after fast-path check
+    pixels_u8 = rgb.reshape(-1, 3)
+    n_pixels = len(pixels_u8)
     n_colors = min(n_colors, n_pixels)
 
     # Fast approximate unique color count (sample-based to avoid full sort)
     sample_size = min(4096, n_pixels)
     if sample_size < n_pixels:
         indices = np.random.default_rng(42).choice(n_pixels, sample_size, replace=False)
-        sample = pixels[indices]
+        sample = pixels_u8[indices]
     else:
-        sample = pixels
+        sample = pixels_u8
     n_approx_unique = len(np.unique(sample, axis=0))
     if n_approx_unique <= n_colors:
         # Full check only if sample suggests few unique colors
-        n_unique = len(np.unique(pixels, axis=0))
-        if n_unique <= n_colors:
-            centers = [tuple(int(x) for x in c) for c in np.unique(pixels, axis=0).astype(int)]
+        unique_colors = np.unique(pixels_u8, axis=0)
+        if len(unique_colors) <= n_colors:
+            centers = [tuple(int(x) for x in c) for c in unique_colors]
             if has_alpha:
                 return Image.fromarray(arr), centers
             return Image.fromarray(rgb), centers
+
+    # O-18: float32 conversion only when KMeans is actually needed
+    pixels = pixels_u8.astype(np.float32)
 
     kmeans = MiniBatchKMeans(
         n_clusters=n_colors,
@@ -248,17 +252,16 @@ def _quantize_octree_lab(
 
     h, w, _ = rgb.shape
 
-    # Convert to CIELAB for perceptually uniform clustering
-    img_lab = rgb2lab(rgb.astype(np.float64) / 255.0)
-    pixels_lab = img_lab.reshape(-1, 3).astype(np.float32)
+    # O-17: Convert to CIELAB for perceptually uniform clustering (float32 sufficient)
+    img_lab = rgb2lab(rgb.astype(np.float32) / 255.0).astype(np.float32)
+    pixels_lab = img_lab.reshape(-1, 3)
     n_pixels = len(pixels_lab)
     n_colors = min(n_colors, n_pixels)
 
-    # Fast-path: if image has fewer unique colors than requested
-    n_unique = len(np.unique(pixels_lab.round(2), axis=0))
+    # M-34: Fast-path: if image has fewer unique colors than requested (single np.unique)
+    unique_lab = np.unique(pixels_lab.round(2), axis=0)
+    n_unique = len(unique_lab)
     if n_unique <= n_colors:
-        # Use KMeans on unique colors only (faster convergence)
-        unique_lab = np.unique(pixels_lab.round(2), axis=0)
         # Convert unique LAB centers back to RGB
         centers_rgb_float = lab2rgb(unique_lab.reshape(1, -1, 3).astype(np.float64))
         centers_rgb = np.clip(centers_rgb_float * 255, 0, 255).astype(np.uint8).reshape(-1, 3)
@@ -522,24 +525,36 @@ def _fs_core_lab(lab_img, pal_lab, pal_rgb, alpha_mask):
             err_a = old_a - pal_lab[best, 1]
             err_b = old_b - pal_lab[best, 2]
 
-            # Distribute error to opaque neighbors (Floyd-Steinberg weights)
-            if x + 1 < w and alpha_mask[y, x + 1]:
-                lab_img[y, x + 1, 0] += err_L * 0.4375
-                lab_img[y, x + 1, 1] += err_a * 0.4375
-                lab_img[y, x + 1, 2] += err_b * 0.4375
-            if y + 1 < h:
-                if x - 1 >= 0 and alpha_mask[y + 1, x - 1]:
-                    lab_img[y + 1, x - 1, 0] += err_L * 0.1875
-                    lab_img[y + 1, x - 1, 1] += err_a * 0.1875
-                    lab_img[y + 1, x - 1, 2] += err_b * 0.1875
-                if alpha_mask[y + 1, x]:
-                    lab_img[y + 1, x, 0] += err_L * 0.3125
-                    lab_img[y + 1, x, 1] += err_a * 0.3125
-                    lab_img[y + 1, x, 2] += err_b * 0.3125
-                if x + 1 < w and alpha_mask[y + 1, x + 1]:
-                    lab_img[y + 1, x + 1, 0] += err_L * 0.0625
-                    lab_img[y + 1, x + 1, 1] += err_a * 0.0625
-                    lab_img[y + 1, x + 1, 2] += err_b * 0.0625
+            # C-18: Redistribute error among opaque neighbors only.
+            # When a neighbor is transparent, its weight is zeroed and the
+            # remaining weights are renormalized so total error is preserved.
+            w_r = 7.0 if (x + 1 < w and alpha_mask[y, x + 1]) else 0.0
+            w_bl = 3.0 if (y + 1 < h and x - 1 >= 0 and alpha_mask[y + 1, x - 1]) else 0.0
+            w_b = 5.0 if (y + 1 < h and alpha_mask[y + 1, x]) else 0.0
+            w_br = 1.0 if (y + 1 < h and x + 1 < w and alpha_mask[y + 1, x + 1]) else 0.0
+            total_w = w_r + w_bl + w_b + w_br
+            if total_w > 0.0:
+                inv_w = 1.0 / total_w
+                if w_r > 0.0:
+                    frac = w_r * inv_w
+                    lab_img[y, x + 1, 0] += err_L * frac
+                    lab_img[y, x + 1, 1] += err_a * frac
+                    lab_img[y, x + 1, 2] += err_b * frac
+                if w_bl > 0.0:
+                    frac = w_bl * inv_w
+                    lab_img[y + 1, x - 1, 0] += err_L * frac
+                    lab_img[y + 1, x - 1, 1] += err_a * frac
+                    lab_img[y + 1, x - 1, 2] += err_b * frac
+                if w_b > 0.0:
+                    frac = w_b * inv_w
+                    lab_img[y + 1, x, 0] += err_L * frac
+                    lab_img[y + 1, x, 1] += err_a * frac
+                    lab_img[y + 1, x, 2] += err_b * frac
+                if w_br > 0.0:
+                    frac = w_br * inv_w
+                    lab_img[y + 1, x + 1, 0] += err_L * frac
+                    lab_img[y + 1, x + 1, 1] += err_a * frac
+                    lab_img[y + 1, x + 1, 2] += err_b * frac
     return result
 
 
@@ -586,7 +601,7 @@ def _floyd_steinberg(
 
 # ── Bayer: CIELAB ordered dithering ──────────────────────────
 
-@functools.lru_cache(maxsize=8)
+@functools.lru_cache(maxsize=4)  # M-32: only 3 sizes used (2, 4, 8)
 def _bayer_matrix(n: int) -> np.ndarray:
     """Generate normalized Bayer threshold matrix of size n×n (cached)."""
     return _bayer_matrix_unnorm(n) / (n * n)
@@ -617,14 +632,15 @@ def _bayer_dither(
     """
     from skimage.color import rgb2lab
 
-    arr = np.array(img, dtype=np.float32)
+    # M-33: Only convert RGB channels to float32, keep alpha as uint8
+    arr = np.array(img)
     has_alpha = arr.shape[2] == 4
     if has_alpha:
-        alpha = arr[:, :, 3].copy()
-        rgb = arr[:, :, :3]
+        alpha = arr[:, :, 3].copy()  # uint8, no float32 conversion needed
+        rgb = arr[:, :, :3].astype(np.float32)
     else:
         alpha = None
-        rgb = arr
+        rgb = arr.astype(np.float32)
 
     h, w, _ = rgb.shape
 

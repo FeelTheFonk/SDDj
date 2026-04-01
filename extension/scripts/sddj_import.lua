@@ -56,7 +56,8 @@ function PT.import_result(resp)
 
     local spr = app.sprite
     if spr == nil then
-      spr = Sprite(resp.width or 512, resp.height or 512, ColorMode.RGB)
+      local dw, dh = PT.parse_size()
+      spr = Sprite(resp.width or dw or 512, resp.height or dh or 512, ColorMode.RGB)
       app.activeSprite = spr
     end
 
@@ -230,12 +231,11 @@ function PT.import_animation_frame(resp)
         frame_num = new_frame.frameNumber
       end
 
-      -- Validate layer still exists in sprite before creating cel
+      -- Validate layer still exists in sprite (pcall check, avoids O(n) scan)
       local layer_valid = false
       if img and PT.anim.layer and spr.frames[frame_num] then
-        for _, layer in ipairs(spr.layers) do
-          if layer == PT.anim.layer then layer_valid = true; break end
-        end
+        local lok, _ = pcall(function() return PT.anim.layer.name end)
+        layer_valid = lok and PT.anim.layer.sprite == spr
       end
       if layer_valid then
         spr:newCel(PT.anim.layer, spr.frames[frame_num], img, Point(0, 0))

@@ -208,7 +208,6 @@ _EXCLUDE_GENERATE = frozenset({
     "subject_type", "prompt_mode", "exclude_terms",
     "audio_path", "fps", "enable_stems",
     "modulation_slots", "expressions", "modulation_preset",
-    "prompt_segments",
     "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
     "max_frames", "output_dir", "scale_factor", "quality",
     "prompt_schedule_name", "prompt_schedule_data",
@@ -220,7 +219,6 @@ _EXCLUDE_ANIMATION = frozenset({
     "subject_type", "prompt_mode", "exclude_terms",
     "audio_path", "fps", "enable_stems",
     "modulation_slots", "expressions", "modulation_preset",
-    "prompt_segments",
     "preset_name", "preset_data", "palette_save_name", "palette_save_colors",
     "max_frames", "output_dir", "scale_factor", "quality",
     "controlnet_conditioning_scale", "control_guidance_start", "control_guidance_end",
@@ -272,6 +270,7 @@ class BaseGenerationParams(BaseModel):
     mask_image: Optional[str] = None
     control_image: Optional[str] = None
     seed: int = -1
+    # Lua client clamps to 1..150, server enforces stricter 1..100 for SD1.5
     steps: int = Field(8, ge=1, le=100)
     cfg_scale: float = Field(5.0, ge=0.0, le=30.0)
     denoise_strength: float = Field(0.30, ge=0.0, le=1.0)
@@ -300,6 +299,7 @@ class AnimationRequest(BaseGenerationParams):
     action: Action = Action.GENERATE_ANIMATION
     method: AnimationMethod = AnimationMethod.CHAIN
     # Animation-specific
+    # Lua client clamps to 1..1000, server cap at 256 per config.max_animation_frames
     frame_count: int = Field(8, ge=2, le=256)
     frame_duration_ms: int = Field(100, ge=30, le=2000)
     seed_strategy: SeedStrategy = SeedStrategy.INCREMENT
@@ -324,9 +324,9 @@ class Request(BaseModel):
     mode: Optional[GenerationMode] = None
     width: Optional[int] = None
     height: Optional[int] = None
-    source_image: Optional[str] = None
-    mask_image: Optional[str] = None
-    control_image: Optional[str] = None
+    source_image: Optional[str] = Field(None, max_length=50_000_000)
+    mask_image: Optional[str] = Field(None, max_length=50_000_000)
+    control_image: Optional[str] = Field(None, max_length=50_000_000)
     seed: Optional[int] = None
     steps: Optional[int] = None
     cfg_scale: Optional[float] = None
@@ -365,7 +365,7 @@ class Request(BaseModel):
     expressions: Optional[dict[str, str]] = None
     modulation_preset: Optional[str] = None
     # Prompt scheduling
-    prompt_schedule: Optional[dict] = None
+    prompt_schedule: Optional[PromptScheduleSpec] = None
     prompt_schedule_name: Optional[str] = None
     prompt_schedule_data: Optional[dict] = None
     # DSL validation
@@ -397,6 +397,15 @@ class Request(BaseModel):
         """Same normalisation for nullable list fields."""
         if isinstance(v, dict) and len(v) == 0:
             return []
+        return v
+
+    @field_validator("prompt_schedule", mode="before")
+    @classmethod
+    def _empty_schedule_to_none(cls, v: Any) -> Any:
+        """Lua json.lua encodes empty tables as {} — normalise to None.
+        Also allows a plain dict to pass through for Pydantic coercion into PromptScheduleSpec."""
+        if isinstance(v, dict) and len(v) == 0:
+            return None
         return v
 
     def to_generate_request(self) -> GenerateRequest:
@@ -694,6 +703,7 @@ class PromptScheduleDetailResponse(BaseModel):
     type: Literal["prompt_schedule_detail"] = "prompt_schedule_detail"
     name: str
     schedule_data: dict = Field(default_factory=dict)
+    dsl_text: str = ""
 
 
 class PromptScheduleSavedResponse(BaseModel):

@@ -130,11 +130,12 @@ end
 
 -- ─── File Reference Handling ───────────────────────────────
 
-local function resolve_file_ref(path, base_dir, errors)
+local function resolve_file_ref(path, base_dir, errors, line_num)
+  line_num = line_num or 1
   -- Security: reject path traversal
   if path:find("%.%.") then
     errors[#errors + 1] = {
-      line = 1, code = "E010",
+      line = line_num, code = "E010",
       message = "Path traversal rejected: " .. path,
     }
     return nil
@@ -142,7 +143,7 @@ local function resolve_file_ref(path, base_dir, errors)
   -- Reject absolute paths
   if path:sub(1, 1) == "/" or path:sub(1, 1) == "\\" then
     errors[#errors + 1] = {
-      line = 1, code = "E010",
+      line = line_num, code = "E010",
       message = "Absolute path rejected: " .. path,
     }
     return nil
@@ -150,7 +151,7 @@ local function resolve_file_ref(path, base_dir, errors)
   -- Windows absolute path
   if #path >= 2 and path:sub(2, 2) == ":" then
     errors[#errors + 1] = {
-      line = 1, code = "E010",
+      line = line_num, code = "E010",
       message = "Absolute path rejected: " .. path,
     }
     return nil
@@ -171,7 +172,7 @@ local function resolve_file_ref(path, base_dir, errors)
   local f = io.open(full_path, "r")
   if not f then
     errors[#errors + 1] = {
-      line = 1, code = "E011",
+      line = line_num, code = "E011",
       message = "File not found: " .. path,
     }
     return nil
@@ -188,8 +189,9 @@ end
 --- @param total_frames number  Total frames in the animation
 --- @param fps number  Frames per second (default 24)
 --- @param base_dir string|nil  Base directory for file: references
+--- @param resolve_files boolean|nil  If false, skip file: resolution (default true)
 --- @return table schedule  {keyframes={...}, has_auto=bool, errors={...}, warnings={...}}
-function M.parse(dsl_text, total_frames, fps, base_dir)
+function M.parse(dsl_text, total_frames, fps, base_dir, resolve_files)
   fps = fps or 24
   total_frames = math.max(1, total_frames or 1)
 
@@ -217,11 +219,21 @@ function M.parse(dsl_text, total_frames, fps, base_dir)
   end
 
   -- Handle file: reference (single-line DSL)
+  -- C-09: skip file I/O during live typing validation (resolve_files=false)
+  if resolve_files == nil then resolve_files = true end
   local trimmed = dsl_text:match("^%s*(.-)%s*$")
   local file_path = trimmed:match("^file:%s*(.+)$")
   if file_path then
     file_path = file_path:match("^%s*(.-)%s*$")
-    local content = resolve_file_ref(file_path, base_dir, errors)
+    if not resolve_files then
+      -- During live validation, accept file: refs without reading them
+      warnings[#warnings + 1] = {
+        line = 1, code = "W010",
+        message = "File reference will be resolved on generate: " .. file_path,
+      }
+      return { keyframes = {}, has_auto = false, errors = errors, warnings = warnings }
+    end
+    local content = resolve_file_ref(file_path, base_dir, errors, 1)
     if not content then
       return { keyframes = {}, has_auto = false, errors = errors, warnings = warnings }
     end

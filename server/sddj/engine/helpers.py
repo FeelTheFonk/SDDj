@@ -214,8 +214,17 @@ def apply_noise_injection(
     frame_params: dict[str, float],
     seed: int,
     denoise_strength: float,
+    *,
+    noise_buf: np.ndarray | None = None,
+    work_buf: np.ndarray | None = None,
 ) -> Image.Image:
     """Inject noise into a frame image for temporal variation.
+
+    O-16: Optional pre-allocated buffers for zero-allocation frame loops:
+      - noise_buf: float32 array of shape (H, W, C) for noise generation.
+      - work_buf: float32 array of shape (H, W, C) for pixel workspace.
+    Pass None (default) for backward compatibility — buffers will be
+    allocated on-the-fly.
 
     Auto-coupling: when no ``noise_amplitude`` slot is active, injects subtle
     noise inversely proportional to denoise strength — gated at 0.35 to prevent
@@ -228,10 +237,26 @@ def apply_noise_injection(
         else:
             noise_amp = 0.0
     if noise_amp > 0:
-        arr = np.array(image, dtype=np.float32) / 255.0
-        noise = np.random.default_rng(seed).standard_normal(
-            arr.shape, dtype=np.float32) * noise_amp
-        arr = np.clip(arr + noise, 0.0, 1.0)
+        arr_u8 = np.array(image)
+        shape = arr_u8.shape
+
+        # O-16: Reuse pre-allocated buffers when provided
+        if work_buf is not None and work_buf.shape == shape:
+            np.divide(arr_u8, 255.0, out=work_buf, casting='unsafe')
+            arr = work_buf
+        else:
+            arr = arr_u8.astype(np.float32) / 255.0
+
+        rng = np.random.default_rng(seed)
+        if noise_buf is not None and noise_buf.shape == shape:
+            rng.standard_normal(out=noise_buf, dtype=np.float32)
+            noise_buf *= noise_amp
+            arr += noise_buf
+        else:
+            noise = rng.standard_normal(shape, dtype=np.float32) * noise_amp
+            arr += noise
+
+        np.clip(arr, 0.0, 1.0, out=arr)
         image = Image.fromarray((arr * 255).astype(np.uint8))
     return image
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import functools
+import hashlib
 import math
+import threading
 from base64 import b64decode, b64encode
 from io import BytesIO
 
@@ -10,10 +13,35 @@ import cv2
 import numpy as np
 from PIL import Image
 
+# ── Thread lock for mutable module-level caches ───────────────
+_codec_lock = threading.Lock()
+
 # ── Cached matrices (computed once, reused across frames) ─────
-_K_INV_CACHE: dict[tuple[int, int, float], np.ndarray] = {}
-_REF_LAB_CACHE: dict[int, tuple[np.ndarray, np.ndarray]] = {}
-_FLOW_GRID_CACHE: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+# C-17: _K_INV_CACHE and _FLOW_GRID_CACHE have deterministic keys → lru_cache (see functions).
+# _REF_LAB_CACHE uses content-based key (C-16) and is guarded by _codec_lock (C-17).
+_REF_LAB_CACHE: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+
+def _img_cache_key(img) -> str:
+    """Content-based cache key for images (C-16). Samples first 1024 elements for speed."""
+    arr = np.asarray(img)
+    sample = arr.flat[:1024].tobytes()
+    return hashlib.md5(sample).hexdigest()
+
+
+@functools.lru_cache(maxsize=16)
+def _get_k_inv(w: int, h: int, fv: float) -> tuple[np.ndarray, np.ndarray]:
+    """Compute and cache camera intrinsic matrix K and its inverse K_inv (C-17)."""
+    cx, cy = w / 2.0, h / 2.0
+    K = np.array([[fv, 0, cx], [0, fv, cy], [0, 0, 1]], dtype=np.float32)
+    K_inv = np.linalg.inv(K)
+    return K, K_inv
+
+
+@functools.lru_cache(maxsize=8)
+def _get_flow_grid(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+    """Compute and cache meshgrid for optical flow remapping (C-17)."""
+    return np.mgrid[:h, :w].astype(np.float32)
 
 
 def round8(v: int) -> int:
@@ -50,6 +78,12 @@ def decode_b64_image(data: str) -> Image.Image:
 
 def encode_image_b64(image: Image.Image, compress_level: int = 0) -> str:
     """Encode a PIL Image to base64 PNG string.
+
+    .. deprecated::
+        M-35: PNG encode path is deprecated for frame transport. Use
+        ``encode_image_raw_bytes`` or ``encode_image_raw_b64`` for
+        zero-copy binary WS frames instead. PNG encode remains for
+        single-image export and debug only.
 
     Args:
         compress_level: 0 = fastest (no compression), 1 = fast, 9 = smallest.
@@ -267,15 +301,8 @@ def apply_perspective_tilt(
 
     R = Ry @ Rx
 
-    # Camera intrinsic matrix + cached inverse
-    cache_key = (w, h, fv)
-    if cache_key in _K_INV_CACHE:
-        K_inv = _K_INV_CACHE[cache_key]
-        K = np.array([[fv, 0, cx], [0, fv, cy], [0, 0, 1]], dtype=np.float32)
-    else:
-        K = np.array([[fv, 0, cx], [0, fv, cy], [0, 0, 1]], dtype=np.float32)
-        K_inv = np.linalg.inv(K)
-        _K_INV_CACHE[cache_key] = K_inv
+    # Camera intrinsic matrix + cached inverse (C-17: lru_cache, thread-safe)
+    K, K_inv = _get_k_inv(w, h, fv)
 
     # Homography: H = K · R · K⁻¹
     H = K @ R @ K_inv
@@ -323,18 +350,20 @@ def match_color_lab(
     img_stds = img_stds.flatten()
 
     # Cache reference frame LAB stats (same reference across animation frames)
-    ref_key = id(reference)
-    if ref_key in _REF_LAB_CACHE:
-        ref_means, ref_stds = _REF_LAB_CACHE[ref_key]
-    else:
-        ref_lab = cv2.cvtColor(ref_arr, cv2.COLOR_RGB2LAB)
-        ref_means, ref_stds = cv2.meanStdDev(ref_lab)
-        ref_means = ref_means.flatten()
-        ref_stds = ref_stds.flatten()
-        _REF_LAB_CACHE[ref_key] = (ref_means, ref_stds)
-        if len(_REF_LAB_CACHE) > 8:
-            oldest = next(iter(_REF_LAB_CACHE))
-            del _REF_LAB_CACHE[oldest]
+    # C-16: content-based key (not id()), C-17: thread-safe access
+    ref_key = _img_cache_key(reference)
+    with _codec_lock:
+        if ref_key in _REF_LAB_CACHE:
+            ref_means, ref_stds = _REF_LAB_CACHE[ref_key]
+        else:
+            ref_lab = cv2.cvtColor(ref_arr, cv2.COLOR_RGB2LAB)
+            ref_means, ref_stds = cv2.meanStdDev(ref_lab)
+            ref_means = ref_means.flatten()
+            ref_stds = ref_stds.flatten()
+            _REF_LAB_CACHE[ref_key] = (ref_means, ref_stds)
+            if len(_REF_LAB_CACHE) > 8:
+                oldest = next(iter(_REF_LAB_CACHE))
+                del _REF_LAB_CACHE[oldest]
 
     img_lab_f = img_lab.astype(np.float32)
     for ch in range(3):
@@ -393,19 +422,13 @@ def apply_optical_flow_blend(
     curr_gray = cv2.cvtColor(curr_arr, cv2.COLOR_RGB2GRAY)
     prev_gray = cv2.cvtColor(prev_arr, cv2.COLOR_RGB2GRAY)
 
-    flow = cv2.calcOpticalFlowFarneback(
-        prev_gray, curr_gray, None,
-        pyr_scale=0.5, levels=3, winsize=15,
-        iterations=3, poly_n=5, poly_sigma=1.2, flags=0,
-    )
+    # O-15: DIS optical flow — faster and more robust than Farneback
+    dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+    flow = dis.calc(prev_gray, curr_gray, None)
 
     h, w = curr_gray.shape
-    if (h, w) not in _FLOW_GRID_CACHE:
-        _FLOW_GRID_CACHE[(h, w)] = np.mgrid[:h, :w].astype(np.float32)
-        if len(_FLOW_GRID_CACHE) > 4:
-            oldest = next(iter(_FLOW_GRID_CACHE))
-            del _FLOW_GRID_CACHE[oldest]
-    grid_y, grid_x = _FLOW_GRID_CACHE[(h, w)]
+    # C-17: thread-safe lru_cache grid
+    grid_y, grid_x = _get_flow_grid(h, w)
     
     map_x = grid_x + flow[..., 0]
     map_y = grid_y + flow[..., 1]

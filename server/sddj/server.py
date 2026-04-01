@@ -52,6 +52,7 @@ from .protocol import (
 from . import __version__
 from . import lora_manager, palette_manager
 from .postprocess import warmup_numba
+from .validation import validate_resource_name
 
 
 def _get_ti_manager():
@@ -69,6 +70,16 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("sddj.server")
+
+_prompt_schedule_mgr = None
+
+
+def _get_schedule_mgr():
+    global _prompt_schedule_mgr
+    if _prompt_schedule_mgr is None:
+        from .prompt_schedule_presets import PromptSchedulePresetsManager
+        _prompt_schedule_mgr = PromptSchedulePresetsManager(settings.prompt_schedules_dir)
+    return _prompt_schedule_mgr
 
 _SUPPORTED_AUDIO_EXTS = frozenset({".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"})
 
@@ -324,7 +335,6 @@ async def _handle_msg_during_gen(
         if ws_id in _generating and _generating[ws_id].is_set():
             engine.cancel()
             log.info("Cancel received during generation (ws_id=%d)", ws_id)
-            await _send(websocket, ProgressResponse(step=0, total=0))
         else:
             await _send(websocket, PongResponse())
     elif req.action == Action.PING:
@@ -375,10 +385,6 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
         elif req.action == Action.CANCEL:
             if ws_id in _generating and _generating[ws_id].is_set():
                 engine.cancel()
-                # ACK immediately so client knows cancel was received.
-                # The GenerationCancelled exception handler will still send
-                # the final CANCELLED error when the generation actually stops.
-                await _send(websocket, ProgressResponse(step=0, total=0))
             else:
                 await _send(websocket, PongResponse())  # No-op — nothing to cancel
 
@@ -599,11 +605,15 @@ async def _handle_generate_prompt(websocket: WebSocket, req: Request) -> None:
     locked = req.locked_fields or {}
     template = req.prompt_template
     randomness = getattr(req, 'randomness', 0) or 0
-    prompt, negative, components = prompt_generator.generate(
-        locked, template, randomness=randomness,
-        subject_type=req.subject_type,
-        mode=req.prompt_mode,
-        exclude=req.exclude_terms,
+    loop = asyncio.get_running_loop()
+    prompt, negative, components = await loop.run_in_executor(
+        None,
+        lambda: prompt_generator.generate(
+            locked, template, randomness=randomness,
+            subject_type=req.subject_type,
+            mode=req.prompt_mode,
+            exclude=req.exclude_terms,
+        ),
     )
     await _send(websocket, PromptResultResponse(
         prompt=prompt, negative_prompt=negative, components=components,
@@ -798,6 +808,7 @@ async def _handle_get_modulation_preset(websocket: WebSocket, req: Request) -> N
         return
     from .modulation_engine import ModulationEngine
     try:
+        validate_resource_name(name, "preset")
         slots = ModulationEngine.get_preset(name)
         slot_dicts = [
             {
@@ -829,6 +840,12 @@ async def _handle_get_expression_preset(websocket: WebSocket, req: Request) -> N
             code="INVALID_REQUEST", message="preset_name required"))
         return
     from .expression_presets import get_expression_preset
+    try:
+        validate_resource_name(name, "preset")
+    except ValueError as e:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message=str(e)))
+        return
     preset = get_expression_preset(name)
     if not preset:
         await _send(websocket, ErrorResponse(
@@ -855,6 +872,12 @@ async def _handle_get_choreography_preset(websocket: WebSocket, req: Request) ->
             code="INVALID_REQUEST", message="preset_name required"))
         return
     from .expression_presets import get_choreography_preset
+    try:
+        validate_resource_name(name, "preset")
+    except ValueError as e:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message=str(e)))
+        return
     choreo = get_choreography_preset(name)
     if not choreo:
         await _send(websocket, ErrorResponse(
@@ -869,9 +892,8 @@ async def _handle_get_choreography_preset(websocket: WebSocket, req: Request) ->
 
 
 async def _handle_list_prompt_schedules(websocket: WebSocket) -> None:
-    from .prompt_schedule_presets import PromptSchedulePresetsManager
     from .protocol import PromptScheduleListResponse
-    mgr = PromptSchedulePresetsManager(settings.prompt_schedules_dir)
+    mgr = _get_schedule_mgr()
     items = mgr.list_presets()
     await _send(websocket, PromptScheduleListResponse(schedules=items))
 
@@ -882,10 +904,10 @@ async def _handle_get_prompt_schedule(websocket: WebSocket, req: Request) -> Non
         await _send(websocket, ErrorResponse(
             code="INVALID_REQUEST", message="prompt_schedule_name required"))
         return
-    from .prompt_schedule_presets import PromptSchedulePresetsManager
     from .protocol import PromptScheduleDetailResponse
-    mgr = PromptSchedulePresetsManager(settings.prompt_schedules_dir)
+    mgr = _get_schedule_mgr()
     try:
+        validate_resource_name(name, "schedule")
         data = mgr.get_preset(name)
         await _send(websocket, PromptScheduleDetailResponse(
             name=name, schedule_data=data))
@@ -902,10 +924,10 @@ async def _handle_save_prompt_schedule(websocket: WebSocket, req: Request) -> No
             code="INVALID_REQUEST",
             message="prompt_schedule_name and prompt_schedule_data required"))
         return
-    from .prompt_schedule_presets import PromptSchedulePresetsManager
     from .protocol import PromptScheduleSavedResponse
-    mgr = PromptSchedulePresetsManager(settings.prompt_schedules_dir)
+    mgr = _get_schedule_mgr()
     try:
+        validate_resource_name(name, "schedule")
         mgr.save_preset(name, data)
         await _send(websocket, PromptScheduleSavedResponse(name=name))
     except ValueError as e:
@@ -919,10 +941,10 @@ async def _handle_delete_prompt_schedule(websocket: WebSocket, req: Request) -> 
         await _send(websocket, ErrorResponse(
             code="INVALID_REQUEST", message="prompt_schedule_name required"))
         return
-    from .prompt_schedule_presets import PromptSchedulePresetsManager
     from .protocol import PromptScheduleDeletedResponse
-    mgr = PromptSchedulePresetsManager(settings.prompt_schedules_dir)
+    mgr = _get_schedule_mgr()
     try:
+        validate_resource_name(name, "schedule")
         mgr.delete_preset(name)
         await _send(websocket, PromptScheduleDeletedResponse(name=name))
     except (FileNotFoundError, ValueError) as e:
@@ -1058,7 +1080,7 @@ async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:
                 message=f"Audio file not found: {audio_path}"))
             return
         audio_ext = os.path.splitext(audio_real)[1].lower()
-        if audio_ext not in {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}:
+        if audio_ext not in _SUPPORTED_AUDIO_EXTS:
             await _send(websocket, ExportMp4ErrorResponse(
                 message=f"Unsupported audio format: {audio_ext}"))
             return

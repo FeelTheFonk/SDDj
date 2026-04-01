@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.9.84] — 2026-04
+### Pre-Release Audit — Full-Stack Hardening (86 findings)
+Exhaustive line-by-line audit of all 22 modified files across Lua extension and Python backend. 4-agent cross-review pass with zero blind spots policy. Every critical, optimization, and minor finding addressed.
+
+#### Critical Fixes (18)
+- **C-02 UI Transaction Safety** (`sddj_dialog.lua`): Wrapped `sync_ui_conditional_states` body in pcall with guaranteed `_ui_transaction_depth` reset on error. Prevents permanent suppression of UI sync after an exception.
+- **C-03 Onchange Handler Deduplication** (`sddj_dialog.lua`): Replaced 4 divergent inline onchange handlers (pixelate, anim_freeinit, audio_freeinit, audio_advanced) with centralized `sync_ui_conditional_states()`. The audio_advanced handler had silently diverged from the central function — missing expression field visibility and mod slot gating.
+- **C-04 Drain Guard** (`sddj_handler.lua`): Changed drain guard from `if not PT.state.connected` to `if not PT.state` to allow queued messages to process after disconnect.
+- **C-05 Command Injection** (`sddj_output.lua`): Replaced `start ""` with `explorer` on Windows, added `app.os` detection with caching. Sanitized directory path with strict allowlist `[%w%s:/\\%-_.]`.
+- **C-07 Division by Zero** (`sddj_request.lua`): Fixed float FPS calculation `1000.0 / d.anim_duration` with zero guard.
+- **C-08 Missing Transition** (`sddj_dsl_editor.lua`): Added "blend" to TRANSITIONS list.
+- **C-09 Blocking I/O on UI Thread** (`sddj_dsl_parser.lua`): Added `resolve_files` parameter to skip file I/O during live typing preview.
+- **C-10/C-11 WebSocket Robustness** (`sddj_ws.lua`): Added ERROR message type handler and reconnect attempt limit (`RECONNECT_MAX_ATTEMPTS=20`).
+- **C-12 Protocol Gap** (`protocol.py`): Added `dsl_text: str = ""` to `PromptScheduleDetailResponse`.
+- **C-13 Path Traversal** (`server.py`): Added `validate_resource_name()` to all 6 preset/schedule handlers with proper ValueError catching.
+- **C-14 Event Loop Blocking** (`server.py`): Wrapped `prompt_generator.generate()` in `run_in_executor`.
+- **C-15 Input Bounds** (`protocol.py`): Added `max_length=50_000_000` on `source_image`, `mask_image`, `control_image` (aligned with 50MB WS transport limit, supports 4096px sprites).
+- **C-16/C-17 Cache Correctness** (`image_codec.py`, `pipeline_factory.py`): Replaced `id()` cache keys with content-based MD5 hash (`_REF_LAB_CACHE`) and stable checkpoint path strings (`_img2img_cache`). Added `threading.Lock` for mutable caches, `@functools.lru_cache` for deterministic ones. Double-check locking on pipeline load prevents duplicate model loads and VRAM leak.
+- **C-18 Floyd-Steinberg Alpha** (`postprocess.py`): Rewrote error diffusion in `_fs_core_lab` Numba kernel to redistribute error only among opaque neighbors with weight renormalization. Prevents quantization error bleeding into transparent regions.
+- **C-19 Overlap Blend Formula** (`audio_reactive.py`): Fixed alpha from `overlap_pos / overlap` (never reaches 1.0) to `overlap_pos / max(overlap - 1, 1)` for correct linear crossfade.
+
+#### Optimization Fixes (18)
+- **O-01/O-02** (`sddj_dialog.lua`, `sddj_handler.lua`): Delegated mod_slot_count onchange and preset slider formatting to centralized functions.
+- **O-03/O-04** (`sddj_capture.lua`): Rewrote selection mask capture (Strategy A) using `bytes`-based approach. Replaced 4M-entry table in Strategy C with `string.rep` row-by-row.
+- **O-05** (`sddj_dsl_editor.lua`): Eliminated double parse call in `update_schedule_state`.
+- **O-06/O-07** (`sddj_request.lua`): Set `prompt_schedule = nil` for single-image generation, applied `inject_locked_prompt` in QR request.
+- **O-08** (`sddj_base64.lua`): Pre-built `_b64_chars` lookup table replacing per-character `sub()` allocation.
+- **O-09/O-10** (`sddj_ws.lua`): Replaced dynamic `json.encode` ping with string literal, removed redundant state reset in disconnect.
+- **O-11/O-12** (`server.py`): Created `_get_schedule_mgr()` singleton, removed dead `ProgressResponse(step=0, total=0)` cancel ACK sends.
+- **O-13** (`audio_analyzer.py`): Vectorized asymmetric EMA smoothing via `@numba.njit` kernel.
+- **O-14** (`audio_analyzer.py`): Vectorized resample downsampling via `np.maximum.reduceat`.
+- **O-15** (`image_codec.py`): Replaced Farneback optical flow with DIS (`cv2.DISOpticalFlow_create(PRESET_MEDIUM)`).
+- **O-16** (`engine/helpers.py`): Added optional pre-allocated `noise_buf`/`work_buf` parameters to `apply_noise_injection` for zero-allocation frame loops.
+- **O-17/O-18** (`postprocess.py`): Deferred float32 conversion in KMeans until after fast-path check. Used float32 (not float64) in octree LAB quantization.
+
+#### Minor Fixes (37+)
+- **UI Polish** (`sddj_dialog.lua`): Preset/palette save cancel guard (M-01), "Load" → "Load JSON" (M-02), output sizes reordered small→large + 1024x1024 (M-03), centralized `DEFAULT_NEGATIVE_PROMPT` (M-04), tab persistence via settings (M-06), loop checkboxes disabled during generation (M-07), action button `focus=true` for Enter key.
+- **Handler Robustness** (`sddj_handler.lua`): MP4 export button enable after animation_complete (M-05), sorted expression preset categories (M-11), refresh timer start guard (M-12), output_dir reset before loop timer to prevent stale directory on next iteration for >200 frame animations.
+- **DSL Editor** (`sddj_dsl_editor.lua`): Preserved truncated keyframes on Apply (M-15), derived fps from anim_duration (M-16), actual animation params in preset save (M-17), generate button retry enabled (M-19).
+- **Parser** (`sddj_dsl_parser.lua`): Propagated actual line numbers to resolve_file_ref errors (M-20).
+- **Import/Capture** (`sddj_import.lua`, `sddj_capture.lua`): `parse_size()` fallback (M-21), `MAX_CAPTURE_SIZE` enforcement 4096px (M-22).
+- **Base64/WS** (`sddj_base64.lua`, `sddj_ws.lua`): Simplified dead fallback (M-23), timeout ≤ 0 guard (M-24), `MAX_WS_MESSAGE_SIZE` check on binary frames (M-25), connect timeout pcall (M-26).
+- **Entry Point** (`sddj.lua`): `os.rename` error handling with fallback direct write (M-27).
+- **Settings** (`sddj_settings.lua`): Removed legacy v0.7.x migration code, added `main_tabs` to `_FIELD_SCHEMA`.
+- **State** (`sddj_state.lua`): Initialized `expression_presets = {}` in `PT.audio`.
+- **Protocol** (`protocol.py`): Removed dead "prompt_segments" from exclude sets (M-30), typed `prompt_schedule` as `Optional[PromptScheduleSpec]` with empty-dict-to-None validator (F-15), alignment comments on steps/frame_count limits (M-28/M-29).
+- **Request Clamp Alignment** (`sddj_request.lua`): Steps clamp 150→100 and frame_count clamp 1000→256 to match server-side Pydantic constraints.
+- **Server** (`server.py`): `_SUPPORTED_AUDIO_EXTS` frozenset (F-11), `prompt_schedules_dir` in config warning check (M-31).
+- **Post-Process** (`postprocess.py`): `lru_cache(maxsize=4)` for bayer matrix (M-32), alpha kept as uint8 in bayer dither (M-33), single `np.unique` call (M-34).
+- **Image Codec** (`image_codec.py`): PNG encode deprecation docstring (M-35).
+- **Pipeline Factory** (`pipeline_factory.py`): Stable string cache key replacing `id()` (M-37), thread-safe cache with double-check locking.
+- **Metadata Safety** (`sddj_output.lua`): `apply_metadata` body wrapped in pcall with guaranteed `_ui_transaction_depth` reset.
+
+#### Cross-Module Alignment
+- WebSocket protocol: all Request fields aligned between Lua builders and Python Pydantic models.
+- Size limits: `MAX_WS_MESSAGE_SIZE` (50MB) matched on both sides, `max_length` on image fields raised to 50M chars.
+- Version: synchronized across `sddj_state.lua`, `package.json`, `pyproject.toml`.
+- Settings: 111 fields in `_FIELD_SCHEMA` verified against dialog widget IDs.
+- Cancel flow: verified independence from removed `ProgressResponse(0,0)` — relies on `ErrorResponse(code="CANCELLED")`.
+
+
 ## [0.9.83] — 2026-04
 ### Architecture Audit — Systems-Level Hardening
 Comprehensive audit targeting every critical, optimization, and minor finding. Zero blind spots policy.

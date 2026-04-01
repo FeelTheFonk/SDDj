@@ -799,9 +799,13 @@ class AudioReactiveMixin:
                     break
 
                 if global_idx in frame_images and chunk_idx > 0:
-                    # Overlap region: alpha blend
+                    # C-19: Overlap region: alpha blend with corrected formula.
+                    # overlap_pos / overlap never reaches 1.0 (last overlap frame
+                    # gets alpha = (overlap-1)/overlap ≈ 0.75 for overlap=4).
+                    # Fix: divide by (overlap - 1) so the last overlap frame = 1.0.
                     overlap_pos = local_idx  # 0..overlap-1
-                    alpha = overlap_pos / overlap  # 0→1: fade from prev to new
+                    alpha = overlap_pos / max(overlap - 1, 1)
+                    alpha = min(alpha, 1.0)
                     prev = frame_images[global_idx]
                     blended = Image.blend(prev, pil_img, alpha)
                     frame_images[global_idx] = blended

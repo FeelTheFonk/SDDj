@@ -156,7 +156,7 @@ local function _handle_streaming_frame(resp, progress_label)
   end
   if resp.frame_index == nil then return end
   -- Start refresh timer on first frame
-  if resp.frame_index == 0 then PT.start_refresh_timer() end
+  if not _refresh_timer then PT.start_refresh_timer() end
   -- Gap detection: check frame index continuity
   if PT.anim.last_frame_index >= 0 and resp.frame_index ~= PT.anim.last_frame_index + 1 then
     local gap = resp.frame_index - PT.anim.last_frame_index - 1
@@ -304,6 +304,10 @@ local function _handle_streaming_complete(resp, opts)
 
   -- Schedule loop iteration via timer
   if should_loop then
+    -- Reset output_dir before loop timer to prevent stale dir on next iteration
+    -- (chunked_finalize_durations may not have fired reset_anim_state yet)
+    PT.anim.output_dir = nil
+    PT.anim.output_count = 0
     PT.timers.loop = PT.stop_timer(PT.timers.loop)
     PT.timers.loop = Timer{
       interval = PT.cfg.LOOP_DELAY,
@@ -332,6 +336,9 @@ handlers.animation_complete = function(resp)
     done_label = "Animation",
     random_label = "animation",
     trigger_fn = PT.trigger_animate,
+    on_done_ui = function()
+      pcall(function() PT.dlg:modify{ id = "export_mp4_btn", enabled = true } end)
+    end,
     get_fps = function()
       local dur_ms = (PT.dlg and tonumber(PT.dlg.data.anim_duration) or 100)
       return 1000.0 / math.max(1, dur_ms)
@@ -525,21 +532,21 @@ handlers.preset = function(resp)
   end
   if d.steps then
     PT.dlg:modify{ id = "steps", value = d.steps }
-    PT.dlg:modify{ id = "steps", label = "Steps (" .. d.steps .. ")" }
+    PT.sync_slider_label("steps")
   end
   if d.cfg_scale then
     local v = math.floor(d.cfg_scale * 10)
     PT.dlg:modify{ id = "cfg_scale", value = v }
-    PT.dlg:modify{ id = "cfg_scale", label = string.format("CFG (%.1f)", v / 10.0) }
+    PT.sync_slider_label("cfg_scale")
   end
   if d.clip_skip then
     PT.dlg:modify{ id = "clip_skip", value = d.clip_skip }
-    PT.dlg:modify{ id = "clip_skip", label = "CLIP Skip (" .. d.clip_skip .. ")" }
+    PT.sync_slider_label("clip_skip")
   end
   if d.denoise_strength then
     local v = math.floor(d.denoise_strength * 100)
     PT.dlg:modify{ id = "denoise", value = v }
-    PT.dlg:modify{ id = "denoise", label = string.format("Strength (%.2f)", v / 100.0) }
+    PT.sync_slider_label("denoise")
   end
   if d.post_process then
     local pp = d.post_process
@@ -793,10 +800,13 @@ end
 handlers.expression_presets_list = function(resp)
   if not PT.dlg or not resp.presets then return end
   PT.audio.expression_presets = resp.presets
-  -- Build flat options list: (manual) + all presets grouped by category
+  -- Build flat options list: (manual) + all presets grouped by category (sorted)
   local opts = { "(manual)" }
-  for cat, presets in pairs(resp.presets) do
-    for _, p in ipairs(presets) do
+  local sorted_cats = {}
+  for cat in pairs(resp.presets) do sorted_cats[#sorted_cats + 1] = cat end
+  table.sort(sorted_cats)
+  for _, cat in ipairs(sorted_cats) do
+    for _, p in ipairs(resp.presets[cat]) do
       opts[#opts + 1] = p.name
     end
   end
@@ -1076,7 +1086,7 @@ local _frame_types = { animation_frame = true, audio_reactive_frame = true }
 local function _drain_next()
   if _queue_head > #_response_queue then return end
   -- Guard: extension shutting down (exit() nil'd state or set connected=false)
-  if not PT.state or not PT.state.connected then
+  if not PT.state then
     PT.clear_response_queue()
     return
   end

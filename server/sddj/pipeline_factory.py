@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -28,8 +29,11 @@ log = logging.getLogger("sddj.pipeline_factory")
 _TORCH_MAJOR = int(torch.__version__.split(".")[0])
 
 # ── Pipeline caches ───────────────────────────────────────────
+# M-37: Thread lock for pipeline cache access
+_pipeline_lock = threading.Lock()
 _pipeline_cache: dict[str, StableDiffusionPipeline] = {}
-_img2img_cache: dict[int, StableDiffusionImg2ImgPipeline] = {}
+# M-37: Keyed by stable string (checkpoint path), not id() which can be reused after GC
+_img2img_cache: dict[str, StableDiffusionImg2ImgPipeline] = {}
 
 # ─────────────────────────────────────────────────────────────
 # CONTROLNET MODEL IDS
@@ -53,9 +57,11 @@ def load_base_pipeline() -> StableDiffusionPipeline:
     """
     ckpt = settings.default_checkpoint
     cache_key = str(ckpt)
-    if cache_key in _pipeline_cache:
-        log.debug("Pipeline cache hit: %s", cache_key)
-        return _pipeline_cache[cache_key]
+    # M-37: Thread-safe cache access with double-check to avoid duplicate model loads
+    with _pipeline_lock:
+        if cache_key in _pipeline_cache:
+            log.debug("Pipeline cache hit: %s", cache_key)
+            return _pipeline_cache[cache_key]
 
     ckpt_path = Path(ckpt)
     log.info("Loading base pipeline: %s", ckpt)
@@ -77,7 +83,13 @@ def load_base_pipeline() -> StableDiffusionPipeline:
             local_files_only=True,
         )
     pipe.to("cuda")
-    _pipeline_cache[cache_key] = pipe
+    with _pipeline_lock:
+        # Double-check: another thread may have loaded while we were loading
+        if cache_key in _pipeline_cache:
+            log.debug("Pipeline race: discarding duplicate load for %s", cache_key)
+            del pipe
+            return _pipeline_cache[cache_key]
+        _pipeline_cache[cache_key] = pipe
     return pipe
 
 
@@ -195,11 +207,13 @@ def create_img2img_pipeline(
     both call set_timesteps() which mutates internal state. Sharing one
     scheduler causes chain animation to deadlock on the 3rd frame.
     """
-    pipe_id = id(pipe)
-    if pipe_id in _img2img_cache:
-        cached = _img2img_cache[pipe_id]
-        cached.scheduler = type(pipe.scheduler).from_config(pipe.scheduler.config)
-        return cached
+    # M-37: Stable cache key based on checkpoint path, not id() which can alias after GC
+    pipe_key = str(settings.default_checkpoint)
+    with _pipeline_lock:
+        if pipe_key in _img2img_cache:
+            cached = _img2img_cache[pipe_key]
+            cached.scheduler = type(pipe.scheduler).from_config(pipe.scheduler.config)
+            return cached
 
     img2img = StableDiffusionImg2ImgPipeline(
         vae=pipe.vae,
@@ -211,7 +225,11 @@ def create_img2img_pipeline(
         feature_extractor=None,
     )
     apply_freeu(img2img)
-    _img2img_cache[pipe_id] = img2img
+    with _pipeline_lock:
+        # Double-check: another thread may have created it concurrently
+        if pipe_key in _img2img_cache:
+            return _img2img_cache[pipe_key]
+        _img2img_cache[pipe_key] = img2img
     return img2img
 
 
@@ -287,8 +305,9 @@ def create_controlnet_pipeline(
 
 def clear_pipeline_cache():
     """Invalidate all pipeline caches (call when model changes)."""
-    _pipeline_cache.clear()
-    _img2img_cache.clear()
+    with _pipeline_lock:
+        _pipeline_cache.clear()
+        _img2img_cache.clear()
 
 
 def get_controlnet_from_pipe(

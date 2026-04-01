@@ -13,6 +13,9 @@ for i = 1, #b64chars do
   _b64_lut[b64chars:byte(i)] = i - 1
 end
 
+local _b64_chars = {}
+for i = 1, #b64chars do _b64_chars[i] = b64chars:sub(i, i) end
+
 -- Pre-computed power-of-two table to avoid repeated 2^n calls
 local _pow2 = {}
 for i = 0, 24 do _pow2[i] = 2 ^ i end
@@ -29,14 +32,14 @@ function PT.base64_encode(data)
       bits = bits - 6
       n = n + 1
       local idx = math.floor(acc / _pow2[bits]) % 64 + 1
-      t[n] = b64chars:sub(idx, idx)
+      t[n] = _b64_chars[idx]
       acc = acc % _pow2[bits]
     end
   end
   if bits > 0 then
     n = n + 1
     local shifted = acc * _pow2[6 - bits]
-    t[n] = b64chars:sub(shifted % 64 + 1, shifted % 64 + 1)
+    t[n] = _b64_chars[shifted % 64 + 1]
   end
   local pad = (3 - #data % 3) % 3
   for _ = 1, pad do n = n + 1; t[n] = "=" end
@@ -50,7 +53,7 @@ end
 -- + math.floor(acc / 2^bits) for O(1) byte extraction (no inner loop)
 
 function PT.base64_decode(data)
-  if #data > (PT.cfg and PT.cfg.MAX_BASE64_SIZE or 104857600) then
+  if #data > PT.cfg.MAX_BASE64_SIZE then
     return nil
   end
   local t, n = {}, 0
