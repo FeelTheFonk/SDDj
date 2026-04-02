@@ -647,5 +647,17 @@ class PromptGenerator:
         return self._negative_sets.get("universal", "")
 
 
-# Module-level singleton (lazy — created on first import)
-prompt_generator = PromptGenerator(settings.prompts_data_dir)
+_prompt_generator: PromptGenerator | None = None
+
+
+def get_prompt_generator() -> PromptGenerator:
+    global _prompt_generator
+    if _prompt_generator is None:
+        _prompt_generator = PromptGenerator(settings.prompts_data_dir)
+    return _prompt_generator
+
+
+def __getattr__(name: str):
+    if name == "prompt_generator":
+        return get_prompt_generator()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

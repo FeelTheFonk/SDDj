@@ -52,7 +52,7 @@ from .protocol import (
 from . import __version__
 from . import lora_manager, palette_manager
 from .postprocess import warmup_numba
-from .validation import validate_resource_name
+from .validation import validate_path_in_sandbox, validate_resource_name
 
 
 def _get_ti_manager():
@@ -81,16 +81,31 @@ def _get_schedule_mgr():
         _prompt_schedule_mgr = PromptSchedulePresetsManager(settings.prompt_schedules_dir)
     return _prompt_schedule_mgr
 
+import re as _re_module
+
 _SUPPORTED_AUDIO_EXTS = frozenset({".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"})
+_FRAME_PATTERN = _re_module.compile(r"^frame_\d+\.png$")
 
 
 async def _validate_audio_path(websocket: WebSocket, audio_path: str) -> str | None:
-    """Validate audio path: realpath, existence, extension, size.
+    """Validate audio path: realpath, existence, extension, size, sandbox.
 
     Returns validated real path on success, or None after sending error.
+    Filesystem I/O is offloaded to a thread to avoid blocking the event loop.
     """
-    real_path = os.path.realpath(audio_path)
-    if not os.path.isfile(real_path):
+    real_path = await asyncio.to_thread(os.path.realpath, audio_path)
+
+    # Sandbox: audio file must be under the project root
+    from .config import _SERVER_ROOT
+    try:
+        validate_path_in_sandbox(Path(real_path), _SERVER_ROOT)
+    except ValueError:
+        await _send(websocket, ErrorResponse(
+            code="INVALID_REQUEST", message="Audio path is outside the allowed sandbox"))
+        return None
+
+    is_file = await asyncio.to_thread(os.path.isfile, real_path)
+    if not is_file:
         await _send(websocket, ErrorResponse(
             code="INVALID_REQUEST", message=f"Audio file not found: {audio_path}"))
         return None
@@ -99,7 +114,8 @@ async def _validate_audio_path(websocket: WebSocket, audio_path: str) -> str | N
         await _send(websocket, ErrorResponse(
             code="INVALID_REQUEST", message=f"Unsupported audio format: {ext}"))
         return None
-    size_mb = os.path.getsize(real_path) / (1024 * 1024)
+    file_size = await asyncio.to_thread(os.path.getsize, real_path)
+    size_mb = file_size / (1024 * 1024)
     if size_mb > settings.audio_max_file_size_mb:
         await _send(websocket, ErrorResponse(
             code="INVALID_REQUEST",
@@ -346,7 +362,7 @@ async def _handle_msg_during_gen(
         await _handle_shutdown(websocket, ws_id)
 
 
-def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop, timeout: float = 1.0):
+def _make_thread_callback(websocket: WebSocket, loop: asyncio.AbstractEventLoop):
     """Create a thread-safe callback that sends responses via the event loop.
 
     Fire-and-forget: schedules the WS send on the async loop but does NOT block
@@ -489,7 +505,7 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             gen_req = req.to_generate_request()
             loop = asyncio.get_running_loop()
 
-            on_progress = _make_thread_callback(websocket, loop, timeout=1.0)
+            on_progress = _make_thread_callback(websocket, loop)
 
             # Serialize GPU access — pipeline is NOT thread-safe
             if _generate_lock is None:
@@ -526,8 +542,8 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
 
             loop = asyncio.get_running_loop()
 
-            on_anim_progress = _make_thread_callback(websocket, loop, timeout=1.0)
-            on_anim_frame = _make_thread_callback(websocket, loop, timeout=2.0)
+            on_anim_progress = _make_thread_callback(websocket, loop)
+            on_anim_frame = _make_thread_callback(websocket, loop)
 
             if _generate_lock is None:
                 raise RuntimeError("Server not fully initialized")
@@ -1053,8 +1069,6 @@ async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:
             message=f"Output directory not found: {output_dir}"))
         return
     # Sandbox: output_dir must be under the project output/ directory
-    from pathlib import Path
-    from .validation import validate_path_in_sandbox
     from .config import _SERVER_ROOT
     try:
         output_root = _SERVER_ROOT.parent / "output"
@@ -1064,9 +1078,7 @@ async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:
             message="Output directory is outside the allowed sandbox"))
         return
     # Ensure dir contains SDDj-named frame files (frame_N.png convention)
-    import re
-    frame_pattern = re.compile(r"^frame_\d+\.png$")
-    has_frames = any(frame_pattern.match(f) for f in os.listdir(real_dir))
+    has_frames = any(_FRAME_PATTERN.match(f) for f in os.listdir(real_dir))
     if not has_frames:
         await _send(websocket, ExportMp4ErrorResponse(
             message="Output directory contains no SDDj frame files"))
@@ -1130,8 +1142,8 @@ async def _handle_generate_audio_reactive(
     audio_req.audio_path = real_path
 
     loop = asyncio.get_running_loop()
-    on_progress = _make_thread_callback(websocket, loop, timeout=1.0)
-    on_frame = _make_thread_callback(websocket, loop, timeout=2.0)
+    on_progress = _make_thread_callback(websocket, loop)
+    on_frame = _make_thread_callback(websocket, loop)
 
     if _generate_lock is None:
         raise RuntimeError("Server not fully initialized")

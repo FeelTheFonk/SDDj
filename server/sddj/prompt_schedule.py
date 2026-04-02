@@ -52,6 +52,8 @@ class TransitionType(str, Enum):
             return cls.HARD_CUT
 
 
+_DEFAULT_TRANSITION_FRAMES = 100
+
 _BLENDING_TRANSITIONS = frozenset({
     TransitionType.BLEND,
     TransitionType.LINEAR_BLEND,
@@ -359,7 +361,7 @@ class PromptSchedule:
         elif self.total_frames is not None:
             next_frame = self.total_frames
         else:
-            next_frame = kf.frame + 100  # fallback when total_frames unknown
+            next_frame = kf.frame + _DEFAULT_TRANSITION_FRAMES  # fallback when total_frames unknown
 
         region = next_frame - kf.frame
         if region <= 0:
@@ -612,6 +614,22 @@ class PromptSchedule:
         }
 
     @staticmethod
+    def _parse_segment_dict(d: dict) -> PromptSegment | None:
+        """Parse a single segment dict. Returns None on failure."""
+        try:
+            seg = PromptSegment(
+                start_second=float(d.get("start_second", 0)),
+                end_second=float(d.get("end_second", 0)),
+                prompt=str(d.get("prompt", "")),
+                weight=float(d.get("weight", 1.0)),
+            )
+            if seg.end_second > seg.start_second and seg.prompt:
+                return seg
+        except (TypeError, ValueError):
+            pass
+        return None
+
+    @staticmethod
     def from_dicts(
         raw_segments: list[dict], default_prompt: str,
     ) -> "PromptSchedule | None":
@@ -621,17 +639,9 @@ class PromptSchedule:
         """
         segments: list[PromptSegment] = []
         for d in raw_segments:
-            try:
-                seg = PromptSegment(
-                    start_second=float(d.get("start_second", 0)),
-                    end_second=float(d.get("end_second", 0)),
-                    prompt=str(d.get("prompt", "")),
-                    weight=float(d.get("weight", 1.0)),
-                )
-                if seg.end_second > seg.start_second and seg.prompt:
-                    segments.append(seg)
-            except (TypeError, ValueError):
-                continue
+            seg = PromptSchedule._parse_segment_dict(d)
+            if seg is not None:
+                segments.append(seg)
         return PromptSchedule(segments, default_prompt) if segments else None
 
     @staticmethod
@@ -708,17 +718,9 @@ class PromptSchedule:
             if kf is not None:
                 keyframes.append(kf)
         for d in seg_dicts:
-            try:
-                seg = PromptSegment(
-                    start_second=float(d.get("start_second", 0)),
-                    end_second=float(d.get("end_second", 0)),
-                    prompt=str(d.get("prompt", "")),
-                    weight=float(d.get("weight", 1.0)),
-                )
-                if seg.end_second > seg.start_second and seg.prompt:
-                    segments.append(seg)
-            except (TypeError, ValueError):
-                continue
+            seg = PromptSchedule._parse_segment_dict(d)
+            if seg is not None:
+                segments.append(seg)
         if not keyframes and not segments:
             return None
         return PromptSchedule(segments, dp, keyframes=keyframes)
@@ -1131,18 +1133,6 @@ def _generate_positions(
             positions += [round(step * i) for i in range(1, n_front)]
         if n_back > 0:
             back_start = front_end + 1
-            back_step = (last - back_start) / max(1, n_back)
-            positions += [round(back_start + back_step * i) for i in range(n_back)]
-    elif spacing == "back_heavy":
-        n_back = max(1, round(kf_count * 0.6))
-        n_front = kf_count - n_back
-        split = round(last * 0.6)
-        positions = [0]
-        if n_front > 1 and split > 0:
-            step = split / n_front
-            positions += [round(step * i) for i in range(1, n_front)]
-        if n_back > 0:
-            back_start = split + 1
             back_step = (last - back_start) / max(1, n_back)
             positions += [round(back_start + back_step * i) for i in range(n_back)]
     else:

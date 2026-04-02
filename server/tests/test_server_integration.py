@@ -243,7 +243,7 @@ class TestSendFunction:
         from sddj.protocol import PongResponse
 
         mock_ws = AsyncMock()
-        resp = PongResponse(server_time=1234567890.0)
+        resp = PongResponse()
 
         await _send(mock_ws, resp)
 
@@ -260,6 +260,6 @@ class TestSendFunction:
         mock_ws = AsyncMock()
         mock_ws.send_text.side_effect = WebSocketDisconnect()
 
-        resp = PongResponse(server_time=0.0)
+        resp = PongResponse()
         # Should not raise
         await _send(mock_ws, resp)

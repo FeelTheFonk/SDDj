@@ -6,7 +6,8 @@ import functools
 import hashlib
 import math
 import threading
-from base64 import b64decode, b64encode
+from base64 import b64decode
+from collections import OrderedDict
 from io import BytesIO
 
 import cv2
@@ -16,10 +17,16 @@ from PIL import Image
 # ── Thread lock for mutable module-level caches ───────────────
 _codec_lock = threading.Lock()
 
+# ── Module-level constants (L13b: no magic numbers) ───────────
+_MIN_MOTION_THRESHOLD = 0.05
+_MIN_DENOISE_FOR_MOTION = 0.25
+_MAX_REF_LAB_CACHE = 8
+
 # ── Cached matrices (computed once, reused across frames) ─────
 # C-17: _K_INV_CACHE and _FLOW_GRID_CACHE have deterministic keys → lru_cache (see functions).
 # _REF_LAB_CACHE uses content-based key (C-16) and is guarded by _codec_lock (C-17).
-_REF_LAB_CACHE: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+# L14: OrderedDict for LRU eviction (move_to_end on access, popitem(last=False) on evict).
+_REF_LAB_CACHE: OrderedDict[str, tuple[np.ndarray, np.ndarray]] = OrderedDict()
 
 
 def _img_cache_key(img) -> str:
@@ -85,23 +92,6 @@ def decode_b64_image(data: str) -> Image.Image:
         raise ValueError(f"Invalid base64 image data: {e}") from e
 
 
-def encode_image_b64(image: Image.Image, compress_level: int = 0) -> str:
-    """Encode a PIL Image to base64 PNG string.
-
-    .. deprecated::
-        M-35: PNG encode path is deprecated for frame transport. Use
-        ``encode_image_raw_bytes`` or ``encode_image_raw_b64`` for
-        zero-copy binary WS frames instead. PNG encode remains for
-        single-image export and debug only.
-
-    Args:
-        compress_level: 0 = fastest (no compression), 1 = fast, 9 = smallest.
-    """
-    buf = BytesIO()
-    image.save(buf, format="PNG", compress_level=compress_level)
-    return b64encode(buf.getvalue()).decode("ascii")
-
-
 def encode_image_raw_bytes(image: Image.Image) -> bytes:
     """Return raw RGBA pixel bytes for binary frame transport.
 
@@ -110,22 +100,6 @@ def encode_image_raw_bytes(image: Image.Image) -> bytes:
     if image.mode != "RGBA":
         image = image.convert("RGBA")
     return image.tobytes()
-
-
-def encode_image_raw_b64(image: Image.Image) -> str:
-    """Encode PIL Image as raw RGBA bytes → base64.
-
-    No PNG compression — raw pixel data for maximum throughput in local
-    inter-process transport. The client reconstructs the Image directly
-    from the raw bytes using Image.bytes (Aseprite API), bypassing
-    temp file I/O and PNG decode entirely.
-
-    Payload size: width × height × 4 bytes (before base64).
-    """
-    if image.mode != "RGBA":
-        image = image.convert("RGBA")
-    raw = image.tobytes()
-    return b64encode(raw).decode("ascii")
 
 
 def resize_to_target(image: Image.Image, width: int, height: int) -> Image.Image:
@@ -181,6 +155,19 @@ def composite_with_mask(
     return Image.composite(inpainted, original, mask_binary)
 
 
+def _ensure_rgb3(arr: np.ndarray) -> np.ndarray:
+    """Ensure *arr* is a 3-channel RGB uint8 array.
+
+    Strips alpha if 4-channel, converts grayscale to RGB if 2D.
+    Returns the original array unchanged when already 3-channel.
+    """
+    if arr.ndim == 2:
+        return cv2.cvtColor(arr, cv2.COLOR_GRAY2RGB)
+    if arr.shape[2] == 4:
+        return arr[:, :, :3]
+    return arr
+
+
 def apply_motion_warp(
     image: Image.Image,
     tx: float = 0.0,
@@ -207,7 +194,7 @@ def apply_motion_warp(
     """
     # Safety guard: skip motion when denoise is too low for the model
     # to absorb warp artifacts (< 4 effective steps at 8-step/cap-2).
-    if denoise_strength < 0.25:
+    if denoise_strength < _MIN_DENOISE_FOR_MOTION:
         return image
 
     # Correlation: scale motion by denoise_strength (clamped 0.15-0.8)
@@ -224,7 +211,7 @@ def apply_motion_warp(
 
     # Skip if negligible motion (saves CPU)
     total_motion = abs(eff_tx) + abs(eff_ty) + abs(inv_zoom - 1.0) * 100.0 + abs(eff_rot)
-    if total_motion < 0.05:
+    if total_motion < _MIN_MOTION_THRESHOLD:
         return image
 
     w, h = image.size
@@ -275,7 +262,7 @@ def apply_perspective_tilt(
     Returns:
         Warped PIL image (same size and mode).
     """
-    if denoise_strength < 0.25:
+    if denoise_strength < _MIN_DENOISE_FOR_MOTION:
         return image
 
     scale = max(0.15, min(0.8, denoise_strength))
@@ -326,16 +313,139 @@ def apply_perspective_tilt(
     return Image.fromarray(warped)
 
 
+def apply_frame_transforms(
+    image: Image.Image,
+    warp_params: dict | None = None,
+    tilt_params: dict | None = None,
+) -> Image.Image:
+    """Apply motion warp and perspective tilt with a single PIL↔numpy round-trip.
+
+    Composes affine warp and homographic tilt into one (or two sequential)
+    cv2 warp calls, avoiding redundant PIL→numpy→PIL conversions that the
+    individual functions perform.
+
+    *warp_params* keys: tx, ty, zoom, rotation, denoise_strength.
+    *tilt_params* keys: tilt_x, tilt_y, denoise_strength.
+
+    When only one transform is requested, delegates to the corresponding
+    single-transform function for simplicity.  When both are requested,
+    the numpy array is shared across both warps and reconverted to PIL
+    only once at the end.
+    """
+    has_warp = warp_params is not None
+    has_tilt = tilt_params is not None
+
+    if not has_warp and not has_tilt:
+        return image
+
+    # Single transform — delegate to the original function (no savings from
+    # fusing when there is only one operation).
+    if has_warp and not has_tilt:
+        return apply_motion_warp(image, **warp_params)
+    if has_tilt and not has_warp:
+        return apply_perspective_tilt(image, **tilt_params)
+
+    # ── Both transforms requested: fuse the PIL↔numpy conversions ──
+
+    # --- Affine warp parameters ---
+    w_tx = warp_params.get("tx", 0.0)
+    w_ty = warp_params.get("ty", 0.0)
+    w_zoom = warp_params.get("zoom", 1.0)
+    w_rot = warp_params.get("rotation", 0.0)
+    w_ds = warp_params.get("denoise_strength", 0.5)
+
+    # --- Perspective tilt parameters ---
+    t_tx = tilt_params.get("tilt_x", 0.0)
+    t_ty = tilt_params.get("tilt_y", 0.0)
+    t_ds = tilt_params.get("denoise_strength", 0.5)
+
+    # Convert PIL → numpy ONCE
+    arr = np.array(image)
+    w, h = image.size
+
+    # --- Apply affine warp (if significant) ---
+    warp_applied = False
+    if w_ds >= _MIN_DENOISE_FOR_MOTION:
+        scale = max(0.15, min(0.8, w_ds))
+        eff_tx = w_tx * scale
+        eff_ty = w_ty * scale
+        eff_zoom = 1.0 + (w_zoom - 1.0) * scale
+        eff_rot = w_rot * scale
+        inv_zoom = 1.0 / eff_zoom if abs(eff_zoom) > 1e-6 else 1.0
+        total_motion = abs(eff_tx) + abs(eff_ty) + abs(inv_zoom - 1.0) * 100.0 + abs(eff_rot)
+        if total_motion >= _MIN_MOTION_THRESHOLD:
+            cx, cy = w / 2.0, h / 2.0
+            cos_a = math.cos(math.radians(eff_rot)) * inv_zoom
+            sin_a = math.sin(math.radians(eff_rot)) * inv_zoom
+            M = np.array([
+                [cos_a, -sin_a, (1.0 - cos_a) * cx + sin_a * cy + eff_tx],
+                [sin_a,  cos_a, -sin_a * cx + (1.0 - cos_a) * cy + eff_ty],
+            ], dtype=np.float32)
+            arr = cv2.warpAffine(
+                arr, M, (w, h),
+                flags=cv2.INTER_LANCZOS4,
+                borderMode=cv2.BORDER_REPLICATE,
+            )
+            warp_applied = True
+
+    # --- Apply perspective tilt (if significant) ---
+    tilt_applied = False
+    if t_ds >= _MIN_DENOISE_FOR_MOTION:
+        scale_t = max(0.15, min(0.8, t_ds))
+        eff_t_tx = t_tx * scale_t
+        eff_t_ty = t_ty * scale_t
+        if abs(eff_t_tx) + abs(eff_t_ty) >= 0.01:
+            fv = float(max(w, h))
+            ax = math.radians(eff_t_tx)
+            ay = math.radians(eff_t_ty)
+            Rx = np.array([
+                [1, 0,            0],
+                [0, math.cos(ax), -math.sin(ax)],
+                [0, math.sin(ax),  math.cos(ax)],
+            ], dtype=np.float32)
+            Ry = np.array([
+                [ math.cos(ay), 0, math.sin(ay)],
+                [ 0,            1, 0],
+                [-math.sin(ay), 0, math.cos(ay)],
+            ], dtype=np.float32)
+            R = Ry @ Rx
+            K, K_inv = _get_k_inv(w, h, fv)
+            H = K @ R @ K_inv
+            arr = cv2.warpPerspective(
+                arr, H, (w, h),
+                flags=cv2.INTER_LANCZOS4,
+                borderMode=cv2.BORDER_REPLICATE,
+            )
+            tilt_applied = True
+
+    if not warp_applied and not tilt_applied:
+        return image
+
+    # Convert numpy → PIL ONCE
+    return Image.fromarray(arr)
+
+
 def match_color_lab(
     image: Image.Image,
     reference: Image.Image,
     strength: float = 0.5,
+    frame_id: int | None = None,
+    work_buf_f32: np.ndarray | None = None,
+    gray_buf: np.ndarray | None = None,
 ) -> Image.Image:
     """Match the LAB color distribution of *image* to *reference*.
 
     Transfers per-channel mean and standard deviation in CIELAB space,
     then blends with the original based on *strength* (0 = no change,
     1 = full transfer).  Prevents color drift in frame chains.
+
+    Args:
+        frame_id: When provided, used as cache key for *reference* LAB stats
+            instead of computing an MD5 digest (M10 — avoids ~0% hit-rate
+            hashing in animation where the reference changes every frame).
+        work_buf_f32: Pre-allocated float32 buffer (H, W, 3) for the LAB→float
+            conversion.  When *None* a new array is allocated (backward compat).
+        gray_buf: Unused, reserved for future grayscale conversion buffer.
     """
     if strength <= 0.0:
         return image
@@ -343,15 +453,9 @@ def match_color_lab(
     img_arr = np.array(image, dtype=np.uint8)
     ref_arr = np.array(reference, dtype=np.uint8)
 
-    # Ensure both are 3-channel (strip alpha if present)
-    if img_arr.ndim == 2:
-        img_arr = cv2.cvtColor(img_arr, cv2.COLOR_GRAY2RGB)
-    elif img_arr.shape[2] == 4:
-        img_arr = img_arr[:, :, :3]
-    if ref_arr.ndim == 2:
-        ref_arr = cv2.cvtColor(ref_arr, cv2.COLOR_GRAY2RGB)
-    elif ref_arr.shape[2] == 4:
-        ref_arr = ref_arr[:, :, :3]
+    # L10: deduplicated channel normalisation
+    img_arr = _ensure_rgb3(img_arr)
+    ref_arr = _ensure_rgb3(ref_arr)
 
     img_lab = cv2.cvtColor(img_arr, cv2.COLOR_RGB2LAB)
     img_means, img_stds = cv2.meanStdDev(img_lab)
@@ -359,10 +463,13 @@ def match_color_lab(
     img_stds = img_stds.flatten()
 
     # Cache reference frame LAB stats (same reference across animation frames)
+    # M10: use frame_id when available (avoids MD5 with ~0% hit-rate).
     # C-16: content-based key (not id()), C-17: thread-safe access
-    ref_key = _img_cache_key(reference)
+    ref_key: str = str(frame_id) if frame_id is not None else _img_cache_key(reference)
     with _codec_lock:
         if ref_key in _REF_LAB_CACHE:
+            # L14: promote to most-recently-used
+            _REF_LAB_CACHE.move_to_end(ref_key)
             ref_means, ref_stds = _REF_LAB_CACHE[ref_key]
         else:
             ref_lab = cv2.cvtColor(ref_arr, cv2.COLOR_RGB2LAB)
@@ -370,11 +477,16 @@ def match_color_lab(
             ref_means = ref_means.flatten()
             ref_stds = ref_stds.flatten()
             _REF_LAB_CACHE[ref_key] = (ref_means, ref_stds)
-            if len(_REF_LAB_CACHE) > 8:
-                oldest = next(iter(_REF_LAB_CACHE))
-                del _REF_LAB_CACHE[oldest]
+            if len(_REF_LAB_CACHE) > _MAX_REF_LAB_CACHE:
+                _REF_LAB_CACHE.popitem(last=False)
 
-    img_lab_f = img_lab.astype(np.float32)
+    # M2: reuse pre-allocated float32 buffer when provided
+    if work_buf_f32 is not None and work_buf_f32.shape == img_lab.shape:
+        np.copyto(work_buf_f32, img_lab)
+        img_lab_f = work_buf_f32
+    else:
+        img_lab_f = img_lab.astype(np.float32)
+
     for ch in range(3):
         if img_stds[ch] < 1e-6 or ref_stds[ch] < 1e-6:
             continue
@@ -399,11 +511,19 @@ def apply_optical_flow_blend(
     current: Image.Image,
     previous: Image.Image,
     strength: float = 0.3,
+    map_x_buf: np.ndarray | None = None,
+    map_y_buf: np.ndarray | None = None,
 ) -> Image.Image:
     """Blend *current* frame with an optical-flow-warped *previous* frame.
 
     Reduces inter-frame jitter by estimating dense flow (Farneback) from
     *previous* → *current*, warping *previous* to align, then blending.
+
+    Args:
+        map_x_buf: Pre-allocated float32 buffer (H, W) for the x remap grid.
+            When *None* a new array is allocated (backward compat).
+        map_y_buf: Pre-allocated float32 buffer (H, W) for the y remap grid.
+            When *None* a new array is allocated (backward compat).
     """
     if strength <= 0.0:
         return current
@@ -411,15 +531,9 @@ def apply_optical_flow_blend(
     curr_arr = np.array(current, dtype=np.uint8)
     prev_arr = np.array(previous, dtype=np.uint8)
 
-    # Ensure 3-channel
-    if curr_arr.ndim == 2:
-        curr_arr = cv2.cvtColor(curr_arr, cv2.COLOR_GRAY2RGB)
-    elif curr_arr.shape[2] == 4:
-        curr_arr = curr_arr[:, :, :3]
-    if prev_arr.ndim == 2:
-        prev_arr = cv2.cvtColor(prev_arr, cv2.COLOR_GRAY2RGB)
-    elif prev_arr.shape[2] == 4:
-        prev_arr = prev_arr[:, :, :3]
+    # L10: deduplicated channel normalisation
+    curr_arr = _ensure_rgb3(curr_arr)
+    prev_arr = _ensure_rgb3(prev_arr)
 
     # Resize previous to match current if dimensions differ
     if prev_arr.shape[:2] != curr_arr.shape[:2]:
@@ -438,9 +552,19 @@ def apply_optical_flow_blend(
     h, w = curr_gray.shape
     # C-17: thread-safe lru_cache grid
     grid_y, grid_x = _get_flow_grid(h, w)
-    
-    map_x = grid_x + flow[..., 0]
-    map_y = grid_y + flow[..., 1]
+
+    # M11: reuse pre-allocated map buffers when provided
+    if map_x_buf is not None and map_x_buf.shape == (h, w):
+        np.add(grid_x, flow[..., 0], out=map_x_buf)
+        map_x = map_x_buf
+    else:
+        map_x = grid_x + flow[..., 0]
+
+    if map_y_buf is not None and map_y_buf.shape == (h, w):
+        np.add(grid_y, flow[..., 1], out=map_y_buf)
+        map_y = map_y_buf
+    else:
+        map_y = grid_y + flow[..., 1]
 
     warped = cv2.remap(
         prev_arr, map_x, map_y,

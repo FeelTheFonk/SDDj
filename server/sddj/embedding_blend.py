@@ -8,7 +8,6 @@ frame alternation.
 from __future__ import annotations
 
 import logging
-import math
 from collections import OrderedDict
 
 import torch
@@ -43,6 +42,17 @@ class _EmbeddingCache:
 
 _embed_cache = _EmbeddingCache()
 
+_NORM_EPSILON = 1e-8
+_COLLINEAR_THRESHOLD = 0.9995
+
+_model_generation: int = 0
+
+
+def bump_model_generation() -> None:
+    """Increment the model generation counter. Call when pipeline/model is reloaded."""
+    global _model_generation
+    _model_generation += 1
+
 
 def slerp(
     embed_a: torch.Tensor,
@@ -70,39 +80,39 @@ def slerp(
 
     # Flatten for dot product computation, then restore shape
     orig_shape = embed_a.shape
-    flat_a = embed_a.reshape(-1).float()
-    flat_b = embed_b.reshape(-1).float()
+    flat_a = embed_a.contiguous().view(-1).float()
+    flat_b = embed_b.contiguous().view(-1).float()
 
     # Normalize
     norm_a = torch.linalg.norm(flat_a)
     norm_b = torch.linalg.norm(flat_b)
-    if norm_a < 1e-8 or norm_b < 1e-8:
+    if norm_a < _NORM_EPSILON or norm_b < _NORM_EPSILON:
         # Degenerate: fall back to LERP
         return lerp(embed_a, embed_b, t)
 
     unit_a = flat_a / norm_a
     unit_b = flat_b / norm_b
 
-    # Compute angle
-    cos_omega = torch.clamp(torch.dot(unit_a, unit_b), -1.0, 1.0).item()
+    # Compute angle — pure tensor ops, no CUDA→CPU sync
+    cos_omega = torch.clamp(torch.dot(unit_a, unit_b), -1.0, 1.0)
 
     # If embeddings are nearly identical, use LERP to avoid division by zero
-    if abs(cos_omega) > 0.9995:
+    if torch.abs(cos_omega) > _COLLINEAR_THRESHOLD:
         return lerp(embed_a, embed_b, t)
 
-    omega = math.acos(cos_omega)
-    sin_omega = math.sin(omega)
+    omega = torch.acos(cos_omega)
+    sin_omega = torch.sin(omega)
 
     # SLERP formula
-    coeff_a = math.sin((1.0 - t) * omega) / sin_omega
-    coeff_b = math.sin(t * omega) / sin_omega
+    coeff_a = torch.sin((1.0 - t) * omega) / sin_omega
+    coeff_b = torch.sin(t * omega) / sin_omega
 
     # Interpolate with magnitude preservation
     avg_norm = norm_a * (1.0 - t) + norm_b * t
     result_flat = coeff_a * unit_a + coeff_b * unit_b
     result_flat = result_flat * avg_norm
 
-    return result_flat.reshape(orig_shape).to(embed_a.dtype)
+    return result_flat.view(orig_shape).to(embed_a.dtype)
 
 
 def lerp(
@@ -185,7 +195,7 @@ def _encode_prompt(
     Handles clip_skip by extracting from the appropriate hidden layer.
     Uses LRU cache to eliminate redundant tokenization+encoding across frames.
     """
-    cache_key = (prompt, negative_prompt or "", clip_skip, id(pipe.text_encoder))
+    cache_key = (prompt, negative_prompt or "", clip_skip, _model_generation)
     cached = _embed_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -201,8 +211,11 @@ def _encode_prompt(
             do_classifier_free_guidance=True,
         )
         if len(result) >= 2:
-            return result[0], result[1]  # prompt_embeds, negative_embeds
-        return result[0], result[0]  # fallback
+            embeds = (result[0], result[1])  # prompt_embeds, negative_embeds
+        else:
+            embeds = (result[0], result[0])  # fallback
+        _embed_cache.put(cache_key, embeds)
+        return embeds
 
     # Manual encoding fallback
     tokenizer = pipe.tokenizer

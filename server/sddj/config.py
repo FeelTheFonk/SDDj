@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from functools import cached_property
 from pathlib import Path
 from typing import Literal
 
@@ -163,7 +162,7 @@ class Settings(BaseSettings):
         "extra": "ignore",
     }
 
-    @cached_property
+    @property
     def is_animatediff_lightning(self) -> bool:
         return "animatediff-lightning" in self.animatediff_model.lower()
 

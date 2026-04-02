@@ -7,6 +7,7 @@ import random
 import time
 from typing import Callable, Optional
 
+import numpy as np
 import torch
 import torch.compiler
 from PIL import Image
@@ -47,12 +48,12 @@ from .helpers import (
 
 log = logging.getLogger("sddj.engine")
 
+_ANIMATEDIFF_CHUNK_SIZE = 16
+_ANIMATEDIFF_OVERLAP = 4
+
 
 class AudioReactiveMixin:
     """Audio-reactive generation methods for DiffusionEngine."""
-
-    _ANIMATEDIFF_CHUNK_SIZE = 16
-    _ANIMATEDIFF_OVERLAP = 4
 
     def _ensure_audio_modules(self):
         """Lazy-init audio modules (no GPU required)."""
@@ -258,12 +259,17 @@ class AudioReactiveMixin:
         # Reuse a single CUDA generator (reseed per frame — avoids per-frame allocation)
         _generator = torch.Generator("cuda")
 
-        # C-01: Pre-cache scheduler class + config to eliminate per-frame from_config() overhead.
-        # A fresh scheduler is still assigned per frame (frame 1+) because diffusers mutates
-        # scheduler state in-place during __call__, and stale state caused an infinite loop
-        # (see animation.py root fix comment). This caches the class+config lookup.
-        _SchedClass = type(self._pipe.scheduler)
-        _sched_config = self._pipe.scheduler.config
+        # S3: Create scheduler once and reuse via set_timesteps() instead of
+        # from_config() per frame. Diffusers mutates scheduler state in-place,
+        # so we reset via set_timesteps() each frame instead of rebuilding.
+        _frame_scheduler = type(self._pipe.scheduler).from_config(self._pipe.scheduler.config)
+
+        # S2: Pre-allocate buffers for noise injection (avoids per-frame heap allocation)
+        _noise_buf = np.empty((target_h, target_w, 3), dtype=np.float32)
+        _work_buf = np.empty_like(_noise_buf)
+
+        # M9: Cache raw_bytes for cadence-skip frames (avoids redundant encode)
+        _last_raw_bytes = None
 
         log.info("Audio-reactive chain: %d frames, mode=%s, steps=%d, seed_base=%d",
                  total_frames, req.mode.value, req.steps, base_seed)
@@ -290,9 +296,14 @@ class AudioReactiveMixin:
                                 image = postprocess_apply(image, req.post_process)
                             if hue_shift > 0.01:
                                 image = _apply_hue_shift(image, hue_shift)
+                            raw_bytes = encode_image_raw_bytes(image)
+                        elif _last_raw_bytes is not None:
+                            # M9: No post-processing or hue shift — reuse cached raw_bytes
+                            raw_bytes = _last_raw_bytes
+                            image = chain_source
                         else:
                             image = chain_source  # zero-copy: tobytes() is non-mutating
-                        raw_bytes = encode_image_raw_bytes(image)
+                            raw_bytes = encode_image_raw_bytes(image)
                         w, h = image.size
                         elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
                         frame_resp = AudioReactiveFrameResponse(
@@ -350,10 +361,11 @@ class AudioReactiveMixin:
                     frame_idx=frame_idx, total_frames=total_frames,
                 )
 
-                # Reset scheduler for frame 1+ (prevents stale state infinite loop).
-                # Uses pre-cached class+config (C-01) to avoid per-frame function call overhead.
+                # S3: Reset scheduler for frame 1+ via set_timesteps() instead of
+                # rebuilding from_config() each frame. Assign once, then reset state.
                 if frame_idx > 0:
-                    self._img2img_pipe.scheduler = _SchedClass.from_config(_sched_config)
+                    self._img2img_pipe.scheduler = _frame_scheduler
+                    _frame_scheduler.set_timesteps(eff_scaled_steps)
 
                 log.debug("Audio frame %d/%d: seed=%d, denoise=%.3f, cfg=%.2f, steps=%d (scaled=%d)%s",
                           frame_idx, total_frames, frame_seed, eff_denoise, eff_cfg, req.steps, eff_scaled_steps,
@@ -439,8 +451,9 @@ class AudioReactiveMixin:
                     # Motion warp: Deforum-like smooth camera (applied BEFORE img2img)
                     source = apply_frame_motion(source, frame_params, _raw_denoise)
 
-                    # Noise amplitude modulation
-                    source = apply_noise_injection(source, frame_params, frame_seed, _raw_denoise)
+                    # Noise amplitude modulation (S2: pre-allocated buffers)
+                    source = apply_noise_injection(source, frame_params, frame_seed, _raw_denoise,
+                                                   noise_buf=_noise_buf, work_buf=_work_buf)
 
                     if req.mode.value.startswith("controlnet_") and _control_img is not None:
                         log.info("Audio frame %d: ControlNet mode uses img2img for frame coherence", frame_idx)
@@ -480,6 +493,7 @@ class AudioReactiveMixin:
                     raise GenerationCancelled("Audio-reactive cancelled during post-processing")
 
                 raw_bytes = encode_image_raw_bytes(image)
+                _last_raw_bytes = raw_bytes  # M9: cache for cadence-skip reuse
                 w, h = image.size
                 elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
 
@@ -528,14 +542,14 @@ class AudioReactiveMixin:
         # own chunking strategy instead.
         if settings.is_animatediff_lightning:
             max_lt = settings.animatediff_max_frames_lightning
-            if self._ANIMATEDIFF_CHUNK_SIZE > max_lt:
+            if _ANIMATEDIFF_CHUNK_SIZE > max_lt:
                 raise ValueError(
-                    f"AnimateDiff-Lightning: chunk size {self._ANIMATEDIFF_CHUNK_SIZE} "
+                    f"AnimateDiff-Lightning: chunk size {_ANIMATEDIFF_CHUNK_SIZE} "
                     f"exceeds per-batch limit {max_lt}. Reduce chunk size."
                 )
             log.info("AnimateDiff-Lightning audio: %d total frames via %d-frame chunks "
                      "(within %d-frame Lightning limit)",
-                     schedule.total_frames, self._ANIMATEDIFF_CHUNK_SIZE, max_lt)
+                     schedule.total_frames, _ANIMATEDIFF_CHUNK_SIZE, max_lt)
         is_controlnet = req.mode.value.startswith("controlnet_")
         if not is_controlnet and self._controlnet_pipe is not None:
             log.info("Smart transition: unloading ControlNet before AnimateDiff audio")
@@ -609,8 +623,8 @@ class AudioReactiveMixin:
         _ad_generator = torch.Generator("cuda")
 
         total_frames = schedule.total_frames
-        chunk_size = self._ANIMATEDIFF_CHUNK_SIZE
-        overlap = self._ANIMATEDIFF_OVERLAP
+        chunk_size = _ANIMATEDIFF_CHUNK_SIZE
+        overlap = _ANIMATEDIFF_OVERLAP
 
         # Build chunk ranges: [(start, end), ...]
         chunks: list[tuple[int, int]] = []

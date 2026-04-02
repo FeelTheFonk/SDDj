@@ -52,13 +52,19 @@ from ..image_codec import (
     resize_to_target,
     round8,
 )
-from ..embedding_blend import clear_embedding_cache
+from ..embedding_blend import bump_model_generation, clear_embedding_cache
 from ..lora_fuser import LoRAFuser
 from .helpers import GenerationCancelled, build_prompt_schedule, scale_steps_for_denoise
 from .animation import AnimationMixin
 from .audio_reactive import AudioReactiveMixin
 
 log = logging.getLogger("sddj.engine")
+
+_MAX_SEED = 2**32 - 1
+
+
+def _noop_callback(pipe, step_idx, timestep, cb_kwargs):
+    return cb_kwargs
 
 
 class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
@@ -129,6 +135,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
     def _load_inner(self) -> None:
         """Internal load — called by load() with retry wrapper."""
         t0 = time.perf_counter()
+        bump_model_generation()
 
         # 0. Enable TF32 + high matmul precision (Ampere+, ~15-30% free speedup)
         if torch.cuda.is_available() and settings.enable_tf32:
@@ -242,9 +249,6 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             with torch.inference_mode():
                 gen = torch.Generator("cuda").manual_seed(0)
                 torch.compiler.cudagraph_mark_step_begin()
-
-                def _noop_callback(pipe, step_idx, timestep, cb_kwargs):
-                    return cb_kwargs
 
                 self._pipe(
                     prompt="warmup",
@@ -462,8 +466,8 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
 
                 # Resolve seed
                 # random.randint is not CSPRNG — acceptable for diffusion seeds
-                seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
-                seed = seed % (2**32)  # clamp to valid range
+                seed = req.seed if req.seed >= 0 else random.randint(0, _MAX_SEED)
+                seed = seed % (_MAX_SEED + 1)  # clamp to valid range
                 generator = torch.Generator("cuda").manual_seed(seed)
 
                 # Set style LoRA — only if client explicitly specifies one.
@@ -497,12 +501,15 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                         effective_neg = self._build_effective_negative(
                             blend_info.negative_prompt, req.negative_ti)
                     # Per-keyframe parameter overrides at frame 0
+                    _overrides: dict = {}
                     if blend_info.cfg_scale is not None:
-                        req = req.model_copy(update={"cfg_scale": blend_info.cfg_scale})
+                        _overrides["cfg_scale"] = blend_info.cfg_scale
                     if blend_info.denoise_strength is not None:
-                        req = req.model_copy(update={"denoise_strength": blend_info.denoise_strength})
+                        _overrides["denoise_strength"] = blend_info.denoise_strength
                     if blend_info.steps is not None:
-                        req = req.model_copy(update={"steps": blend_info.steps})
+                        _overrides["steps"] = blend_info.steps
+                    if _overrides:
+                        req = req.model_copy(update=_overrides)
 
                 # ── Mode dispatch ─────────────────────────────────────
 
@@ -583,8 +590,10 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         torch.compiler.cudagraph_mark_step_begin()
         # DeepCache hooks reference the txt2img scheduler's timesteps, but
         # img2img builds its own truncated schedule → timestep lookup crash.
-        # Suspend DeepCache for the img2img call to avoid the mismatch.
-        with deepcache_manager.suspended(self._deepcache_helper):
+        # Suppress DeepCache via mode-aware state to avoid redundant toggles.
+        if self._dc_state is not None:
+            self._dc_state.suppress_for("img2img")
+        try:
             return self._img2img_pipe(
                 prompt=prompt,
                 negative_prompt=negative,
@@ -597,6 +606,9 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 callback_on_step_end=callback,
                 output_type="pil",
             ).images[0]
+        finally:
+            if self._dc_state is not None:
+                self._dc_state.restore()
 
     def _inpaint(self, req, generator, callback, prompt, negative):
         """Inpaint: img2img full image, then composite via mask."""
@@ -619,8 +631,10 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         strength = max(req.denoise_strength, min_denoise)
         scaled_steps = scale_steps_for_denoise(req.steps, strength)
         torch.compiler.cudagraph_mark_step_begin()
-        # Same DeepCache suspension as _img2img — shared UNet, different scheduler.
-        with deepcache_manager.suspended(self._deepcache_helper):
+        # Same DeepCache suppression as _img2img — shared UNet, different scheduler.
+        if self._dc_state is not None:
+            self._dc_state.suppress_for("img2img")
+        try:
             inpainted = self._img2img_pipe(
                 prompt=prompt,
                 negative_prompt=negative,
@@ -633,6 +647,9 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 callback_on_step_end=callback,
                 output_type="pil",
             ).images[0]
+        finally:
+            if self._dc_state is not None:
+                self._dc_state.restore()
 
         # Composite: keep original where mask is black, use inpainted where white
         return composite_with_mask(source, inpainted, mask)
@@ -698,12 +715,17 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                          req.steps, settings.qr_default_steps)
 
         torch.compiler.cudagraph_mark_step_begin()
-        # DeepCache suspended for ALL ControlNet modes:
+        # DeepCache suppressed for ALL ControlNet modes:
         # Cached steps skip UNet blocks where ControlNet injects residuals,
         # causing conditioning to be partially dropped on those steps.
         active_pipe = self._controlnet_img2img_pipe if use_img2img else self._controlnet_pipe
-        with deepcache_manager.suspended(self._deepcache_helper):
+        if self._dc_state is not None:
+            self._dc_state.suppress_for("controlnet")
+        try:
             result = active_pipe(**call_kwargs).images[0]
+        finally:
+            if self._dc_state is not None:
+                self._dc_state.restore()
 
         return result
 

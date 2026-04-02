@@ -166,10 +166,10 @@ class AnimationMixin:
         # Reuse a single CUDA generator (reseed per frame — avoids per-frame allocation)
         _generator = torch.Generator("cuda")
 
-        # Pre-cache scheduler class + config (avoids pipeline_factory.fresh_scheduler()
-        # overhead per frame — eliminates attribute lookups on self._pipe each iteration)
-        _SchedClass = type(self._pipe.scheduler)
-        _sched_config = self._pipe.scheduler.config
+        # S3: Create scheduler once and reuse via set_timesteps() instead of
+        # from_config() per frame. Diffusers mutates scheduler state in-place,
+        # so we reset via set_timesteps() each frame instead of rebuilding.
+        _frame_scheduler = type(self._pipe.scheduler).from_config(self._pipe.scheduler.config)
 
         with torch.inference_mode():
             for frame_idx in range(req.frame_count):
@@ -205,7 +205,8 @@ class AnimationMixin:
                 # This explicitly clears scheduler state arrays, but may be completely redundant.
                 # Must be empirically validated with verify_optimizations.py before removing.
                 if frame_idx > 0:
-                    self._img2img_pipe.scheduler = _SchedClass.from_config(_sched_config)
+                    self._img2img_pipe.scheduler = _frame_scheduler
+                    _frame_scheduler.set_timesteps(frame_steps)
                     log.debug("Chain frame %d: scheduler reset", frame_idx)
 
                 log.debug("Chain frame %d/%d: seed=%d, mode=%s",

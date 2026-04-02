@@ -613,8 +613,8 @@ class AudioAnalyzer:
                 )
                 features.update(stem_features)
 
-        # Store raw (un-smoothed) features for per-slot EMA in modulation engine
-        raw_features = {name: arr.copy() for name, arr in features.items()}
+        # Shallow copy: smooth_features_ema creates new arrays, does not mutate inputs
+        raw_features = dict(features)
 
         # ── Smoothing ──
         if settings.audio_smoothing_mode == "savgol":

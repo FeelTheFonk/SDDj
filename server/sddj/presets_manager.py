@@ -18,14 +18,14 @@ class PresetsManager:
     def __init__(self, presets_dir: Path) -> None:
         self._dir = presets_dir
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._list_cache: list[str] | None = None
+        self._list_cache: tuple[str, ...] | None = None
 
-    def list_presets(self) -> list[str]:
-        """Return sorted list of available preset names."""
+    def list_presets(self) -> tuple[str, ...]:
+        """Return sorted tuple of available preset names (immutable, no copy needed)."""
         if self._list_cache is not None:
-            return list(self._list_cache)
-        self._list_cache = sorted(p.stem for p in self._dir.glob("*.json"))
-        return list(self._list_cache)
+            return self._list_cache
+        self._list_cache = tuple(sorted(p.stem for p in self._dir.glob("*.json")))
+        return self._list_cache
 
     def get_preset(self, name: str) -> dict:
         """Load and return a preset by name."""

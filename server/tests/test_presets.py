@@ -13,13 +13,13 @@ class TestPresetsManager:
     def test_list_presets_with_defaults(self, tmp_presets_dir: Path):
         mgr = PresetsManager(tmp_presets_dir)
         names = mgr.list_presets()
-        assert isinstance(names, list)
+        assert isinstance(names, (list, tuple))
         assert len(names) > 0
         assert "pixel_art" in names
 
     def test_list_empty(self, empty_presets_dir: Path):
         mgr = PresetsManager(empty_presets_dir)
-        assert mgr.list_presets() == []
+        assert len(mgr.list_presets()) == 0
 
     def test_get_preset(self, tmp_presets_dir: Path):
         mgr = PresetsManager(tmp_presets_dir)

@@ -128,6 +128,7 @@ def parse(
     warnings: list[ValidationError] = []
     has_auto = False
     file_ref: str | None = None
+    total_frames = max(1, total_frames)
 
     if not dsl_text or not dsl_text.strip():
         return ParseResult(

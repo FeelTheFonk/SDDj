@@ -8,6 +8,14 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+def _normalize_empty_dict(v: Any) -> Any:
+    """Lua json.lua encodes empty tables as {} (object) instead of [] (array).
+    Normalise empty dict to empty list so Pydantic validation doesn't reject it."""
+    if isinstance(v, dict) and not v:
+        return []
+    return v
+
+
 # ─────────────────────────────────────────────────────────────
 # ENUMS
 # ─────────────────────────────────────────────────────────────
@@ -141,11 +149,8 @@ class PostProcessSpec(BaseModel):
 
 
 
-_VALID_TRANSITIONS = frozenset({
-    "hard_cut", "blend", "linear_blend",
-    "ease_in", "ease_out", "ease_in_out",
-    "cubic", "slerp",
-})
+from .prompt_schedule import TransitionType
+_VALID_TRANSITIONS = frozenset(t.value for t in TransitionType)
 
 
 class PromptKeyframeSpec(BaseModel):
@@ -193,10 +198,7 @@ class PromptScheduleSpec(BaseModel):
     @field_validator("keyframes", mode="before")
     @classmethod
     def _empty_dict_to_list(cls, v: Any) -> Any:
-        # normalizes empty dict {} passed from Lua json encoding to []
-        if isinstance(v, dict) and not v:
-            return []
-        return v
+        return _normalize_empty_dict(v)
 
 
 # ── Exclude sets for Request → typed request conversion ──────
@@ -385,19 +387,12 @@ class Request(BaseModel):
     @field_validator("modulation_slots", "palette_save_colors", mode="before")
     @classmethod
     def _empty_dict_to_list(cls, v: Any) -> Any:
-        """Lua json.lua encodes empty tables as {} (object) instead of [] (array).
-        Normalise empty dict to empty list so Pydantic validation doesn't reject it."""
-        if isinstance(v, dict) and len(v) == 0:
-            return []
-        return v
+        return _normalize_empty_dict(v)
 
     @field_validator("negative_ti", mode="before")
     @classmethod
     def _empty_dict_to_list_nullable(cls, v: Any) -> Any:
-        """Same normalisation for nullable list fields."""
-        if isinstance(v, dict) and len(v) == 0:
-            return []
-        return v
+        return _normalize_empty_dict(v)
 
     @field_validator("prompt_schedule", mode="before")
     @classmethod
@@ -475,9 +470,7 @@ class AudioReactiveRequest(BaseGenerationParams):
     @field_validator("modulation_slots", mode="before")
     @classmethod
     def _empty_dict_to_list(cls, v: Any) -> Any:
-        if isinstance(v, dict) and len(v) == 0:
-            return []
-        return v
+        return _normalize_empty_dict(v)
 
 
 # ─────────────────────────────────────────────────────────────

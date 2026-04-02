@@ -83,7 +83,6 @@ class AnimateDiffManager:
         self.controlnet_pipe: Optional[AnimateDiffControlNetPipeline] = None
         self.controlnet_mode: Optional[GenerationMode] = None
         self._peft_stripped: bool = False
-        self._lightning_sched_config: Optional[dict] = None
         self._lightning_scheduler_instance = None
 
     def _apply_lightning_scheduler(self, pipe) -> None:
@@ -340,6 +339,5 @@ class AnimateDiffManager:
         self.controlnet_pipe = None
         self.controlnet_mode = None
         self._peft_stripped = False
-        self._lightning_sched_config = None
         self._lightning_scheduler_instance = None
         vram_cleanup()

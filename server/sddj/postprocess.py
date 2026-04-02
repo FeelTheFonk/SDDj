@@ -371,7 +371,7 @@ def _enforce_palette(
     h, w, _ = rgb.shape
 
     # Convert image to CIELAB
-    img_lab = rgb2lab(rgb.astype(np.float64) / 255.0)
+    img_lab = rgb2lab(rgb.astype(np.float32) / 255.0)
 
     # Get cached palette KD-Tree — O(n log k) nearest neighbor
     palette_key = tuple(tuple(c) for c in palette_rgb)
@@ -656,12 +656,13 @@ def _bayer_dither(
     n_colors = len(palette_rgb)
     l_step = 100.0 / max(1, n_colors - 1)
     offset = (th_tiled - 0.5) * l_step
-    img_lab[:, :, 0] += offset
 
-    # Alpha-aware: zero out offset for transparent pixels
+    # Alpha-aware: zero out offset for transparent pixels before addition
     if alpha_aware and has_alpha:
         alpha_mask = alpha < 128
-        img_lab[alpha_mask, 0] -= offset[alpha_mask]
+        offset[alpha_mask] = 0
+
+    img_lab[:, :, 0] += offset
 
     # Snap directly to nearest palette color in CIELAB via cKDTree
     palette_key = tuple(tuple(c) for c in palette_rgb)
@@ -673,7 +674,7 @@ def _bayer_dither(
     result = palette_uint8[nearest_idx].reshape(h, w, 3)
 
     if has_alpha:
-        return Image.fromarray(np.dstack([result, alpha.astype(np.uint8)]))
+        return Image.fromarray(np.dstack([result, alpha]))
     return Image.fromarray(result)
 
 

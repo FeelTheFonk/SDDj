@@ -1,4 +1,67 @@
 # Changelog
+## [0.9.86] — 2026-04
+### Production Hardening — Performance Audit, Dead Code Purge & Hot-Path Optimization
+
+#### Performance (Hot Path)
+- **Embedding cache fix** (`embedding_blend.py`): Modern `encode_prompt` branch was never caching results — every animation frame re-encoded CLIP. Fixed: ~2-5ms/frame eliminated on prompt transitions.
+- **Scheduler reuse** (`audio_reactive.py`, `animation.py`): Replaced per-frame `from_config()` re-instantiation with single scheduler + `set_timesteps()` reset. Saves ~0.3-1.5ms/frame.
+- **Noise buffer pre-allocation** (`audio_reactive.py`): Pre-allocated `noise_buf`/`work_buf` passed to `apply_noise_injection()` — eliminates ~6MB heap allocation per frame.
+- **Hue shift rewrite** (`helpers.py`): Replaced 6-step PIL HSV pipeline with 2-step OpenCV `cvtColor`. Saves ~2-3ms/frame.
+- **SLERP GPU-native** (`embedding_blend.py`): Replaced `math.acos`/`math.sin` + `.item()` CPU sync with `torch.acos`/`torch.sin` — stays on GPU, zero CUDA→CPU synchronization.
+- **DeepCache state exploitation** (`core.py`): `DeepCacheState.suppress_for/restore` replaces per-frame `suspended()` context manager — avoids N×2 toggle overhead in chain animation.
+- **Cadence-skip byte caching** (`audio_reactive.py`): Reuses encoded raw bytes for skipped frames when no post-processing is active. Saves ~0.3ms/skip.
+- **Model copy consolidation** (`core.py`): 3 consecutive `req.model_copy()` calls → 1 single batch update.
+- **Tensor view optimization** (`embedding_blend.py`): `.reshape(-1)` → `.contiguous().view(-1)` avoids copy on contiguous tensors.
+- **Zero-copy image access** (`helpers.py`): `np.array(image)` → `np.asarray(image)` in noise injection.
+
+#### Performance (Image Codec)
+- **Fused frame transforms** (`image_codec.py`): New `apply_frame_transforms()` — single PIL↔numpy roundtrip for combined warp+tilt (was 2 roundtrips).
+- **Color match buffers** (`image_codec.py`): Optional pre-allocated `work_buf_f32` parameter eliminates ~6-8MB transient allocations per frame.
+- **Optical flow buffers** (`image_codec.py`): Optional `map_x_buf`/`map_y_buf` pre-allocation eliminates 2 float32 arrays per frame.
+- **Frame-ID cache key** (`image_codec.py`): Optional `frame_id` parameter bypasses MD5 hashing for sequential animation (cache hit rate was ~0% with content hash).
+- **LRU cache eviction** (`image_codec.py`): `_REF_LAB_CACHE` converted from FIFO dict to `OrderedDict` with `move_to_end()` LRU.
+- **Palette enforcement** (`postprocess.py`): `float64` → `float32` in `_enforce_palette` rgb2lab conversion — halves memory bandwidth.
+
+#### Security
+- **Audio path sandbox** (`server.py`): `_validate_audio_path()` now calls `validate_path_in_sandbox()` — closes path traversal via WebSocket.
+
+#### Architecture
+- **Pipeline lock scope** (`pipeline_factory.py`): Extended `_pipeline_lock` to cover entire model load — prevents TOCTOU double-allocation and potential OOM.
+- **Cache key robustness** (`embedding_blend.py`): Replaced `id(pipe.text_encoder)` with monotonic `_model_generation` counter — prevents stale cache from GC address reuse. Exported `bump_model_generation()`.
+- **FreeU tracking** (`freeu_applicator.py`): Replaced `_FREEU_APPLIED` set with `pipe._freeu_applied` attribute — eliminates `id()` GC alias risk.
+- **Async I/O** (`server.py`): `_validate_audio_path` filesystem ops offloaded to `asyncio.to_thread()`.
+- **Regex pre-compilation** (`server.py`): `_FRAME_PATTERN` compiled once at module level instead of per-call.
+- **Transition type unification** (`protocol.py`): `_VALID_TRANSITIONS` now derived from `TransitionType` enum — single source of truth.
+- **Lazy prompt generator** (`prompt_generator.py`): Module-level singleton → lazy `get_prompt_generator()` with PEP 562 `__getattr__` compat.
+
+#### Dead Code Removed
+- `encode_image_b64`, `encode_image_raw_b64` (deprecated, never called) from `image_codec.py`.
+- `export_mp4_async`, `_FFMPEG_EXECUTOR` (never used) from `video_export.py`.
+- `_lightning_sched_config` (never read) from `animatediff_manager.py`.
+- `back_heavy` spacing (never referenced by any profile) from `prompt_schedule.py`.
+- Dead `timeout` parameter from `_make_thread_callback` + 5 call sites in `server.py`.
+- Dead `import copy` from `pipeline_factory.py`.
+- Redundant local `from pathlib import Path` in `_handle_export_mp4`.
+
+#### Deduplication
+- **Segment parsing** (`prompt_schedule.py`): Extracted `_parse_segment_dict()` — eliminates 12 verbatim duplicate lines.
+- **RGB ensure** (`image_codec.py`): Extracted `_ensure_rgb3()` — deduplicates alpha-strip + grayscale-convert logic.
+- **Empty dict validators** (`protocol.py`): 3 identical validators → 1 `_normalize_empty_dict()` function.
+- **Bayer dither** (`postprocess.py`): Offset zeroed before addition for transparent pixels — eliminates add-then-subtract double-pass.
+
+#### Cleanup
+- Magic numbers → named constants: `_NORM_EPSILON`, `_COLLINEAR_THRESHOLD`, `_MIN_MOTION_THRESHOLD`, `_MIN_DENOISE_FOR_MOTION`, `_MAX_REF_LAB_CACHE`, `_MAX_SEED`, `_DEFAULT_TRANSITION_FRAMES`.
+- `_ANIMATEDIFF_CHUNK_SIZE`/`_ANIMATEDIFF_OVERLAP` moved from class attributes to module-level constants.
+- `_ALLOWED_META_KEYS` moved from function-local to module-level in `video_export.py`.
+- `cached_property` → `@property` for `is_animatediff_lightning` in `config.py`.
+- `list_presets()` returns `tuple` (immutable, no defensive copy needed) in `presets_manager.py`.
+- `total_frames = max(1, total_frames)` guard in `dsl_parser.py` prevents frame index -1.
+- Redundant `alpha.astype(np.uint8)` removed in `postprocess.py` (already uint8).
+- Redundant `raw_features .copy()` removed in `audio_analyzer.py` (EMA already creates new arrays).
+- `_noop_callback` moved to module-level in `core.py`.
+- `madmom` documented as manual install in `pyproject.toml` (requires Cython build tools).
+- Test fixes: phantom `server_time` field removed, `encode_image_b64` import removed, tuple-compatible assertions.
+
 ## [0.9.85] — 2026-04
 ### Animation Engine Refactor — Deduplication, Vectorization & Correctness
 

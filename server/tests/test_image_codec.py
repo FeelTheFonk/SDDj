@@ -14,7 +14,6 @@ from sddj.image_codec import (
     composite_with_mask,
     decode_b64_image,
     decode_b64_mask,
-    encode_image_b64,
     resize_to_target,
     round8,
 )
@@ -59,7 +58,7 @@ class TestDecodeEncodeRoundtrip:
 
     def test_encode_then_decode(self):
         original = Image.new("RGBA", (48, 48), (100, 200, 50, 255))
-        b64 = encode_image_b64(original)
+        b64 = self._make_b64(original)
         decoded = decode_b64_image(b64)
         assert decoded.size == original.size
 

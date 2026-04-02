@@ -7,12 +7,9 @@ import os
 import re
 import shutil
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-
-_FFMPEG_EXECUTOR = ThreadPoolExecutor(max_workers=2)
 
 log = logging.getLogger("sddj.video_export")
 
@@ -25,6 +22,8 @@ QUALITY_PRESETS: dict[str, tuple[int, str, int]] = {
 }
 
 _SAFE_METADATA_RE = re.compile(r"[^\w\s.,;:!?@#$%^&*()\-+=\[\]{}<>/\\|~`'\"]")
+
+_ALLOWED_META_KEYS = frozenset({"comment", "tool", "title", "artist", "album", "description"})
 
 _FRAME_NUM_RE = re.compile(r"frame_(\d+)\.png$")
 
@@ -235,7 +234,6 @@ def export_mp4(
     cmd.extend(["-movflags", "+faststart"])
 
     # Metadata (keys validated against allowlist to prevent CLI injection)
-    _ALLOWED_META_KEYS = {"comment", "tool", "title", "artist", "album", "description"}
     if metadata:
         for key, value in metadata.items():
             if key not in _ALLOWED_META_KEYS:
@@ -282,6 +280,3 @@ def export_mp4(
     )
 
 
-def export_mp4_async(frame_dir, audio_path=None, **kwargs):
-    """Non-blocking wrapper. Returns a concurrent.futures.Future."""
-    return _FFMPEG_EXECUTOR.submit(export_mp4, frame_dir, audio_path, **kwargs)

@@ -296,8 +296,9 @@ def get_choreography_preset(name: str) -> dict | None:
     return CHOREOGRAPHY_PRESETS.get(name)
 
 
-def detect_conflicts(active_slot_targets: list[str],
-                     expression_targets: list[str]) -> list[str]:
-    """Return targets that appear in both slots and expressions (potential conflicts)."""
-    slot_set = set(active_slot_targets)
-    return [t for t in expression_targets if t in slot_set]
+def detect_conflicts(
+    targets_a: list[str], targets_b: list[str]
+) -> list[str]:
+    """Return target names present in both lists."""
+    set_a = set(targets_a)
+    return [t for t in targets_b if t in set_a]

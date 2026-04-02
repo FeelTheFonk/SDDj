@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import logging
 import threading
 from pathlib import Path
@@ -57,38 +56,33 @@ def load_base_pipeline() -> StableDiffusionPipeline:
     """
     ckpt = settings.default_checkpoint
     cache_key = str(ckpt)
-    # M-37: Thread-safe cache access with double-check to avoid duplicate model loads
+    # M-13/M-37: Hold lock for the entire load to prevent double GPU allocation.
+    # Load is rare (startup only) so contention is negligible.
     with _pipeline_lock:
         if cache_key in _pipeline_cache:
             log.debug("Pipeline cache hit: %s", cache_key)
             return _pipeline_cache[cache_key]
 
-    ckpt_path = Path(ckpt)
-    log.info("Loading base pipeline: %s", ckpt)
+        ckpt_path = Path(ckpt)
+        log.info("Loading base pipeline: %s", ckpt)
 
-    if ckpt_path.is_file() and ckpt_path.suffix in (".safetensors", ".ckpt"):
-        pipe = StableDiffusionPipeline.from_single_file(
-            str(ckpt_path),
-            torch_dtype=torch.float16,
-            safety_checker=None,
-            local_files_only=True,
-            config="runwayml/stable-diffusion-v1-5",
-        )
-    else:
-        pipe = StableDiffusionPipeline.from_pretrained(
-            ckpt,
-            torch_dtype=torch.float16,
-            safety_checker=None,
-            variant="fp16",
-            local_files_only=True,
-        )
-    pipe.to("cuda")
-    with _pipeline_lock:
-        # Double-check: another thread may have loaded while we were loading
-        if cache_key in _pipeline_cache:
-            log.debug("Pipeline race: discarding duplicate load for %s", cache_key)
-            del pipe
-            return _pipeline_cache[cache_key]
+        if ckpt_path.is_file() and ckpt_path.suffix in (".safetensors", ".ckpt"):
+            pipe = StableDiffusionPipeline.from_single_file(
+                str(ckpt_path),
+                torch_dtype=torch.float16,
+                safety_checker=None,
+                local_files_only=True,
+                config="runwayml/stable-diffusion-v1-5",
+            )
+        else:
+            pipe = StableDiffusionPipeline.from_pretrained(
+                ckpt,
+                torch_dtype=torch.float16,
+                safety_checker=None,
+                variant="fp16",
+                local_files_only=True,
+            )
+        pipe.to("cuda")
         _pipeline_cache[cache_key] = pipe
     return pipe
 
