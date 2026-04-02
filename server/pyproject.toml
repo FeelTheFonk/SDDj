@@ -1,6 +1,6 @@
 [project]
 name = "sddj-server"
-version = "0.9.86"
+version = "0.9.87"
 description = "Local SOTA generation and animation server for Aseprite via Stable Diffusion"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
@@ -32,6 +32,8 @@ dependencies = [
     # Background removal
     "rembg>=2.0,<3.0",
     "onnxruntime>=1.17",
+    # Fast JSON serialization
+    "orjson>=3.10",
     # Config
     "pydantic-settings>=2.5",
     # Audio reactivity
@@ -44,8 +46,17 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "httpx>=0.27", "ruff>=0.9.0"]
 audio-stems = ["demucs>=4.0,<5.0"]
+roformer-stems = ["audio-separator>=0.25"]  # BS-RoFormer: +3 dB SDR over htdemucs, 6 stems
+sage-attention = ["sageattention>=1.0"]  # 1.89× attention speedup on RTX 40xx (ICLR/ICML 2025)
+quantization = ["torchao>=0.8"]  # INT8/FP8 UNet quantization (Ampere+/Ada+)
+tome = ["tomesd>=0.1"]  # Token merging for UNet acceleration
+taesd = ["huggingface_hub>=0.25"]  # TAESD preview decoder (already a dep)
+compression = ["lz4>=4.0"]  # LZ4 frame compression for remote clients
+pixeloe = ["pixeloe>=0.1"]  # Contrast-aware pixel art downscaling
 # madmom: install manually if needed (requires Cython build tools)
 # pip install madmom  # enables madmom beat-tracking backend in audio_analyzer
+# beatnet: pip install BeatNet  # enables real-time beat tracking
+# allinone: pip install allin1  # enables All-In-One beat+structure analysis
 
 [project.scripts]
 sddj-server = "sddj.server:main"

@@ -42,10 +42,10 @@ class Settings(BaseSettings):
     deepcache_branch: int = Field(0, ge=0)
 
     # ── Defaults ─────────────────────────────────────────────
-    default_steps: int = 8
-    default_cfg: float = 5.0
-    default_width: int = 512
-    default_height: int = 512
+    default_steps: int = Field(8, ge=1, le=100)
+    default_cfg: float = Field(5.0, ge=0.0, le=30.0)
+    default_width: int = Field(512, ge=64, le=2048)
+    default_height: int = Field(512, ge=64, le=2048)
 
     # ── Default style LoRA (loaded before warmup) ─────────────
     # "auto" = first .safetensors in loras_dir, "" = none
@@ -53,12 +53,13 @@ class Settings(BaseSettings):
     default_style_lora_weight: float = Field(1.0, ge=0.0, le=2.0)
 
     # ── CLIP skip (2 = recommended for stylized content) ──────
-    default_clip_skip: int = 2
+    default_clip_skip: int = Field(2, ge=1, le=12)
 
     # ── Performance ──────────────────────────────────────────
     enable_torch_compile: bool = True
-    compile_mode: Literal["default", "max-autotune", "reduce-overhead"] = "default"
+    compile_mode: Literal["default", "max-autotune", "max-autotune-no-cudagraphs", "reduce-overhead"] = "max-autotune-no-cudagraphs"
     compile_dynamic: bool = False  # True only when DeepCache disabled (incompatible)
+    # At 8 steps with interval=3, gain may be marginal — benchmark with/without
     enable_deepcache: bool = True
     enable_attention_slicing: bool = True
     enable_vae_tiling: bool = True
@@ -68,7 +69,20 @@ class Settings(BaseSettings):
     max_lora_rank: int = Field(128, ge=1)  # Must be >= rank of all LoRA adapters used
     enable_cpu_offload: bool = False  # Mutually exclusive with DeepCache + torch.compile
     vram_min_free_mb: int = Field(512, ge=0)  # VRAM budget guard for lazy-loads
-    # UNet quantization planned but not yet wired — field removed until implemented
+    # ── UNet quantization (torchao) ─────────────────────────
+    enable_unet_quantization: bool = False
+    unet_quantization_dtype: Literal["int8dq", "fp8dq", "int8wo", "fp8wo", "auto"] = "auto"
+    # ── Attention backend ────────────────────────────────────
+    attention_backend: Literal["auto", "sdp", "sage", "xformers"] = "auto"
+    # ── Token merging (ToMe) — training-free UNet acceleration ──
+    enable_tome: bool = False
+    tome_ratio: float = Field(0.3, ge=0.0, le=0.75)  # Conservative: 0.3-0.4 for quality
+    # ── TAESD preview decoder ────────────────────────────────
+    enable_taesd_preview: bool = False  # Near-instant intermediate step preview
+    # ── Frame compression (remote clients) ───────────────────
+    enable_frame_compression: bool = False  # LZ4 compress binary frames before WS send
+    # ── Queue management ─────────────────────────────────────
+    queue_wait_timeout: float = Field(120.0, gt=0.0)  # Max wait for GPU lock (seconds)
 
     # ── FreeU v2 (free quality boost, no training needed) ────
     enable_freeu: bool = True
@@ -87,16 +101,16 @@ class Settings(BaseSettings):
     generation_timeout: float = Field(600.0, gt=0.0)  # 10 minutes max per generation
 
     # ── rembg ────────────────────────────────────────────────
-    rembg_model: str = "u2net"  # Fast CPU (~3-4s). Alt: birefnet-general (best edges, ~10s), bria-rmbg (SOTA quality)
+    rembg_model: str = "birefnet-general"  # SOTA edges (IoU 0.87 DIS5K vs u2net 0.39). Alt: u2net (fast CPU ~3-4s)
     rembg_on_cpu: bool = True  # Keep GPU free for diffusion
 
     # ── Animation ────────────────────────────────────────────
-    max_animation_frames: int = 256
+    max_animation_frames: int = Field(256, ge=1, le=10000)
 
     # ── AnimateDiff ──────────────────────────────────────────
     animatediff_model: str = "ByteDance/AnimateDiff-Lightning"
     enable_freeinit: bool = False
-    freeinit_iterations: int = 2
+    freeinit_iterations: int = Field(2, ge=1, le=10)
     # ── AnimateDiff-Lightning (ByteDance distilled, 10× faster) ──
     # Activated when animatediff_model = "ByteDance/AnimateDiff-Lightning"
     animatediff_lightning_steps: int = Field(4, ge=1, le=8)
@@ -115,20 +129,21 @@ class Settings(BaseSettings):
 
     # ── Audio Reactivity ──────────────────────────────────────
     audio_cache_dir: str = ""  # empty = system temp dir
-    audio_max_file_size_mb: int = 500
-    audio_max_frames: int = 10800  # ~7.5 min at 24fps
-    audio_default_attack: int = 2
-    audio_default_release: int = 8
+    audio_max_file_size_mb: int = Field(500, ge=1, le=10000)
+    audio_max_frames: int = Field(10800, ge=1)  # ~7.5 min at 24fps
+    audio_default_attack: int = Field(2, ge=1, le=100)
+    audio_default_release: int = Field(8, ge=1, le=100)
     stem_model: str = "htdemucs"
+    stem_backend: Literal["demucs", "roformer"] = "demucs"  # roformer = BS-RoFormer via audio-separator (+3 dB SDR, 6 stems)
     stem_device: str = "cpu"  # always CPU — keep GPU free for diffusion
     # DSP precision (pinnacle quality)
     audio_sample_rate: int = Field(44100, ge=22050, le=96000)
     audio_hop_length: int = Field(256, ge=64, le=1024)
     audio_n_fft: int = Field(4096, ge=512, le=8192)
-    audio_n_mels: int = Field(256, ge=64, le=512)
+    audio_n_mels: int = Field(128, ge=64, le=512)
     audio_perceptual_weighting: bool = True   # K-weighting pre-filter (ITU-R BS.1770)
     audio_smoothing_mode: Literal["ema", "savgol"] = "ema"
-    audio_beat_backend: Literal["auto", "librosa", "madmom"] = "auto"
+    audio_beat_backend: Literal["auto", "librosa", "madmom", "beatnet", "allinone"] = "auto"
     audio_superflux_lag: int = Field(2, ge=1, le=5)
     audio_superflux_max_size: int = Field(3, ge=1, le=7)
 
@@ -150,6 +165,10 @@ class Settings(BaseSettings):
     # Blends each frame with a flow-warped previous frame to reduce jitter.
     # Adds ~10-20ms per frame. Recommended: 0.1-0.3 if enabled.
     optical_flow_blend: float = Field(0.0, ge=0.0, le=0.5)
+    # EquiVDM-style temporally coherent noise: flow-warp previous frame's noise
+    # instead of random noise per frame. Reduces structural flicker at zero VRAM cost.
+    equivdm_noise: bool = True
+    equivdm_residual: float = Field(0.08, ge=0.0, le=0.5)  # Random residual to prevent stagnation
 
     # ── Video Export ──────────────────────────────────────────
     ffmpeg_path: str = ""  # empty = auto-detect via shutil.which("ffmpeg")

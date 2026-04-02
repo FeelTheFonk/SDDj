@@ -67,7 +67,7 @@ class TestSettingsDefaults:
     def test_performance_defaults(self):
         s = self._make_settings()
         assert s.enable_torch_compile is True
-        assert s.compile_mode == "default"
+        assert s.compile_mode == "max-autotune-no-cudagraphs"
         assert s.enable_deepcache is True
         assert s.enable_attention_slicing is True
         assert s.enable_vae_tiling is True
@@ -113,7 +113,7 @@ class TestSettingsDefaults:
 
     def test_rembg_defaults(self):
         s = self._make_settings()
-        assert s.rembg_model == "u2net"
+        assert s.rembg_model == "birefnet-general"
         assert s.rembg_on_cpu is True
 
     def test_default_style_lora(self):
@@ -168,6 +168,7 @@ class TestSettingsValidator:
                     embeddings_dir=tmp_path / "nonexistent",
                     palettes_dir=tmp_path / "nonexistent",
                     presets_dir=tmp_path / "nonexistent",
+                    prompt_schedules_dir=tmp_path / "nonexistent",
                     prompts_data_dir=tmp_path / "nonexistent",
                 )
         assert "does not exist" in caplog.text
@@ -175,7 +176,7 @@ class TestSettingsValidator:
     def test_existing_dirs_no_warning(self, tmp_path, caplog):
         from sddj.config import Settings
 
-        for d in ("models", "checkpoints", "loras", "embeddings", "palettes", "presets", "prompts"):
+        for d in ("models", "checkpoints", "loras", "embeddings", "palettes", "presets", "schedules", "prompts"):
             (tmp_path / d).mkdir()
         env = {k: v for k, v in os.environ.items() if not k.startswith("SDDJ_")}
         with patch.dict(os.environ, env, clear=True):
@@ -189,6 +190,7 @@ class TestSettingsValidator:
                     embeddings_dir=tmp_path / "embeddings",
                     palettes_dir=tmp_path / "palettes",
                     presets_dir=tmp_path / "presets",
+                    prompt_schedules_dir=tmp_path / "schedules",
                     prompts_data_dir=tmp_path / "prompts",
                 )
         assert "does not exist" not in caplog.text
@@ -203,7 +205,7 @@ class TestCompileMode:
             return Settings(_env_file=None, **overrides)
 
     def test_valid_modes(self):
-        for mode in ("default", "max-autotune", "reduce-overhead"):
+        for mode in ("default", "max-autotune", "max-autotune-no-cudagraphs", "reduce-overhead"):
             s = self._make_settings(compile_mode=mode)
             assert s.compile_mode == mode
 
@@ -239,3 +241,199 @@ class TestAnimateDiffLightning:
             self._make_settings(animatediff_max_frames_lightning=7)
         with pytest.raises(ValidationError):
             self._make_settings(animatediff_max_frames_lightning=65)
+
+
+class TestNewFieldDefaults:
+
+    def _make_settings(self, **overrides):
+        from sddj.config import Settings
+        env = {k: v for k, v in os.environ.items() if not k.startswith("SDDJ_")}
+        with patch.dict(os.environ, env, clear=True):
+            return Settings(_env_file=None, **overrides)
+
+    def test_field_constraint_defaults(self):
+        """Verify all new Field()-constrained fields have sensible defaults."""
+        s = self._make_settings()
+        assert s.default_steps == 8
+        assert s.default_cfg == 5.0
+        assert s.default_width == 512
+        assert s.default_height == 512
+        assert s.default_clip_skip == 2
+        assert s.max_animation_frames == 256
+        assert s.freeinit_iterations == 2
+        assert s.audio_max_file_size_mb == 500
+        assert s.audio_max_frames == 10800
+        assert s.audio_default_attack == 2
+        assert s.audio_default_release == 8
+
+    def test_default_steps_bounds(self):
+        self._make_settings(default_steps=1)
+        self._make_settings(default_steps=100)
+        with pytest.raises(ValidationError):
+            self._make_settings(default_steps=0)
+        with pytest.raises(ValidationError):
+            self._make_settings(default_steps=101)
+
+    def test_default_cfg_bounds(self):
+        self._make_settings(default_cfg=0.0)
+        self._make_settings(default_cfg=30.0)
+        with pytest.raises(ValidationError):
+            self._make_settings(default_cfg=-0.1)
+        with pytest.raises(ValidationError):
+            self._make_settings(default_cfg=30.1)
+
+    def test_default_dimensions_bounds(self):
+        self._make_settings(default_width=64, default_height=64)
+        self._make_settings(default_width=2048, default_height=2048)
+        with pytest.raises(ValidationError):
+            self._make_settings(default_width=63)
+        with pytest.raises(ValidationError):
+            self._make_settings(default_height=2049)
+
+    def test_clip_skip_bounds(self):
+        self._make_settings(default_clip_skip=1)
+        self._make_settings(default_clip_skip=12)
+        with pytest.raises(ValidationError):
+            self._make_settings(default_clip_skip=0)
+        with pytest.raises(ValidationError):
+            self._make_settings(default_clip_skip=13)
+
+    def test_max_animation_frames_bounds(self):
+        self._make_settings(max_animation_frames=1)
+        self._make_settings(max_animation_frames=10000)
+        with pytest.raises(ValidationError):
+            self._make_settings(max_animation_frames=0)
+        with pytest.raises(ValidationError):
+            self._make_settings(max_animation_frames=10001)
+
+    def test_freeinit_iterations_bounds(self):
+        self._make_settings(freeinit_iterations=1)
+        self._make_settings(freeinit_iterations=10)
+        with pytest.raises(ValidationError):
+            self._make_settings(freeinit_iterations=0)
+        with pytest.raises(ValidationError):
+            self._make_settings(freeinit_iterations=11)
+
+    def test_audio_file_size_bounds(self):
+        self._make_settings(audio_max_file_size_mb=1)
+        with pytest.raises(ValidationError):
+            self._make_settings(audio_max_file_size_mb=0)
+
+    def test_audio_max_frames_bounds(self):
+        self._make_settings(audio_max_frames=1)
+        with pytest.raises(ValidationError):
+            self._make_settings(audio_max_frames=0)
+
+    def test_audio_attack_release_bounds(self):
+        self._make_settings(audio_default_attack=1, audio_default_release=1)
+        self._make_settings(audio_default_attack=100, audio_default_release=100)
+        with pytest.raises(ValidationError):
+            self._make_settings(audio_default_attack=0)
+        with pytest.raises(ValidationError):
+            self._make_settings(audio_default_release=0)
+
+    def test_new_feature_flag_defaults(self):
+        """Verify all new boolean/Literal feature flag defaults."""
+        s = self._make_settings()
+        assert s.enable_unet_quantization is False
+        assert s.unet_quantization_dtype == "auto"
+        assert s.attention_backend == "auto"
+        assert s.enable_tome is False
+        assert s.tome_ratio == 0.3
+        assert s.enable_taesd_preview is False
+        assert s.enable_frame_compression is False
+        assert s.queue_wait_timeout == 120.0
+        assert s.color_coherence_strength == 0.5
+        assert s.auto_noise_coupling is True
+        assert s.optical_flow_blend == 0.0
+        assert s.equivdm_noise is True
+        assert s.equivdm_residual == 0.08
+        assert s.distilled_step_scale_cap == 2
+        assert s.stem_backend == "demucs"
+        assert s.enable_tf32 is True
+        assert s.enable_lora_hotswap is True
+        assert s.compile_dynamic is False
+
+    def test_tome_ratio_bounds(self):
+        self._make_settings(tome_ratio=0.0)
+        self._make_settings(tome_ratio=0.75)
+        with pytest.raises(ValidationError):
+            self._make_settings(tome_ratio=-0.1)
+        with pytest.raises(ValidationError):
+            self._make_settings(tome_ratio=0.76)
+
+    def test_queue_wait_timeout_bounds(self):
+        self._make_settings(queue_wait_timeout=0.1)
+        with pytest.raises(ValidationError):
+            self._make_settings(queue_wait_timeout=0.0)
+        with pytest.raises(ValidationError):
+            self._make_settings(queue_wait_timeout=-1.0)
+
+    def test_color_coherence_bounds(self):
+        self._make_settings(color_coherence_strength=0.0)
+        self._make_settings(color_coherence_strength=1.0)
+        with pytest.raises(ValidationError):
+            self._make_settings(color_coherence_strength=-0.1)
+        with pytest.raises(ValidationError):
+            self._make_settings(color_coherence_strength=1.1)
+
+    def test_equivdm_residual_bounds(self):
+        self._make_settings(equivdm_residual=0.0)
+        self._make_settings(equivdm_residual=0.5)
+        with pytest.raises(ValidationError):
+            self._make_settings(equivdm_residual=-0.1)
+        with pytest.raises(ValidationError):
+            self._make_settings(equivdm_residual=0.51)
+
+    def test_optical_flow_blend_bounds(self):
+        self._make_settings(optical_flow_blend=0.0)
+        self._make_settings(optical_flow_blend=0.5)
+        with pytest.raises(ValidationError):
+            self._make_settings(optical_flow_blend=-0.1)
+        with pytest.raises(ValidationError):
+            self._make_settings(optical_flow_blend=0.51)
+
+    def test_distilled_step_scale_cap_bounds(self):
+        self._make_settings(distilled_step_scale_cap=1)
+        self._make_settings(distilled_step_scale_cap=10)
+        with pytest.raises(ValidationError):
+            self._make_settings(distilled_step_scale_cap=0)
+        with pytest.raises(ValidationError):
+            self._make_settings(distilled_step_scale_cap=11)
+
+    def test_stem_backend_values(self):
+        self._make_settings(stem_backend="demucs")
+        self._make_settings(stem_backend="roformer")
+        with pytest.raises(ValidationError):
+            self._make_settings(stem_backend="invalid")
+
+    def test_attention_backend_values(self):
+        for backend in ("auto", "sdp", "sage", "xformers"):
+            s = self._make_settings(attention_backend=backend)
+            assert s.attention_backend == backend
+        with pytest.raises(ValidationError):
+            self._make_settings(attention_backend="invalid")
+
+    def test_unet_quantization_dtype_values(self):
+        for dtype in ("int8dq", "fp8dq", "int8wo", "fp8wo", "auto"):
+            s = self._make_settings(unet_quantization_dtype=dtype)
+            assert s.unet_quantization_dtype == dtype
+        with pytest.raises(ValidationError):
+            self._make_settings(unet_quantization_dtype="bf16")
+
+    def test_audio_dsp_defaults(self):
+        s = self._make_settings()
+        assert s.audio_sample_rate == 44100
+        assert s.audio_hop_length == 256
+        assert s.audio_n_fft == 4096
+        assert s.audio_n_mels == 128
+        assert s.audio_perceptual_weighting is True
+        assert s.audio_smoothing_mode == "ema"
+        assert s.audio_beat_backend == "auto"
+
+    def test_audio_beat_backend_values(self):
+        for backend in ("auto", "librosa", "madmom", "beatnet", "allinone"):
+            s = self._make_settings(audio_beat_backend=backend)
+            assert s.audio_beat_backend == backend
+        with pytest.raises(ValidationError):
+            self._make_settings(audio_beat_backend="invalid")

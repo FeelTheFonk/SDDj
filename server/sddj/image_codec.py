@@ -20,13 +20,13 @@ _codec_lock = threading.Lock()
 # ── Module-level constants (L13b: no magic numbers) ───────────
 _MIN_MOTION_THRESHOLD = 0.05
 _MIN_DENOISE_FOR_MOTION = 0.25
-_MAX_REF_LAB_CACHE = 8
+_MAX_REF_OKLAB_CACHE = 8
 
 # ── Cached matrices (computed once, reused across frames) ─────
 # C-17: _K_INV_CACHE and _FLOW_GRID_CACHE have deterministic keys → lru_cache (see functions).
-# _REF_LAB_CACHE uses content-based key (C-16) and is guarded by _codec_lock (C-17).
+# _REF_OKLAB_CACHE uses content-based key (C-16) and is guarded by _codec_lock (C-17).
 # L14: OrderedDict for LRU eviction (move_to_end on access, popitem(last=False) on evict).
-_REF_LAB_CACHE: OrderedDict[str, tuple[np.ndarray, np.ndarray]] = OrderedDict()
+_REF_OKLAB_CACHE: OrderedDict[str, tuple[np.ndarray, np.ndarray]] = OrderedDict()
 
 
 def _img_cache_key(img) -> str:
@@ -431,22 +431,25 @@ def match_color_lab(
     strength: float = 0.5,
     frame_id: int | None = None,
     work_buf_f32: np.ndarray | None = None,
-    gray_buf: np.ndarray | None = None,
 ) -> Image.Image:
-    """Match the LAB color distribution of *image* to *reference*.
+    """Match the OKLAB color distribution of *image* to *reference*.
 
-    Transfers per-channel mean and standard deviation in CIELAB space,
+    Transfers per-channel mean and standard deviation in OKLAB space,
     then blends with the original based on *strength* (0 = no change,
     1 = full transfer).  Prevents color drift in frame chains.
 
+    Migrated from OpenCV CIELAB (uint8 scaled) to OKLAB (float32).
+    Function name preserved for backward compatibility with callers.
+
     Args:
-        frame_id: When provided, used as cache key for *reference* LAB stats
+        frame_id: When provided, used as cache key for *reference* OKLAB stats
             instead of computing an MD5 digest (M10 — avoids ~0% hit-rate
             hashing in animation where the reference changes every frame).
-        work_buf_f32: Pre-allocated float32 buffer (H, W, 3) for the LAB→float
-            conversion.  When *None* a new array is allocated (backward compat).
-        gray_buf: Unused, reserved for future grayscale conversion buffer.
+        work_buf_f32: Pre-allocated float32 buffer (H, W, 3) for the OKLAB
+            working copy.  When *None* a new array is allocated (backward compat).
     """
+    from .oklab import rgb_to_oklab, oklab_to_rgb
+
     if strength <= 0.0:
         return image
 
@@ -457,47 +460,51 @@ def match_color_lab(
     img_arr = _ensure_rgb3(img_arr)
     ref_arr = _ensure_rgb3(ref_arr)
 
-    img_lab = cv2.cvtColor(img_arr, cv2.COLOR_RGB2LAB)
-    img_means, img_stds = cv2.meanStdDev(img_lab)
-    img_means = img_means.flatten()
-    img_stds = img_stds.flatten()
+    # Convert image to OKLAB (float32 throughout)
+    img_ok = rgb_to_oklab(img_arr.astype(np.float32) / 255.0)
 
-    # Cache reference frame LAB stats (same reference across animation frames)
+    # Compute per-channel mean and std for image
+    img_flat = img_ok.reshape(-1, 3)
+    img_means = img_flat.mean(axis=0)
+    img_stds = img_flat.std(axis=0)
+
+    # Cache reference frame OKLAB stats (same reference across animation frames)
     # M10: use frame_id when available (avoids MD5 with ~0% hit-rate).
     # C-16: content-based key (not id()), C-17: thread-safe access
     ref_key: str = str(frame_id) if frame_id is not None else _img_cache_key(reference)
     with _codec_lock:
-        if ref_key in _REF_LAB_CACHE:
+        if ref_key in _REF_OKLAB_CACHE:
             # L14: promote to most-recently-used
-            _REF_LAB_CACHE.move_to_end(ref_key)
-            ref_means, ref_stds = _REF_LAB_CACHE[ref_key]
+            _REF_OKLAB_CACHE.move_to_end(ref_key)
+            ref_means, ref_stds = _REF_OKLAB_CACHE[ref_key]
         else:
-            ref_lab = cv2.cvtColor(ref_arr, cv2.COLOR_RGB2LAB)
-            ref_means, ref_stds = cv2.meanStdDev(ref_lab)
-            ref_means = ref_means.flatten()
-            ref_stds = ref_stds.flatten()
-            _REF_LAB_CACHE[ref_key] = (ref_means, ref_stds)
-            if len(_REF_LAB_CACHE) > _MAX_REF_LAB_CACHE:
-                _REF_LAB_CACHE.popitem(last=False)
+            ref_ok = rgb_to_oklab(ref_arr.astype(np.float32) / 255.0)
+            ref_flat = ref_ok.reshape(-1, 3)
+            ref_means = ref_flat.mean(axis=0)
+            ref_stds = ref_flat.std(axis=0)
+            _REF_OKLAB_CACHE[ref_key] = (ref_means, ref_stds)
+            if len(_REF_OKLAB_CACHE) > _MAX_REF_OKLAB_CACHE:
+                _REF_OKLAB_CACHE.popitem(last=False)
 
     # M2: reuse pre-allocated float32 buffer when provided
-    if work_buf_f32 is not None and work_buf_f32.shape == img_lab.shape:
-        np.copyto(work_buf_f32, img_lab)
-        img_lab_f = work_buf_f32
+    if work_buf_f32 is not None and work_buf_f32.shape == img_ok.shape:
+        np.copyto(work_buf_f32, img_ok)
+        img_ok_f = work_buf_f32
     else:
-        img_lab_f = img_lab.astype(np.float32)
+        img_ok_f = img_ok.copy()
 
     for ch in range(3):
         if img_stds[ch] < 1e-6 or ref_stds[ch] < 1e-6:
             continue
         # Use inplace operations to minimize further allocation
-        view = img_lab_f[:, :, ch]
+        view = img_ok_f[:, :, ch]
         view -= img_means[ch]
         view *= (ref_stds[ch] / img_stds[ch])
         view += ref_means[ch]
 
-    img_lab = np.clip(img_lab_f, 0, 255).astype(np.uint8)
-    matched = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
+    # Convert back to sRGB uint8
+    matched_float = oklab_to_rgb(img_ok_f)
+    matched = np.clip(matched_float * 255, 0, 255).astype(np.uint8)
 
     if strength < 1.0:
         matched = cv2.addWeighted(

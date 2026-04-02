@@ -1,4 +1,57 @@
 # Changelog
+## [0.9.87] — 2026-04
+### SOTA 2026 R&D Audit — Full-Stack Optimization & Hardening
+
+#### Acceleration & GPU Pipeline
+- **SageAttention2** (`pipeline_factory.py`): Monkey-patches `F.scaled_dot_product_attention` with `sageattn` — 1.89× attention speedup on RTX 40xx (ICLR/ICML 2025). Auto-fallback to SDP/xformers/slicing. Proper save/restore lifecycle on engine unload.
+- **torchao UNet quantization** (`pipeline_factory.py`): INT8/FP8 dynamic quantization with auto GPU detection (sm89→fp8dq, sm80→int8dq). Gated Inductor flags (`epilogue_fusion`, `force_fuse_int_mm_with_mul`, `use_mixed_mm`) only active when quantization enabled.
+- **Inductor tuning** (`pipeline_factory.py`): `conv_1x1_as_mm`, `coordinate_descent_tuning`, `coordinate_descent_check_all_directions` unconditionally enabled. `compile_mode` default → `max-autotune-no-cudagraphs`.
+- **Token Merging (ToMe)** (`core.py`): Optional `tomesd.apply_patch()` with proper cleanup on unload and broad exception handling.
+- **VRAM fragmentation** (`server.py`): `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` set at startup.
+- **CUDA availability check** (`pipeline_factory.py`): Fail-fast with clear error if CUDA unavailable.
+- **Multi-GPU correctness** (`pipeline_factory.py`): `get_device_capability()` now queries the pipeline's actual device, not default device 0.
+
+#### Color Science — CIELAB → OKLAB Migration
+- **OKLAB module** (`oklab.py`): New float32-vectorized OKLAB color space — perceptually uniform, ~2× faster than skimage CIELAB, correct sRGB transfer functions (IEC 61966-2-1).
+- **Quantization** (`postprocess.py`): Octree, Floyd-Steinberg, and Bayer dithering fully migrated to OKLAB (L range [0,1] not [0,100]).
+- **Color matching** (`image_codec.py`): Reinhard color transfer in OKLAB. Cache renamed `_REF_OKLAB_CACHE`. Dead `gray_buf` parameter removed.
+- **PixelOE** (`postprocess.py`, `protocol.py`): Contrast-aware pixel art downscaling as optional `PixelateMethod.PIXELOE`.
+
+#### Temporal Coherence
+- **EquiVDM noise** (`helpers.py`): Flow-warped previous frame's noise instead of random noise per frame — reduces structural flicker at zero VRAM cost. In-place blending (3 fewer array allocations per frame).
+- **Optical flow blend** (`config.py`): Configurable flow-based temporal blending strength.
+- **Color coherence** (`config.py`): LAB statistics matching between consecutive frames with configurable strength.
+
+#### Audio Reactivity
+- **BS-RoFormer stems** (`stem_separator.py`): Dual backend (demucs/roformer) with auto-fallback. +3 dB SDR, 6 stems. Temp directory cleanup on unload, WAV file cleanup after loading, "non-vocal" pattern guard.
+- **BeatNet/All-In-One** (`audio_analyzer.py`): Two new beat tracking backends with auto-select priority (allinone > beatnet > madmom > librosa). Import guard matches actual usage path. Output shape validation.
+- **Tempogram** (`audio_analyzer.py`): `tempo_strength` and `tempo_variation` features for audio modulation.
+- **Vocal MFCC** (`audio_analyzer.py`): 13-coefficient extraction when vocals stem available.
+- **Memory fix** (`audio_analyzer.py`): Nearest-neighbor fallback O(N×M) broadcast → O(M log N) `searchsorted`. Dead `band_energies` dict removed. `{prefix}_mid` collision → `{prefix}_mid_narrow`.
+
+#### WebSocket Server
+- **orjson** (`server.py`): 10× faster JSON serialization (hard dependency with defensive fallback).
+- **LZ4 compression** (`server.py`): Optional binary frame compression with 1024-byte minimum threshold. Startup warning when enabled but lz4 not installed.
+- **Queue management** (`server.py`): Race-free `_acquire_gpu` (removed fast-path, linear flow). Queue position feedback + configurable timeout. Fixed `gen_task.cancelled()` check.
+
+#### Configuration Hardening
+- **Field constraints** (`config.py`): 11 previously unconstrained fields now validated — `default_steps`, `default_cfg`, `default_width`, `default_height`, `default_clip_skip`, `max_animation_frames`, `freeinit_iterations`, `audio_max_file_size_mb`, `audio_max_frames`, `audio_default_attack`, `audio_default_release`.
+- **BiRefNet** (`config.py`): `rembg_model` default → `birefnet-general` (IoU 0.87 vs u2net 0.39 on DIS5K).
+
+#### Dead Code Removed
+- TAESD preview loading (`core.py`): Loaded `AutoencoderTiny` but never used during generation — removed entirely.
+
+#### Tests (+25 new tests, 732 total)
+- `TestNewFieldDefaults`: 20 tests covering defaults, bounds, and Literal validation for all new config fields.
+- `TestStemBackendDispatch`: Dispatch logic + roformer→demucs fallback.
+- `test_return_flow`: `apply_temporal_coherence(return_flow=True)` path coverage.
+- `test_valid_modes`: Added `max-autotune-no-cudagraphs` (the actual default).
+- `prompt_schedules_dir` added to directory validator tests.
+
+#### Dependencies
+- **Core**: `orjson>=3.10`
+- **Optional**: `roformer-stems`, `sage-attention`, `quantization`, `tome`, `taesd`, `compression`, `pixeloe`
+
 ## [0.9.86] — 2026-04
 ### Production Hardening — Performance Audit, Dead Code Purge & Hot-Path Optimization
 

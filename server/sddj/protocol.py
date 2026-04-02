@@ -84,6 +84,7 @@ class QuantizeMethod(str, Enum):
 class PixelateMethod(str, Enum):
     NEAREST = "nearest"
     BOX = "box"
+    PIXELOE = "pixeloe"
 
 
 class DitherMode(str, Enum):

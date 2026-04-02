@@ -129,6 +129,14 @@ class TestApplyTemporalCoherence:
         assert isinstance(result, Image.Image)
         assert result.size == (16, 16)
 
+    def test_return_flow(self):
+        img = Image.new("RGB", (64, 64), (128, 128, 128))
+        prev = Image.new("RGB", (64, 64), (100, 100, 100))
+        result = apply_temporal_coherence(img, prev, return_flow=True)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], Image.Image)
+
 
 # ── apply_frame_motion ────────────────────────────────────
 
@@ -153,18 +161,21 @@ class TestApplyNoiseInjection:
     def test_no_noise_amplitude_no_change(self):
         img = Image.new("RGB", (16, 16), (128, 128, 128))
         params = {"noise_amplitude": 0.0}
-        result = apply_noise_injection(img, params, seed=42, denoise_strength=0.5)
+        result, noise_used = apply_noise_injection(img, params, seed=42, denoise_strength=0.5)
         assert np.array_equal(np.array(result), np.array(img))
+        assert noise_used is None
 
     def test_with_noise_changes_pixels(self):
         img = Image.new("RGB", (16, 16), (128, 128, 128))
         params = {"noise_amplitude": 0.5}
-        result = apply_noise_injection(img, params, seed=42, denoise_strength=0.5)
+        result, noise_used = apply_noise_injection(img, params, seed=42, denoise_strength=0.5)
         assert not np.array_equal(np.array(result), np.array(img))
+        assert noise_used is not None
+        assert noise_used.shape == (16, 16, 3)
 
     def test_deterministic_with_seed(self):
         img = Image.new("RGB", (16, 16), (128, 128, 128))
         params = {"noise_amplitude": 0.3}
-        r1 = apply_noise_injection(img, params, seed=42, denoise_strength=0.5)
-        r2 = apply_noise_injection(img, params, seed=42, denoise_strength=0.5)
+        r1, _ = apply_noise_injection(img, params, seed=42, denoise_strength=0.5)
+        r2, _ = apply_noise_injection(img, params, seed=42, denoise_strength=0.5)
         assert np.array_equal(np.array(r1), np.array(r2))

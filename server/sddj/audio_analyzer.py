@@ -11,6 +11,9 @@ Pinnacle-quality DSP pipeline:
   - 5 spectral timbral features (contrast, flatness, bandwidth, rolloff, flux)
   - 12-bin CQT chromagram (individual pitch classes)
   - Optional madmom RNN beat tracking (20-60ms more phase-accurate)
+  - Optional BeatNet particle-filtering beat tracking (offline mode)
+  - Optional All-In-One joint beat + structure analysis
+  - Vocal MFCC extraction (13 coefficients) for voice-reactive modulation
   - Savitzky-Golay smoothing option (peak preservation)
 """
 
@@ -46,12 +49,24 @@ _BAND_BOUNDARIES = [
     ("ultrasonic", 20000, 22050),
 ]
 
-# Detect madmom availability once at import
+# Detect optional beat-tracking backend availability once at import
 try:
     import madmom  # noqa: F401
     _HAS_MADMOM = True
 except ImportError:
     _HAS_MADMOM = False
+
+try:
+    from BeatNet.BeatNet import BeatNet as _BeatNetModel  # noqa: F401
+    _HAS_BEATNET = True
+except ImportError:
+    _HAS_BEATNET = False
+
+try:
+    import allin1  # noqa: F401
+    _HAS_ALLINONE = True
+except ImportError:
+    _HAS_ALLINONE = False
 
 
 @dataclass
@@ -68,6 +83,8 @@ class AudioAnalysis:
     lufs: float = -24.0  # Integrated LUFS for the whole file
     # Raw (un-smoothed) features for per-slot EMA in modulation engine
     raw_features: dict[str, np.ndarray] = field(default_factory=dict)
+    # Structure labels from All-In-One analysis (optional)
+    structure_labels: list[dict] | None = None
 
     @property
     def feature_names(self) -> list[str]:
@@ -139,8 +156,13 @@ def _resample_to_fps(feature: np.ndarray, orig_fps: float, target_fps: float,
     # For frames where the window is empty, fall back to nearest neighbor
     empty_mask = starts == ends
     if empty_mask.any():
-        nearest = np.argmin(np.abs(orig_times[:, None] - target_times[None, empty_mask]), axis=0)
-        resampled[empty_mask] = feature[nearest]
+        nearest_idx = np.searchsorted(orig_times, target_times[empty_mask])
+        nearest_idx = np.clip(nearest_idx, 0, len(orig_times) - 1)
+        # Check if previous index is closer
+        prev_idx = np.clip(nearest_idx - 1, 0, len(orig_times) - 1)
+        use_prev = np.abs(orig_times[prev_idx] - target_times[empty_mask]) < np.abs(orig_times[nearest_idx] - target_times[empty_mask])
+        nearest_idx[use_prev] = prev_idx[use_prev]
+        resampled[empty_mask] = feature[nearest_idx]
     # For frames with valid windows, take the max (preserves transient peaks)
     # O-14: Use np.maximum.reduceat for vectorized max-pool
     non_empty = np.where(~empty_mask)[0]
@@ -336,6 +358,70 @@ def _beat_track_madmom(audio_path, sr, hop_length, n_frames):
     return bpm, beat_signal
 
 
+def _beat_track_beatnet(audio_path, sr, hop_length, n_frames):
+    """Beat tracking using BeatNet (particle filtering + RNN, offline mode)."""
+    from BeatNet.BeatNet import BeatNet as BeatNetModel
+
+    estimator = BeatNetModel(
+        1,  # mode=1: offline (whole-file analysis)
+        inference_model="DBN",
+        plot=[],
+        thread=False,
+    )
+    output = estimator.process(str(audio_path))
+    # output is ndarray of shape (N, 2): columns [beat_time, beat_number]
+    beat_times = output[:, 0] if output.ndim == 2 and output.shape[0] > 0 else np.array([])
+
+    bpm = 0.0
+    if len(beat_times) >= 2:
+        intervals = np.diff(beat_times)
+        median_interval = float(np.median(intervals))
+        if median_interval > 0:
+            bpm = 60.0 / median_interval
+
+    beat_signal = np.zeros(n_frames, dtype=np.float32)
+    for bt in beat_times:
+        frame_idx = int(bt * sr / hop_length)
+        if 0 <= frame_idx < n_frames:
+            beat_signal[frame_idx] = 1.0
+
+    log.info("BPM (beatnet): %.1f (%d beats)", bpm, len(beat_times))
+    return bpm, beat_signal
+
+
+def _beat_track_allinone(audio_path, sr, hop_length, n_frames):
+    """Beat tracking using All-In-One (joint beat + structure analysis)."""
+    import allin1
+
+    result = allin1.analyze(str(audio_path))
+    beat_times = np.array(result.beats, dtype=np.float64) if result.beats else np.array([])
+
+    bpm = 0.0
+    if len(beat_times) >= 2:
+        intervals = np.diff(beat_times)
+        median_interval = float(np.median(intervals))
+        if median_interval > 0:
+            bpm = 60.0 / median_interval
+
+    beat_signal = np.zeros(n_frames, dtype=np.float32)
+    for bt in beat_times:
+        frame_idx = int(bt * sr / hop_length)
+        if 0 <= frame_idx < n_frames:
+            beat_signal[frame_idx] = 1.0
+
+    # Extract structure labels if available (stored in AudioAnalysis for modulation)
+    structure_labels: list[dict] | None = None
+    if hasattr(result, "segments") and result.segments:
+        structure_labels = [
+            {"start": seg.start, "end": seg.end, "label": seg.label}
+            for seg in result.segments
+        ]
+        log.info("All-In-One structure: %d segments detected", len(structure_labels))
+
+    log.info("BPM (allinone): %.1f (%d beats)", bpm, len(beat_times))
+    return bpm, beat_signal, structure_labels
+
+
 # ─────────────────────────────────────────────────────────────
 # FEATURE EXTRACTION PER SIGNAL
 # ─────────────────────────────────────────────────────────────
@@ -400,14 +486,15 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
 
     # ── 9-band segmentation (dynamic bin computation) ──
     band_indices = _compute_mel_band_indices(sr, n_mels)
-    band_energies = {}
     for band_name, (b_start, b_end) in band_indices.items():
         energy = S_mel[b_start:b_end, :].mean(axis=0)
-        features[f"{prefix}_{band_name}"] = _normalize(
+        # Use "_mid_narrow" for the 9-band "mid" to avoid overwriting the
+        # backward-compatible "{prefix}_mid" alias computed below.
+        feat_key = f"{prefix}_mid_narrow" if band_name == "mid" else f"{prefix}_{band_name}"
+        features[feat_key] = _normalize(
             _resample_to_fps(energy, librosa_fps, target_fps, total_frames),
-            f"{prefix}_{band_name}",
+            feat_key,
         )
-        band_energies[band_name] = energy
 
     # ── Backward-compatible aliases ──
     # global_low = weighted mean of sub_bass + bass + low_mid
@@ -500,6 +587,28 @@ def _extract_features(y: np.ndarray, sr: int, hop_length: int, n_fft: int,
         f"{prefix}_chroma_energy",
     )
 
+    # ── Tempogram (rhythmic strength per frame) ──
+    tempogram = librosa.feature.tempogram(onset_envelope=onset, sr=sr, hop_length=hop_length)
+    tempo_strength = tempogram.max(axis=0)  # Peak rhythmic strength per frame
+    tempo_strength_resampled = _resample_to_fps(tempo_strength, librosa_fps, target_fps, total_frames)
+    features[f"{prefix}_tempo_strength"] = _normalize(
+        tempo_strength_resampled, f"{prefix}_tempo_strength",
+    )
+
+    # ── Tempo variation (rolling std of tempo_strength — rhythmic instability) ──
+    _TEMPO_VAR_WINDOW = 8
+    if len(tempo_strength_resampled) >= _TEMPO_VAR_WINDOW:
+        # Causal rolling std: pad left so output aligns with current frame
+        padded = np.pad(tempo_strength_resampled, (_TEMPO_VAR_WINDOW - 1, 0), mode='edge')
+        from numpy.lib.stride_tricks import sliding_window_view
+        windows = sliding_window_view(padded, _TEMPO_VAR_WINDOW)
+        tempo_variation = windows.std(axis=1).astype(np.float32)
+    else:
+        tempo_variation = np.zeros(total_frames, dtype=np.float32)
+    features[f"{prefix}_tempo_variation"] = _normalize(
+        tempo_variation, f"{prefix}_tempo_variation",
+    )
+
     return features, onset
 
 
@@ -563,13 +672,42 @@ class AudioAnalyzer:
 
         # ── Beat tracking (reuses onset_env from feature extraction) ──
         n_onset_frames = len(onset_env)
+        structure_labels: list[dict] | None = None
 
-        use_madmom = (
-            settings.audio_beat_backend == "madmom"
-            or (settings.audio_beat_backend == "auto" and _HAS_MADMOM)
-        )
+        backend = settings.audio_beat_backend
 
-        if use_madmom and _HAS_MADMOM:
+        # Auto-select best available backend: allinone > beatnet > madmom > librosa
+        if backend == "auto":
+            if _HAS_ALLINONE:
+                backend = "allinone"
+            elif _HAS_BEATNET:
+                backend = "beatnet"
+            elif _HAS_MADMOM:
+                backend = "madmom"
+            else:
+                backend = "librosa"
+
+        if backend == "allinone" and _HAS_ALLINONE:
+            try:
+                bpm, beat_signal, structure_labels = _beat_track_allinone(
+                    audio_path, sr, hop_length, n_onset_frames,
+                )
+            except Exception as e:
+                log.warning("allinone beat tracking failed, falling back to librosa: %s", e)
+                bpm, beat_signal = _beat_track_librosa(
+                    y, sr, hop_length, n_onset_frames, onset_env,
+                )
+        elif backend == "beatnet" and _HAS_BEATNET:
+            try:
+                bpm, beat_signal = _beat_track_beatnet(
+                    audio_path, sr, hop_length, n_onset_frames,
+                )
+            except Exception as e:
+                log.warning("beatnet beat tracking failed, falling back to librosa: %s", e)
+                bpm, beat_signal = _beat_track_librosa(
+                    y, sr, hop_length, n_onset_frames, onset_env,
+                )
+        elif backend == "madmom" and _HAS_MADMOM:
             try:
                 bpm, beat_signal = _beat_track_madmom(
                     audio_path, sr, hop_length, n_onset_frames,
@@ -580,6 +718,8 @@ class AudioAnalyzer:
                     y, sr, hop_length, n_onset_frames, onset_env,
                 )
         else:
+            if backend not in ("librosa", "auto"):
+                log.warning("Beat backend '%s' not available, falling back to librosa", backend)
             bpm, beat_signal = _beat_track_librosa(
                 y, sr, hop_length, n_onset_frames, onset_env,
             )
@@ -613,6 +753,17 @@ class AudioAnalyzer:
                 )
                 features.update(stem_features)
 
+                # Vocal MFCC features (13 coefficients) — useful for voice-reactive modulation
+                if stem_name == "vocals":
+                    vocal_mfcc = librosa.feature.mfcc(
+                        y=stem_audio, sr=sr, n_mfcc=13, hop_length=hop_length,
+                    )
+                    for i in range(vocal_mfcc.shape[0]):
+                        features[f"vocals_mfcc_{i}"] = _normalize(
+                            _resample_to_fps(vocal_mfcc[i], librosa_fps, fps, total_frames),
+                            f"vocals_mfcc_{i}",
+                        )
+
         # Shallow copy: smooth_features_ema creates new arrays, does not mutate inputs
         raw_features = dict(features)
 
@@ -641,4 +792,5 @@ class AudioAnalyzer:
             raw_features=raw_features,
             bpm=bpm,
             lufs=lufs,
+            structure_labels=structure_labels,
         )

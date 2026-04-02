@@ -10,7 +10,13 @@ from PIL import Image
 
 from ..config import settings
 from ..embedding_blend import blend_prompt_embeds
-from ..image_codec import match_color_lab, apply_optical_flow_blend, apply_motion_warp, apply_perspective_tilt
+from ..image_codec import (
+    match_color_lab,
+    apply_motion_warp,
+    apply_perspective_tilt,
+    _ensure_rgb3,
+    _get_flow_grid,
+)
 from ..protocol import ProgressResponse
 
 log = logging.getLogger("sddj.engine")
@@ -172,19 +178,76 @@ def make_step_callback(cancel_event, on_progress, total_steps,
 # ── Shared frame-processing helpers ────────────────────────
 
 
+def _compute_dis_flow(
+    current: Image.Image,
+    previous: Image.Image,
+) -> np.ndarray:
+    """Compute DIS optical flow (previous -> current) for EquiVDM noise warping.
+
+    Returns a float32 (H, W, 2) flow field.  Reuses the same DIS preset
+    as ``apply_optical_flow_blend`` in image_codec.py.
+    """
+    curr_arr = _ensure_rgb3(np.array(current, dtype=np.uint8))
+    prev_arr = _ensure_rgb3(np.array(previous, dtype=np.uint8))
+    if prev_arr.shape[:2] != curr_arr.shape[:2]:
+        prev_arr = cv2.resize(
+            prev_arr, (curr_arr.shape[1], curr_arr.shape[0]),
+            interpolation=cv2.INTER_LANCZOS4,
+        )
+    curr_gray = cv2.cvtColor(curr_arr, cv2.COLOR_RGB2GRAY)
+    prev_gray = cv2.cvtColor(prev_arr, cv2.COLOR_RGB2GRAY)
+    dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+    return dis.calc(prev_gray, curr_gray, None)
+
+
 def apply_temporal_coherence(
     image: Image.Image,
     prev_image: Image.Image,
-) -> Image.Image:
+    *,
+    return_flow: bool = False,
+) -> Image.Image | tuple[Image.Image, np.ndarray | None]:
     """Apply color coherence + optical flow blending between consecutive frames.
 
     Uses ``settings.color_coherence_strength`` and ``settings.optical_flow_blend``
     to control intensity.  Both are no-ops when their setting is 0.
+
+    When *return_flow* is True, also returns the DIS optical flow field
+    (prev -> current) for reuse by EquiVDM noise warping.  Returns None
+    for the flow component when optical flow is not computed.
     """
+    flow_map: np.ndarray | None = None
+
     if settings.color_coherence_strength > 0:
         image = match_color_lab(image, prev_image, settings.color_coherence_strength)
     if settings.optical_flow_blend > 0:
-        image = apply_optical_flow_blend(image, prev_image, settings.optical_flow_blend)
+        # Compute flow once and reuse for both blending and EquiVDM
+        flow_map = _compute_dis_flow(image, prev_image)
+        # Apply optical flow blend using the computed flow
+        curr_arr = _ensure_rgb3(np.array(image, dtype=np.uint8))
+        prev_arr = _ensure_rgb3(np.array(prev_image, dtype=np.uint8))
+        if prev_arr.shape[:2] != curr_arr.shape[:2]:
+            prev_arr = cv2.resize(
+                prev_arr, (curr_arr.shape[1], curr_arr.shape[0]),
+                interpolation=cv2.INTER_LANCZOS4,
+            )
+        h, w = curr_arr.shape[:2]
+        grid_y, grid_x = _get_flow_grid(h, w)
+        map_x = grid_x + flow_map[..., 0]
+        map_y = grid_y + flow_map[..., 1]
+        warped = cv2.remap(
+            prev_arr, map_x, map_y,
+            cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101,
+        )
+        strength = settings.optical_flow_blend
+        result = cv2.addWeighted(curr_arr, 1.0 - strength, warped, strength, 0)
+        image = Image.fromarray(result)
+    elif return_flow and settings.equivdm_noise:
+        # Compute flow even when optical_flow_blend is disabled,
+        # because EquiVDM noise warping needs it.
+        flow_map = _compute_dis_flow(image, prev_image)
+
+    if return_flow:
+        return image, flow_map
     return image
 
 
@@ -226,18 +289,41 @@ def apply_noise_injection(
     *,
     noise_buf: np.ndarray | None = None,
     work_buf: np.ndarray | None = None,
-) -> Image.Image:
+    out_buf: np.ndarray | None = None,
+    prev_noise: np.ndarray | None = None,
+    flow_map: np.ndarray | None = None,
+) -> tuple[Image.Image, np.ndarray | None]:
     """Inject noise into a frame image for temporal variation.
 
     O-16: Optional pre-allocated buffers for zero-allocation frame loops:
       - noise_buf: float32 array of shape (H, W, C) for noise generation.
       - work_buf: float32 array of shape (H, W, C) for pixel workspace.
+      - out_buf: uint8 array of shape (H, W, C) for final RGB output.
+        When provided and shape matches, the final float->uint8 conversion
+        reuses this buffer and Image.frombuffer avoids a data copy.
+        WARNING: The returned PIL Image does NOT own out_buf — the caller
+        must keep out_buf alive for the lifetime of the Image, and must not
+        mutate out_buf while the Image is in use.
     Pass None (default) for backward compatibility — buffers will be
     allocated on-the-fly.
+
+    F-O6 EquiVDM temporally coherent noise:
+      - prev_noise: float32 (H, W, C) noise array from the previous frame.
+      - flow_map: float32 (H, W, 2) DIS optical flow (prev -> current).
+      When ``settings.equivdm_noise`` is enabled and both are provided,
+      the previous frame's noise is flow-warped and blended with fresh
+      noise using ``settings.equivdm_residual`` as the fresh-noise weight.
+      This produces temporally coherent noise that reduces structural
+      flicker in chain animations at zero VRAM cost.
 
     Auto-coupling: when no ``noise_amplitude`` slot is active, injects subtle
     noise inversely proportional to denoise strength — gated at 0.35 to prevent
     artifact accumulation at low denoise values.
+
+    Returns:
+        (image, noise_used) — the processed image and the noise array used
+        for this frame (pass as ``prev_noise`` on the next frame).  Returns
+        None for noise_used when no noise was injected.
     """
     noise_amp = max(0.0, min(1.0, frame_params.get("noise_amplitude", 0.0)))
     if settings.auto_noise_coupling and "noise_amplitude" not in frame_params:
@@ -257,17 +343,52 @@ def apply_noise_injection(
             arr = arr_u8.astype(np.float32) / 255.0
 
         rng = np.random.default_rng(seed)  # Per-frame RNG for reproducibility
+
+        # Generate fresh noise
         if noise_buf is not None and noise_buf.shape == shape:
             rng.standard_normal(out=noise_buf, dtype=np.float32)
-            noise_buf *= noise_amp
-            arr += noise_buf
+            fresh_noise = noise_buf
         else:
-            noise = rng.standard_normal(shape, dtype=np.float32) * noise_amp
-            arr += noise
+            fresh_noise = rng.standard_normal(shape, dtype=np.float32)
 
+        # F-O6: EquiVDM temporally coherent noise — flow-warp previous
+        # frame's noise and blend with fresh noise.
+        if (settings.equivdm_noise
+                and prev_noise is not None
+                and flow_map is not None
+                and prev_noise.shape == shape):
+            h, w = shape[:2]
+            grid_y, grid_x = _get_flow_grid(h, w)
+            map_x = grid_x + flow_map[..., 0]
+            map_y = grid_y + flow_map[..., 1]
+            # Warp each channel of prev_noise using the flow field
+            warped_noise = cv2.remap(
+                prev_noise, map_x, map_y,
+                cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101,
+            )
+            residual = settings.equivdm_residual
+            # In-place blend: warped*(1-r) + fresh*r — avoids 3 temp arrays
+            np.multiply(warped_noise, 1.0 - residual, out=warped_noise)
+            np.multiply(fresh_noise, residual, out=noise_buf if fresh_noise is noise_buf else fresh_noise)
+            np.add(warped_noise, fresh_noise, out=warped_noise)
+            noise_used = warped_noise
+        else:
+            noise_used = fresh_noise.copy() if fresh_noise is noise_buf else fresh_noise
+
+        arr += noise_used * noise_amp
         np.clip(arr, 0.0, 1.0, out=arr)
-        image = Image.fromarray((arr * 255).astype(np.uint8))
-    return image
+
+        # F-C1: Zero-alloc final conversion when out_buf is provided.
+        if out_buf is not None and out_buf.shape == shape and out_buf.dtype == np.uint8:
+            w, h = image.size
+            np.multiply(arr, 255, out=work_buf)
+            np.copyto(out_buf, work_buf, casting='unsafe')
+            image = Image.frombuffer('RGB', (w, h), out_buf.data, 'raw', 'RGB', 0, 1)
+        else:
+            image = Image.fromarray((arr * 255).astype(np.uint8))
+
+        return image, noise_used
+    return image, None
 
 
 # ── Shared prompt resolution + pipeline kwargs ────────────

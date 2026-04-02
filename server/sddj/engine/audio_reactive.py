@@ -267,6 +267,12 @@ class AudioReactiveMixin:
         # S2: Pre-allocate buffers for noise injection (avoids per-frame heap allocation)
         _noise_buf = np.empty((target_h, target_w, 3), dtype=np.float32)
         _work_buf = np.empty_like(_noise_buf)
+        # F-C1: Pre-allocate uint8 output buffer for zero-alloc final conversion
+        _out_buf = np.empty((target_h, target_w, 3), dtype=np.uint8)
+
+        # F-O6: EquiVDM temporally coherent noise state
+        _prev_noise: np.ndarray | None = None
+        _equivdm_flow: np.ndarray | None = None
 
         # M9: Cache raw_bytes for cadence-skip frames (avoids redundant encode)
         _last_raw_bytes = None
@@ -451,9 +457,14 @@ class AudioReactiveMixin:
                     # Motion warp: Deforum-like smooth camera (applied BEFORE img2img)
                     source = apply_frame_motion(source, frame_params, _raw_denoise)
 
-                    # Noise amplitude modulation (S2: pre-allocated buffers)
-                    source = apply_noise_injection(source, frame_params, frame_seed, _raw_denoise,
-                                                   noise_buf=_noise_buf, work_buf=_work_buf)
+                    # Noise amplitude modulation (S2: pre-allocated buffers, F-C1: zero-alloc output)
+                    # F-O6: pass prev_noise + flow_map for EquiVDM temporally coherent noise
+                    source, _prev_noise = apply_noise_injection(
+                        source, frame_params, frame_seed, _raw_denoise,
+                        noise_buf=_noise_buf, work_buf=_work_buf,
+                        out_buf=_out_buf,
+                        prev_noise=_prev_noise, flow_map=_equivdm_flow,
+                    )
 
                     if req.mode.value.startswith("controlnet_") and _control_img is not None:
                         log.info("Audio frame %d: ControlNet mode uses img2img for frame coherence", frame_idx)
@@ -474,8 +485,12 @@ class AudioReactiveMixin:
                         image = Image.blend(source, image, _sub_floor_alpha)
 
                 # Temporal coherence: color matching + optical flow (frame 1+)
+                # F-O6: request flow map for EquiVDM noise warping on next frame
+                _equivdm_flow = None
                 if frame_idx > 0 and chain_source is not None:
-                    image = apply_temporal_coherence(image, chain_source)
+                    image, _equivdm_flow = apply_temporal_coherence(
+                        image, chain_source, return_flow=True,
+                    )
 
                 # Store pre-postprocess for next frame
                 chain_source = image
@@ -842,7 +857,7 @@ class AudioReactiveMixin:
 
                 # Noise amplitude injection (parity with chain loop)
                 frame_seed_ad = frame_seeds.get(frame_idx, base_seed)
-                pil_img = apply_noise_injection(pil_img, frame_params, frame_seed_ad, ad_denoise)
+                pil_img, _ = apply_noise_injection(pil_img, frame_params, frame_seed_ad, ad_denoise)
 
                 # Temporal coherence (parity with chain loop)
                 if frame_idx > 0 and prev_ad_image is not None:

@@ -163,15 +163,30 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                      settings.freeu_s1, settings.freeu_s2,
                      settings.freeu_b1, settings.freeu_b2)
 
-        # 5. torch.compile — BEFORE DeepCache
+        # 5. UNet quantization (torchao) — AFTER LoRA fuse, BEFORE torch.compile
+        pipeline_factory.apply_unet_quantization(self._pipe)
+
+        # 6. torch.compile — BEFORE DeepCache
         pipeline_factory.apply_torch_compile(self._pipe)
 
-        # 6. DeepCache — AFTER torch.compile
+        # 7. Token Merging (ToMe) — AFTER torch.compile, training-free acceleration
+        if settings.enable_tome:
+            try:
+                import tomesd
+                tomesd.apply_patch(self._pipe, ratio=settings.tome_ratio)
+                self._tome_applied = True
+                log.info("ToMe token merging enabled (ratio=%.2f)", settings.tome_ratio)
+            except ImportError:
+                log.warning("tomesd not installed — skipping token merging")
+            except Exception as e:
+                log.warning("ToMe apply_patch failed: %s", e)
+
+        # 8. DeepCache — AFTER torch.compile
         self._deepcache_helper = deepcache_manager.create_helper(self._pipe)
         if self._deepcache_helper is not None:
             self._dc_state = deepcache_manager.DeepCacheState(self._deepcache_helper)
 
-        # 7. Create img2img pipeline from same components
+        # 9. Create img2img pipeline from same components
         self._img2img_pipe = pipeline_factory.create_img2img_pipeline(self._pipe)
 
         elapsed = time.perf_counter() - t0
@@ -186,13 +201,13 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 "on" if settings.animatediff_lightning_freeu else "OFF",
             )
 
-        # 8. Default style LoRA — fuse BEFORE warmup
+        # 10. Default style LoRA — fuse BEFORE warmup
         self._load_default_style_lora()
 
-        # 9. Load textual inversion embeddings
+        # 11. Load textual inversion embeddings
         self._load_embeddings()
 
-        # 10. Warmup
+        # 12. Warmup
         if settings.enable_warmup:
             self._warmup()
 
@@ -306,6 +321,20 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         move_to_cpu(self._img2img_pipe)
         move_to_cpu(self._controlnet_pipe)
         move_to_cpu(self._controlnet_img2img_pipe)
+
+        # Remove ToMe patches before releasing the pipeline
+        if getattr(self, '_tome_applied', False):
+            try:
+                import tomesd
+                tomesd.remove_patch(self._pipe)
+            except Exception:
+                pass
+            self._tome_applied = False
+
+        # Restore original SDPA if SageAttention was monkey-patched
+        from ..pipeline_factory import restore_attention
+        restore_attention()
+
         self._pipe = None
         self._img2img_pipe = None
         self._controlnet_pipe = None

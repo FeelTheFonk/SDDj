@@ -5,6 +5,16 @@ from __future__ import annotations
 import asyncio
 import atexit
 import itertools
+try:
+    import orjson as _json_fast
+    _HAS_ORJSON = True
+except ImportError:
+    _HAS_ORJSON = False
+try:
+    import lz4.frame as _lz4
+    _HAS_LZ4 = True
+except ImportError:
+    _HAS_LZ4 = False
 import json as _json_module
 import logging
 import os
@@ -133,6 +143,7 @@ _generating: dict[int, threading.Event] = {}  # connection id -> cancel event
 _active_connections: set[WebSocket] = set()
 _MAX_CONNECTIONS = 5
 _ws_id_gen = itertools.count(1)  # thread-safe monotonic connection ID
+_queue_waiting: int = 0  # number of clients waiting for GPU lock
 
 # Actions that run long enough to block the receive loop.
 # During these, we keep receiving cancel/ping messages concurrently.
@@ -142,6 +153,41 @@ _LONG_RUNNING_ACTIONS: frozenset[str] = frozenset({
     Action.GENERATE_AUDIO_REACTIVE,
     Action.ANALYZE_AUDIO,
 })
+
+
+@asynccontextmanager
+async def _acquire_gpu(ws: WebSocket | None = None):
+    """Acquire the GPU generation lock with queue position feedback."""
+    global _queue_waiting
+    if _generate_lock is None:
+        raise RuntimeError("Server not fully initialized")
+
+    _queue_waiting += 1
+    try:
+        acquired = _generate_lock.locked()
+        if acquired and ws is not None:
+            # Lock is held by another generation — notify client of queue position
+            try:
+                await ws.send_text(_json_dumps_compact({
+                    "type": "queued", "position": _queue_waiting,
+                }))
+            except Exception:
+                pass  # Client may have disconnected
+        try:
+            await asyncio.wait_for(
+                _generate_lock.acquire(),
+                timeout=settings.queue_wait_timeout,
+            )
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"GPU queue timeout after {settings.queue_wait_timeout}s"
+            )
+        try:
+            yield
+        finally:
+            _generate_lock.release()
+    finally:
+        _queue_waiting -= 1
 
 
 _PID_FILE = Path(__file__).resolve().parent.parent / "sddj.pid"
@@ -195,6 +241,8 @@ async def _lifespan(application: FastAPI):
 
     await asyncio.gather(_load_engine(), _warmup_numba())
 
+    if settings.enable_frame_compression and not _HAS_LZ4:
+        log.warning("enable_frame_compression=True but lz4 not installed — compression disabled")
     log.info("Engine loaded. WebSocket ready on ws://%s:%d/ws", settings.host, settings.port)
     yield
 
@@ -259,7 +307,10 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                 # Check if the long-running task completed
                 if gen_task in done:
                     # Propagate any exception from the handler task
-                    exc = gen_task.exception()
+                    if gen_task.done() and not gen_task.cancelled():
+                        exc = gen_task.exception()
+                    else:
+                        exc = None
                     gen_task = None
                     if exc is not None:
                         raise exc
@@ -508,9 +559,7 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             on_progress = _make_thread_callback(websocket, loop)
 
             # Serialize GPU access — pipeline is NOT thread-safe
-            if _generate_lock is None:
-                raise RuntimeError("Server not fully initialized")
-            async with _generate_lock:
+            async with _acquire_gpu(websocket):
                 _generating[ws_id].set()
                 try:
                     result = await asyncio.wait_for(
@@ -545,14 +594,12 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             on_anim_progress = _make_thread_callback(websocket, loop)
             on_anim_frame = _make_thread_callback(websocket, loop)
 
-            if _generate_lock is None:
-                raise RuntimeError("Server not fully initialized")
             # Auto-scale timeout for animation (30s per frame minimum)
             anim_timeout = max(
                 settings.generation_timeout,
                 anim_req.frame_count * 30,
             )
-            async with _generate_lock:
+            async with _acquire_gpu(websocket):
                 _generating[ws_id].set()
                 try:
                     t0 = time.perf_counter()
@@ -805,7 +852,8 @@ async def _handle_analyze_audio(websocket: WebSocket, req: Request) -> None:
 async def _handle_check_stems(websocket: WebSocket) -> None:
     available = engine.stems_available()
     msg = "Stem separation ready" if available else (
-        "Stem separation requires demucs. Install with: pip install demucs>=4.0"
+        "Stem separation requires demucs or audio-separator. "
+        "Install with: pip install demucs>=4.0  or  pip install audio-separator"
     )
     await _send(websocket, StemsAvailableResponse(available=available, message=msg))
 
@@ -1145,9 +1193,6 @@ async def _handle_generate_audio_reactive(
     on_progress = _make_thread_callback(websocket, loop)
     on_frame = _make_thread_callback(websocket, loop)
 
-    if _generate_lock is None:
-        raise RuntimeError("Server not fully initialized")
-
     # Safety timeout: analysis overhead + per-chunk budget (AnimateDiff generates
     # in 16-frame chunks, so real time scales with chunk count, not frame count).
     est_chunks = settings.audio_max_frames // 12 + 1  # ~12 unique frames/chunk with overlap
@@ -1156,7 +1201,7 @@ async def _handle_generate_audio_reactive(
         120 + est_chunks * 30,  # 2 min analysis + 30s/chunk safety margin
     )
 
-    async with _generate_lock:
+    async with _acquire_gpu(websocket):
         _generating[ws_id].set()
         try:
             t0 = time.perf_counter()
@@ -1189,6 +1234,8 @@ async def _handle_generate_audio_reactive(
 
 def _json_dumps_compact(obj: dict) -> str:
     """Compact JSON serialization (no whitespace) for binary frame metadata."""
+    if _HAS_ORJSON:
+        return _json_fast.dumps(obj).decode("utf-8")
     return _json_module.dumps(obj, separators=(",", ":"))
 
 
@@ -1218,6 +1265,10 @@ async def _send(websocket: WebSocket, response) -> None:
             pu = getattr(response, "params_used", None)
             if pu is not None:
                 meta["params_used"] = pu
+            # Optional LZ4 frame compression for remote clients
+            if settings.enable_frame_compression and _HAS_LZ4 and len(raw_bytes) > 1024:
+                raw_bytes = _lz4.compress(raw_bytes)
+                meta["compression"] = "lz4"
             meta_json = _json_dumps_compact(meta)
             meta_bytes = meta_json.encode("utf-8")
             await websocket.send_bytes(
@@ -1285,6 +1336,12 @@ def _request_shutdown() -> None:
 # ─────────────────────────────────────────────────────────────
 
 def main() -> None:
+    # VRAM fragmentation reduction (PyTorch 2.9+, CUDA VMM)
+    _alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+    if "expandable_segments" not in _alloc_conf:
+        parts = [p for p in _alloc_conf.split(",") if p]
+        parts.extend(["expandable_segments:True", "max_split_size_mb:512"])
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = ",".join(parts)
     global _server_instance
     config = uvicorn.Config(
         "sddj.server:app",

@@ -2,16 +2,23 @@
 
 Order of operations (non-negotiable):
   1. Background removal  (rembg)
-  2. Pixelation           (NEAREST or BOX downscale)
-  3. Color quantization   (MiniBatchKMeans / PIL / Octree-LAB)
-  4. Palette enforcement  (CIELAB nearest)
-  5. Dithering            (Floyd-Steinberg / Bayer, CIELAB palette-aware)
+  2. Pixelation           (NEAREST, BOX, or PixelOE downscale)
+  3. Color quantization   (MiniBatchKMeans / PIL / Octree-OKLAB)
+  4. Palette enforcement  (OKLAB nearest)
+  5. Dithering            (Floyd-Steinberg / Bayer, OKLAB palette-aware)
   6. Alpha cleanup        (binary threshold)
+
+Color space: OKLAB (Björn Ottosson, 2020) — replaces CIELAB.
+OKLAB is float32 throughout (no float64 intermediaries), has better
+perceptual uniformity for saturated colors, and identical Euclidean
+distance semantics for nearest-neighbor / KMeans / error diffusion.
+L in [0,1], a/b in ~[-0.5, 0.5].
 """
 
 from __future__ import annotations
 
 import functools
+import logging
 from typing import Optional
 
 import numpy as np
@@ -26,6 +33,7 @@ from .protocol import (
     QuantizeMethod,
 )
 from . import palette_manager
+from .oklab import rgb_to_oklab, oklab_to_rgb
 
 
 # ─────────────────────────────────────────────────────────────
@@ -85,7 +93,7 @@ def apply(image: Image.Image, spec: PostProcessSpec) -> Image.Image:
             if spec.dither == DitherMode.NONE:
                 img = _enforce_palette(img, palette_rgb)
 
-    # 5. Dithering (CIELAB palette-aware — uses resolved palette or extracts from quantized image)
+    # 5. Dithering (OKLAB palette-aware — uses resolved palette or extracts from quantized image)
     if spec.dither != DitherMode.NONE:
         # Reuse KMeans centers if available, avoiding a redundant second KMeans run
         if palette_rgb is None:
@@ -115,6 +123,9 @@ def _remove_background(img: Image.Image) -> Image.Image:
 # STEP 2: PIXELATION
 # ─────────────────────────────────────────────────────────────
 
+_pixelate_log = logging.getLogger("sddj.postprocess")
+
+
 def _pixelate(
     img: Image.Image,
     target_size: int,
@@ -129,6 +140,31 @@ def _pixelate(
         new_h = target_size
         new_w = max(4, round(w * target_size / h))
 
+    if method == PixelateMethod.PIXELOE:
+        # F-O10: PixelOE contrast-aware downscaling — produces sharper
+        # pixel art by analysing local contrast to preserve edge detail.
+        try:
+            from pixeloe.pixelize import pixelize
+            # PixelOE expects RGB numpy array, returns RGB numpy array.
+            # Convert RGBA -> RGB for processing, restore alpha after.
+            has_alpha = img.mode == "RGBA"
+            if has_alpha:
+                alpha = img.getchannel("A")
+                rgb = img.convert("RGB")
+            else:
+                rgb = img if img.mode == "RGB" else img.convert("RGB")
+            arr = np.asarray(rgb)
+            result = pixelize(arr, target_size=min(new_w, new_h))
+            out = Image.fromarray(result)
+            if has_alpha:
+                # Downscale alpha to match PixelOE output dimensions
+                alpha_resized = alpha.resize(out.size, Image.NEAREST)
+                out = out.convert("RGBA")
+                out.putalpha(alpha_resized)
+            return out
+        except ImportError:
+            _pixelate_log.warning("pixeloe not installed, falling back to box downscale")
+            method = PixelateMethod.BOX
     if method == PixelateMethod.BOX:
         # BOX (area averaging) preserves thin features as averaged colors
         # rather than losing them to point sampling. Post-snap to palette
@@ -227,19 +263,20 @@ def _quantize_octree_lab(
     img: Image.Image,
     n_colors: int,
 ) -> tuple[Image.Image, list[tuple[int, int, int]]]:
-    """Octree quantization in CIELAB space — perceptually uniform palettes.
+    """Octree quantization in OKLAB space — perceptually uniform palettes.
 
     Produces palette entries that are equidistant in human perception,
     eliminating over-representation of greens and under-representation
     of blues that plague RGB-space quantization.
 
-    Implementation: KMeans in CIELAB space with deterministic init.
+    Implementation: KMeans in OKLAB space with deterministic init.
     This is semantically equivalent to an octree in perceptual space,
     using MiniBatchKMeans as the spatial partitioner for numerical
     stability and Numba/BLAS acceleration.
+
+    Migrated from CIELAB (skimage float64) to OKLAB (float32).
     """
     from sklearn.cluster import MiniBatchKMeans
-    from skimage.color import rgb2lab, lab2rgb
 
     arr = np.array(img)
     has_alpha = arr.shape[2] == 4
@@ -252,30 +289,30 @@ def _quantize_octree_lab(
 
     h, w, _ = rgb.shape
 
-    # O-17: Convert to CIELAB for perceptually uniform clustering (float32 sufficient)
-    img_lab = rgb2lab(rgb.astype(np.float32) / 255.0).astype(np.float32)
-    pixels_lab = img_lab.reshape(-1, 3)
-    n_pixels = len(pixels_lab)
+    # Convert to OKLAB for perceptually uniform clustering (float32 throughout)
+    img_ok = rgb_to_oklab(rgb.astype(np.float32) / 255.0)
+    pixels_ok = img_ok.reshape(-1, 3)
+    n_pixels = len(pixels_ok)
     n_colors = min(n_colors, n_pixels)
 
     # M-34: Fast-path: if image has fewer unique colors than requested (single np.unique)
-    unique_lab = np.unique(pixels_lab.round(2), axis=0)
-    n_unique = len(unique_lab)
+    unique_ok = np.unique(pixels_ok.round(4), axis=0)
+    n_unique = len(unique_ok)
     if n_unique <= n_colors:
-        # Convert unique LAB centers back to RGB
-        centers_rgb_float = lab2rgb(unique_lab.reshape(1, -1, 3).astype(np.float64))
+        # Convert unique OKLAB centers back to RGB
+        centers_rgb_float = oklab_to_rgb(unique_ok.reshape(1, -1, 3))
         centers_rgb = np.clip(centers_rgb_float * 255, 0, 255).astype(np.uint8).reshape(-1, 3)
         palette = [tuple(int(x) for x in c) for c in centers_rgb]
         # Map each pixel to nearest center
         from scipy.spatial import cKDTree
-        tree = cKDTree(unique_lab)
-        _, nearest_idx = tree.query(pixels_lab)
+        tree = cKDTree(unique_ok)
+        _, nearest_idx = tree.query(pixels_ok)
         quantized = centers_rgb[nearest_idx].reshape(h, w, 3)
         if has_alpha:
             return Image.fromarray(np.dstack([quantized, alpha])), palette
         return Image.fromarray(quantized), palette
 
-    # MiniBatchKMeans in CIELAB space
+    # MiniBatchKMeans in OKLAB space
     kmeans = MiniBatchKMeans(
         n_clusters=n_colors,
         batch_size=min(4096, n_pixels),
@@ -283,11 +320,11 @@ def _quantize_octree_lab(
         max_iter=100,
         random_state=42,
     )
-    labels = kmeans.fit_predict(pixels_lab)
-    centers_lab = kmeans.cluster_centers_
+    labels = kmeans.fit_predict(pixels_ok)
+    centers_ok = kmeans.cluster_centers_
 
-    # Convert LAB centers back to RGB
-    centers_rgb_float = lab2rgb(centers_lab.reshape(1, -1, 3).astype(np.float64))
+    # Convert OKLAB centers back to RGB
+    centers_rgb_float = oklab_to_rgb(centers_ok.reshape(1, -1, 3))
     centers_rgb = np.clip(centers_rgb_float * 255, 0, 255).astype(np.uint8).reshape(-1, 3)
     quantized = centers_rgb[labels].reshape(h, w, 3)
 
@@ -323,7 +360,7 @@ def _quantize_pil(
 
 
 # ─────────────────────────────────────────────────────────────
-# STEP 4: PALETTE ENFORCEMENT (CIELAB NEAREST NEIGHBOR)
+# STEP 4: PALETTE ENFORCEMENT (OKLAB NEAREST NEIGHBOR)
 # ─────────────────────────────────────────────────────────────
 
 def _resolve_palette(spec) -> list[tuple[int, int, int]] | None:
@@ -335,29 +372,34 @@ def _resolve_palette(spec) -> list[tuple[int, int, int]] | None:
 
 
 @functools.lru_cache(maxsize=32)
-def _palette_to_lab(palette_key: tuple[tuple[int, int, int], ...]) -> np.ndarray:
-    """Convert palette RGB tuples to CIELAB array (cached)."""
-    from skimage.color import rgb2lab
+def _palette_to_oklab(palette_key: tuple[tuple[int, int, int], ...]) -> np.ndarray:
+    """Convert palette RGB tuples to OKLAB array (cached).
+
+    Migrated from CIELAB (_palette_to_lab) to OKLAB — float32 throughout.
+    """
     palette_arr = np.array(palette_key, dtype=np.float32).reshape(1, -1, 3) / 255.0
-    return rgb2lab(palette_arr).reshape(-1, 3)
+    return rgb_to_oklab(palette_arr).reshape(-1, 3)
 
 
 @functools.lru_cache(maxsize=32)
 def _build_palette_tree(palette_key: tuple[tuple[int, int, int], ...]):
-    """Build and cache cKDTree for palette LAB colors."""
+    """Build and cache cKDTree for palette OKLAB colors."""
     from scipy.spatial import cKDTree
-    palette_lab = _palette_to_lab(palette_key)
-    return cKDTree(palette_lab)
+    palette_ok = _palette_to_oklab(palette_key)
+    return cKDTree(palette_ok)
 
 
 def _enforce_palette(
     img: Image.Image,
     palette_rgb: list[tuple[int, int, int]],
 ) -> Image.Image:
+    """Snap every pixel to the nearest palette color in OKLAB space.
+
+    Migrated from CIELAB to OKLAB — Euclidean distance in OKLAB is
+    perceptually uniform, same semantics as CIEDE76 but float32.
+    """
     if not palette_rgb:
         return img
-
-    from skimage.color import rgb2lab
 
     arr = np.array(img)
     has_alpha = arr.shape[2] == 4
@@ -370,16 +412,16 @@ def _enforce_palette(
 
     h, w, _ = rgb.shape
 
-    # Convert image to CIELAB
-    img_lab = rgb2lab(rgb.astype(np.float32) / 255.0)
+    # Convert image to OKLAB
+    img_ok = rgb_to_oklab(rgb.astype(np.float32) / 255.0)
 
     # Get cached palette KD-Tree — O(n log k) nearest neighbor
     palette_key = tuple(tuple(c) for c in palette_rgb)
     tree = _build_palette_tree(palette_key)
 
-    # Flatten image to (N, 3) LAB pixels
-    pixels_lab = img_lab.reshape(-1, 3)
-    _, nearest_idx = tree.query(pixels_lab)
+    # Flatten image to (N, 3) OKLAB pixels
+    pixels_ok = img_ok.reshape(-1, 3)
+    _, nearest_idx = tree.query(pixels_ok)
 
     palette_uint8 = np.array(palette_rgb, dtype=np.uint8)
     result = palette_uint8[nearest_idx].reshape(h, w, 3)
@@ -390,7 +432,7 @@ def _enforce_palette(
 
 
 # ─────────────────────────────────────────────────────────────
-# STEP 5: DITHERING (CIELAB PALETTE-AWARE)
+# STEP 5: DITHERING (OKLAB PALETTE-AWARE)
 # ─────────────────────────────────────────────────────────────
 
 def _apply_dither(
@@ -464,30 +506,32 @@ def _extract_palette(img: Image.Image, n_colors: int) -> list[tuple[int, int, in
     return [tuple(int(x) for x in np.round(c)) for c in kmeans.cluster_centers_]
 
 
-# ── Floyd-Steinberg: CIELAB error diffusion ──────────────────
+# ── Floyd-Steinberg: OKLAB error diffusion ───────────────────
 
 @numba.jit(nopython=True, cache=True)
-def _fs_core_lab(lab_img, pal_lab, pal_rgb, alpha_mask):
-    """Floyd-Steinberg error-diffusion kernel in CIELAB space (Numba-accelerated).
+def _fs_core_oklab(ok_img, pal_ok, pal_rgb, alpha_mask):
+    """Floyd-Steinberg error-diffusion kernel in OKLAB space (Numba-accelerated).
 
-    Operates entirely in CIELAB for perceptually uniform error diffusion:
-    - Distance computation uses CIEDE76 (L2 in LAB), which is ~40× faster
-      than CIEDE2000 and sufficient for the 8–32 color palettes typical
-      in pixel art.
+    Operates entirely in OKLAB for perceptually uniform error diffusion:
+    - Distance computation uses Euclidean L2 in OKLAB, which is perceptually
+      uniform and sufficient for the 8-32 color palettes typical in pixel art.
     - Error propagation in perceptual space produces natural dithering
       where equal error magnitude = equal perceived difference.
 
+    Migrated from CIELAB (_fs_core_lab) to OKLAB. Algorithm is identical;
+    only the value ranges differ: L in [0,1], a/b in ~[-0.5, 0.5].
+
     Args:
-        lab_img: float32 (H, W, 3) image in CIELAB space.
-        pal_lab: float32 (N, 3) palette in CIELAB space.
+        ok_img: float32 (H, W, 3) image in OKLAB space.
+        pal_ok: float32 (N, 3) palette in OKLAB space.
         pal_rgb: uint8 (N, 3) palette in RGB space (output mapping).
         alpha_mask: bool (H, W) — True for opaque pixels, False for transparent.
 
     Returns:
         uint8 (H, W, 3) RGB result image.
     """
-    h, w, _ = lab_img.shape
-    n_pal = len(pal_lab)
+    h, w, _ = ok_img.shape
+    n_pal = len(pal_ok)
     result = np.empty((h, w, 3), dtype=numba.uint8)
 
     for y in range(h):
@@ -499,17 +543,17 @@ def _fs_core_lab(lab_img, pal_lab, pal_rgb, alpha_mask):
                 result[y, x, 2] = 0
                 continue
 
-            old_L = lab_img[y, x, 0]
-            old_a = lab_img[y, x, 1]
-            old_b = lab_img[y, x, 2]
+            old_L = ok_img[y, x, 0]
+            old_a = ok_img[y, x, 1]
+            old_b = ok_img[y, x, 2]
 
-            # Find nearest palette color in CIELAB (CIEDE76 = Euclidean in LAB)
+            # Find nearest palette color in OKLAB (Euclidean distance)
             min_dist = 1e18
             best = 0
             for i in range(n_pal):
-                dL = pal_lab[i, 0] - old_L
-                da = pal_lab[i, 1] - old_a
-                db = pal_lab[i, 2] - old_b
+                dL = pal_ok[i, 0] - old_L
+                da = pal_ok[i, 1] - old_a
+                db = pal_ok[i, 2] - old_b
                 d = dL * dL + da * da + db * db
                 if d < min_dist:
                     min_dist = d
@@ -520,10 +564,10 @@ def _fs_core_lab(lab_img, pal_lab, pal_rgb, alpha_mask):
             result[y, x, 1] = pal_rgb[best, 1]
             result[y, x, 2] = pal_rgb[best, 2]
 
-            # Compute error in CIELAB space
-            err_L = old_L - pal_lab[best, 0]
-            err_a = old_a - pal_lab[best, 1]
-            err_b = old_b - pal_lab[best, 2]
+            # Compute error in OKLAB space
+            err_L = old_L - pal_ok[best, 0]
+            err_a = old_a - pal_ok[best, 1]
+            err_b = old_b - pal_ok[best, 2]
 
             # C-18: Redistribute error among opaque neighbors only.
             # When a neighbor is transparent, its weight is zeroed and the
@@ -537,24 +581,24 @@ def _fs_core_lab(lab_img, pal_lab, pal_rgb, alpha_mask):
                 inv_w = 1.0 / total_w
                 if w_r > 0.0:
                     frac = w_r * inv_w
-                    lab_img[y, x + 1, 0] += err_L * frac
-                    lab_img[y, x + 1, 1] += err_a * frac
-                    lab_img[y, x + 1, 2] += err_b * frac
+                    ok_img[y, x + 1, 0] += err_L * frac
+                    ok_img[y, x + 1, 1] += err_a * frac
+                    ok_img[y, x + 1, 2] += err_b * frac
                 if w_bl > 0.0:
                     frac = w_bl * inv_w
-                    lab_img[y + 1, x - 1, 0] += err_L * frac
-                    lab_img[y + 1, x - 1, 1] += err_a * frac
-                    lab_img[y + 1, x - 1, 2] += err_b * frac
+                    ok_img[y + 1, x - 1, 0] += err_L * frac
+                    ok_img[y + 1, x - 1, 1] += err_a * frac
+                    ok_img[y + 1, x - 1, 2] += err_b * frac
                 if w_b > 0.0:
                     frac = w_b * inv_w
-                    lab_img[y + 1, x, 0] += err_L * frac
-                    lab_img[y + 1, x, 1] += err_a * frac
-                    lab_img[y + 1, x, 2] += err_b * frac
+                    ok_img[y + 1, x, 0] += err_L * frac
+                    ok_img[y + 1, x, 1] += err_a * frac
+                    ok_img[y + 1, x, 2] += err_b * frac
                 if w_br > 0.0:
                     frac = w_br * inv_w
-                    lab_img[y + 1, x + 1, 0] += err_L * frac
-                    lab_img[y + 1, x + 1, 1] += err_a * frac
-                    lab_img[y + 1, x + 1, 2] += err_b * frac
+                    ok_img[y + 1, x + 1, 0] += err_L * frac
+                    ok_img[y + 1, x + 1, 1] += err_a * frac
+                    ok_img[y + 1, x + 1, 2] += err_b * frac
     return result
 
 
@@ -564,9 +608,10 @@ def _floyd_steinberg(
     *,
     alpha_aware: bool = False,
 ) -> Image.Image:
-    """Floyd-Steinberg error-diffusion dithering (CIELAB, palette-aware, Numba-accelerated)."""
-    from skimage.color import rgb2lab
+    """Floyd-Steinberg error-diffusion dithering (OKLAB, palette-aware, Numba-accelerated).
 
+    Migrated from CIELAB to OKLAB — float32 throughout, no skimage dependency.
+    """
     arr = np.array(img)
     has_alpha = arr.shape[2] == 4
     if has_alpha:
@@ -578,12 +623,12 @@ def _floyd_steinberg(
 
     h, w, _ = rgb.shape
 
-    # Convert image to CIELAB
-    img_lab = rgb2lab(rgb.astype(np.float64) / 255.0).astype(np.float32)
+    # Convert image to OKLAB (float32 — no float64 intermediate)
+    img_ok = rgb_to_oklab(rgb.astype(np.float32) / 255.0)
 
-    # Convert palette to CIELAB (cached)
+    # Convert palette to OKLAB (cached)
     palette_key = tuple(tuple(c) for c in palette_rgb)
-    pal_lab = _palette_to_lab(palette_key).astype(np.float32)
+    pal_ok = _palette_to_oklab(palette_key)
     pal_rgb = np.array(palette_rgb, dtype=np.uint8)
 
     # Build alpha mask: True for opaque pixels
@@ -592,14 +637,14 @@ def _floyd_steinberg(
     else:
         alpha_mask = np.ones((h, w), dtype=np.bool_)
 
-    result = _fs_core_lab(img_lab, pal_lab, pal_rgb, alpha_mask)
+    result = _fs_core_oklab(img_ok, pal_ok, pal_rgb, alpha_mask)
 
     if has_alpha:
         return Image.fromarray(np.dstack([result, alpha]))
     return Image.fromarray(result)
 
 
-# ── Bayer: CIELAB ordered dithering ──────────────────────────
+# ── Bayer: OKLAB ordered dithering ───────────────────────────
 
 @functools.lru_cache(maxsize=4)  # M-32: only 3 sizes used (2, 4, 8)
 def _bayer_matrix(n: int) -> np.ndarray:
@@ -625,13 +670,14 @@ def _bayer_dither(
     *,
     alpha_aware: bool = False,
 ) -> Image.Image:
-    """Ordered (Bayer) dithering with CIELAB palette snap.
+    """Ordered (Bayer) dithering with OKLAB palette snap.
 
-    Eliminates double-quantization: applies threshold offset in CIELAB space
-    then snaps directly to nearest palette color via cKDTree.
+    Eliminates double-quantization: applies threshold offset in OKLAB L
+    channel then snaps directly to nearest palette color via cKDTree.
+
+    Migrated from CIELAB to OKLAB. Key scaling change: CIELAB L* is [0,100],
+    OKLAB L is [0,1], so the dither offset is scaled by 1/100.
     """
-    from skimage.color import rgb2lab
-
     # M-33: Only convert RGB channels to float32, keep alpha as uint8
     arr = np.array(img)
     has_alpha = arr.shape[2] == 4
@@ -644,17 +690,17 @@ def _bayer_dither(
 
     h, w, _ = rgb.shape
 
-    # Convert to CIELAB
-    img_lab = rgb2lab((rgb / 255.0).astype(np.float64)).astype(np.float32)
+    # Convert to OKLAB (float32 throughout — no float64 intermediate)
+    img_ok = rgb_to_oklab(rgb / 255.0)
 
-    # Bayer threshold in CIELAB L* channel (perceptual lightness)
+    # Bayer threshold in OKLAB L channel (perceptual lightness)
     threshold = _bayer_matrix(matrix_size)
     th_tiled = np.tile(threshold, (h // matrix_size + 1, w // matrix_size + 1))
     th_tiled = th_tiled[:h, :w]
 
-    # Apply threshold as L* offset (range of L* is 0–100)
+    # Apply threshold as L offset (OKLAB L range is [0, 1], was [0, 100] in CIELAB)
     n_colors = len(palette_rgb)
-    l_step = 100.0 / max(1, n_colors - 1)
+    l_step = 1.0 / max(1, n_colors - 1)
     offset = (th_tiled - 0.5) * l_step
 
     # Alpha-aware: zero out offset for transparent pixels before addition
@@ -662,13 +708,13 @@ def _bayer_dither(
         alpha_mask = alpha < 128
         offset[alpha_mask] = 0
 
-    img_lab[:, :, 0] += offset
+    img_ok[:, :, 0] += offset
 
-    # Snap directly to nearest palette color in CIELAB via cKDTree
+    # Snap directly to nearest palette color in OKLAB via cKDTree
     palette_key = tuple(tuple(c) for c in palette_rgb)
     tree = _build_palette_tree(palette_key)
-    pixels_lab = img_lab.reshape(-1, 3)
-    _, nearest_idx = tree.query(pixels_lab)
+    pixels_ok = img_ok.reshape(-1, 3)
+    _, nearest_idx = tree.query(pixels_ok)
 
     palette_uint8 = np.array(palette_rgb, dtype=np.uint8)
     result = palette_uint8[nearest_idx].reshape(h, w, 3)
@@ -684,7 +730,7 @@ def _bayer_dither(
 
 def warmup_numba() -> None:
     """Pre-compile Floyd-Steinberg JIT kernel with float32 data."""
-    _fs_core_lab(
+    _fs_core_oklab(
         np.zeros((2, 2, 3), dtype=np.float32),
         np.zeros((2, 3), dtype=np.float32),
         np.zeros((2, 3), dtype=np.uint8),

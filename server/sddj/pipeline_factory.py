@@ -24,6 +24,9 @@ from .protocol import GenerationMode
 
 log = logging.getLogger("sddj.pipeline_factory")
 
+# ── Original SDPA reference (for SageAttention restore) ──────
+_original_sdpa = None
+
 # ── Torch version (computed once at import) ───────────────────
 _TORCH_MAJOR = int(torch.__version__.split(".")[0])
 
@@ -54,6 +57,9 @@ def load_base_pipeline() -> StableDiffusionPipeline:
       - Local diffusers dir:  "/path/to/model_dir/"
       - Single file (.safetensors/.ckpt): "/path/to/model.safetensors"
     """
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required for SDDj diffusion pipeline")
+
     ckpt = settings.default_checkpoint
     cache_key = str(ckpt)
     # M-13/M-37: Hold lock for the entire load to prevent double GPU allocation.
@@ -88,29 +94,76 @@ def load_base_pipeline() -> StableDiffusionPipeline:
 
 
 def setup_attention(pipe: StableDiffusionPipeline) -> None:
-    """Configure best available attention: SDP (native) > xformers > slicing.
+    """Configure best available attention: SageAttention2 > SDP (native) > xformers > slicing.
 
-    PyTorch >= 2.0 uses scaled_dot_product_attention automatically in
-    diffusers via AttnProcessor2_0 — no explicit call needed. We only
-    need xformers or slicing as fallbacks for older PyTorch.
+    Priority (when backend="auto"):
+      1. SageAttention2 — monkey-patches F.scaled_dot_product_attention with sageattn
+         for ~1.89× speedup on Ada Lovelace (RTX 40xx) GPUs.
+      2. SDP (PyTorch >= 2.0) — native AttnProcessor2_0, no explicit call needed.
+      3. xformers — memory-efficient attention for older PyTorch.
+      4. Attention slicing — last resort fallback.
     """
-    if _TORCH_MAJOR >= 2:
-        log.info("PyTorch %s: SDP attention active (native AttnProcessor2_0)", torch.__version__)
-        return
+    global _original_sdpa
+    backend = settings.attention_backend
 
-    try:
-        import xformers  # noqa: F401
-        pipe.enable_xformers_memory_efficient_attention()
-        log.info("xformers memory-efficient attention enabled")
-        return
-    except ImportError:
-        log.debug("xformers not installed, trying fallback")
-    except Exception as e:
-        log.warning("xformers init failed (%s), falling back", e)
+    # ── SageAttention2 (highest priority when requested or auto) ──
+    if backend in ("sage", "auto"):
+        try:
+            from sageattention import sageattn  # noqa: F401
+            import torch.nn.functional as _F
+            if _F.scaled_dot_product_attention is not sageattn:
+                _original_sdpa = _F.scaled_dot_product_attention
+                _F.scaled_dot_product_attention = sageattn
+                log.info("SageAttention2 enabled (1.89× attention speedup on Ada Lovelace)")
+            return
+        except ImportError:
+            if backend == "sage":
+                log.warning(
+                    "SageAttention2 requested but sageattention package not installed — "
+                    "falling back to next available backend"
+                )
+            else:
+                log.debug("sageattention not installed, trying SDP")
+        except Exception as e:
+            log.warning("SageAttention2 init failed (%s), falling back", e)
 
+    # ── SDP (PyTorch >= 2.0, native) ─────────────────────────────
+    if backend in ("sdp", "auto"):
+        if _TORCH_MAJOR >= 2:
+            log.info("PyTorch %s: SDP attention active (native AttnProcessor2_0)", torch.__version__)
+            return
+        if backend == "sdp":
+            log.warning("SDP requested but PyTorch %s < 2.0 — falling back", torch.__version__)
+
+    # ── xformers ─────────────────────────────────────────────────
+    if backend in ("xformers", "auto"):
+        try:
+            import xformers  # noqa: F401
+            pipe.enable_xformers_memory_efficient_attention()
+            log.info("xformers memory-efficient attention enabled")
+            return
+        except ImportError:
+            if backend == "xformers":
+                log.warning("xformers requested but not installed — falling back")
+            else:
+                log.debug("xformers not installed, trying fallback")
+        except Exception as e:
+            log.warning("xformers init failed (%s), falling back", e)
+
+    # ── Attention slicing (last resort) ──────────────────────────
     if settings.enable_attention_slicing:
         pipe.enable_attention_slicing()
         log.info("Attention slicing enabled (fallback)")
+
+
+def restore_attention():
+    """Restore original SDPA if SageAttention was monkey-patched."""
+    global _original_sdpa
+    if _original_sdpa is not None:
+        import torch.nn.functional as _F
+        _F.scaled_dot_product_attention = _original_sdpa
+        _original_sdpa = None
+        log.info("Restored original scaled_dot_product_attention")
 
 
 def setup_vae(pipe: StableDiffusionPipeline) -> None:
@@ -159,6 +212,80 @@ def setup_hyper_sd(pipe: StableDiffusionPipeline) -> None:
     log.info("Hyper-SD LoRA fused into UNet weights (scale=%.3f)", settings.hyper_sd_fuse_scale)
 
 
+def apply_unet_quantization(pipe: StableDiffusionPipeline) -> None:
+    """Quantize UNet weights via torchao for reduced VRAM and faster matmuls.
+
+    Must be called AFTER LoRA fuse (quantization bakes into the fused weights)
+    and BEFORE torch.compile (Inductor fuses int8/fp8 matmuls with epilogues).
+
+    Auto-detection selects the best dtype for the GPU microarchitecture:
+      - Ada Lovelace (sm89, RTX 40xx): fp8_dynamic_activation_fp8_weight
+      - Ampere (sm80/sm86, RTX 30xx/A100): int8_dynamic_activation_int8_weight
+      - Turing or older: skip with warning (no hardware acceleration for quantized matmul)
+    """
+    if not settings.enable_unet_quantization:
+        return
+
+    try:
+        from torchao.quantization import quantize_
+    except ImportError:
+        log.warning("UNet quantization requested but torchao not installed — skipping")
+        return
+
+    dtype = settings.unet_quantization_dtype
+
+    if dtype == "auto":
+        # Auto-detect based on GPU compute capability
+        if not torch.cuda.is_available():
+            log.warning("UNet quantization: no CUDA device — skipping")
+            return
+        device = pipe.unet.device
+        cap = torch.cuda.get_device_capability(device)
+        sm = cap[0] * 10 + cap[1]  # e.g. (8, 9) → 89
+
+        if sm >= 89:
+            # Ada Lovelace (sm89): native FP8 tensor cores
+            dtype = "fp8dq"
+            log.info("Auto-detected Ada Lovelace (sm%d) → fp8 dynamic quantization", sm)
+        elif sm >= 80:
+            # Ampere (sm80/sm86): INT8 tensor cores
+            dtype = "int8dq"
+            log.info("Auto-detected Ampere (sm%d) → int8 dynamic quantization", sm)
+        else:
+            log.warning(
+                "UNet quantization: GPU compute capability sm%d (Turing or older) "
+                "lacks efficient quantized matmul — skipping", sm
+            )
+            return
+
+    # Resolve the quantization function for the chosen dtype
+    try:
+        if dtype == "int8dq":
+            from torchao.quantization import int8_dynamic_activation_int8_weight
+            quant_fn = int8_dynamic_activation_int8_weight
+        elif dtype == "int8wo":
+            from torchao.quantization import int8_weight_only
+            quant_fn = int8_weight_only
+        elif dtype == "fp8dq":
+            from torchao.quantization import float8_dynamic_activation_float8_weight
+            quant_fn = float8_dynamic_activation_float8_weight
+        elif dtype == "fp8wo":
+            from torchao.quantization import float8_weight_only
+            quant_fn = float8_weight_only
+        else:
+            log.warning("Unknown quantization dtype '%s' — skipping", dtype)
+            return
+    except ImportError:
+        log.warning("torchao does not support '%s' quantization — skipping", dtype)
+        return
+
+    try:
+        quantize_(pipe.unet, quant_fn())
+        log.info("UNet quantized with torchao (%s)", dtype)
+    except Exception as e:
+        log.warning("UNet quantization failed (%s): %s — continuing without quantization", dtype, e)
+
+
 def apply_torch_compile(pipe: StableDiffusionPipeline) -> None:
     """torch.compile the UNet if enabled.
 
@@ -178,6 +305,15 @@ def apply_torch_compile(pipe: StableDiffusionPipeline) -> None:
     """
     if not settings.enable_torch_compile:
         return
+    # Inductor config flags for diffusion model optimization (PyTorch blog, July 2025)
+    torch._inductor.config.conv_1x1_as_mm = True
+    torch._inductor.config.coordinate_descent_tuning = True
+    torch._inductor.config.coordinate_descent_check_all_directions = True
+    # INT8/mixed-precision fusion flags — only needed for torchao quantized models
+    if settings.enable_unet_quantization:
+        torch._inductor.config.epilogue_fusion = False
+        torch._inductor.config.force_fuse_int_mm_with_mul = True
+        torch._inductor.config.use_mixed_mm = True
     use_dynamic = settings.compile_dynamic and not settings.enable_deepcache
     try:
         pipe.unet = torch.compile(
