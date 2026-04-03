@@ -540,6 +540,11 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         Fast path (set_adapters): loads LoRA2 as a PEFT adapter and activates
         both via set_adapters([lora1, lora2], [w1, w2]).  No weight fusion.
         Fallback path (fuse/unfuse): fuses LoRA2 into already-fused weights.
+
+        FIX (v0.9.96): Invalidates the embedding cache after LoRA2 application.
+        LoRA2 may modify the text_encoder, making cached embeddings stale —
+        prompts would appear to be ignored because the pipeline would use
+        embeddings computed with LoRA1-only text_encoder weights.
         """
         if req.lora2 is None:
             return
@@ -597,6 +602,8 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 self._lora2_adapter_name = None
                 log.info("Multi-LoRA (fuse): +%s fused at weight %.2f on top of %s",
                          req.lora2.name, req.lora2.weight, req.lora.name)
+            # LoRA2 may modify text_encoder — invalidate embedding cache
+            clear_embedding_cache()
         except FileNotFoundError:
             log.warning("LoRA2 '%s' not found — proceeding with single LoRA", req.lora2.name)
         except Exception as e:
@@ -604,7 +611,12 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                         req.lora2.name, e)
 
     def _cleanup_lora2(self) -> None:
-        """Restore to single-LoRA state after generation."""
+        """Restore to single-LoRA state after generation.
+
+        FIX (v0.9.96): Invalidates the embedding cache after cleanup.
+        Restoring LoRA1-only state changes text_encoder weights back,
+        so cached embeddings from the multi-LoRA state are now stale.
+        """
         if not self._lora_fuser.current_name:
             return
         try:
@@ -629,6 +641,8 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 name = self._lora_fuser.current_name
                 weight = self._lora_fuser.current_weight
                 self._lora_fuser.set_lora(self._pipe, name, weight)
+            # Text encoder weights changed — invalidate embedding cache
+            clear_embedding_cache()
         except Exception as e:
             log.warning("LoRA2 cleanup failed: %s", e)
 

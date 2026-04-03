@@ -462,6 +462,9 @@ local function build_tab_generate()
     id = "ip_adapter_enabled",
     text = "Use Reference Image",
     selected = false,
+    onchange = function()
+      PT.sync_ui_conditional_states()
+    end,
   }
   dlg:combobox{
     id = "ip_adapter_mode",
@@ -1923,6 +1926,10 @@ function PT.build_dialog()
     selected = "tab_gen",
     onchange = function()
       PT.update_action_button(PT.dlg.data.main_tabs)
+      -- FIX (v0.9.96): Refresh all conditional widget states on tab switch.
+      -- Previously only the action button text was updated, leaving
+      -- visible/enabled states stale until a mode change forced a refresh.
+      PT.sync_ui_conditional_states()
     end,
   }
 

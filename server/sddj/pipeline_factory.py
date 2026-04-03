@@ -123,6 +123,8 @@ def setup_attention(pipe: StableDiffusionPipeline) -> None:
                 _original_sdpa = _F.scaled_dot_product_attention
                 _native_sdpa = _original_sdpa  # closure capture for fallback
 
+                _sageattn_fallback_count = [0]  # mutable counter in closure
+
                 def _sageattn_with_fallback(*args, **kwargs):
                     """SageAttention with automatic fallback to native SDPA.
 
@@ -133,6 +135,12 @@ def setup_attention(pipe: StableDiffusionPipeline) -> None:
                     try:
                         return sageattn(*args, **kwargs)
                     except Exception:
+                        _sageattn_fallback_count[0] += 1
+                        if _sageattn_fallback_count[0] <= 3:
+                            q = args[0] if args else kwargs.get("query")
+                            head_dim = q.shape[-1] if q is not None else "?"
+                            log.debug("SageAttention fallback #%d (head_dim=%s) → native SDPA",
+                                      _sageattn_fallback_count[0], head_dim)
                         return _native_sdpa(*args, **kwargs)
 
                 _F.scaled_dot_product_attention = _sageattn_with_fallback
