@@ -289,7 +289,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 gen = torch.Generator("cuda").manual_seed(0)
                 torch.compiler.cudagraph_mark_step_begin()
 
-                self._pipe(
+                latents = self._pipe(
                     prompt="warmup",
                     negative_prompt="warmup",
                     num_inference_steps=settings.default_steps,
@@ -300,7 +300,14 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                     clip_skip=settings.default_clip_skip,
                     callback_on_step_end=_warmup_callback,
                     output_type="latent",
-                )
+                ).images
+
+                # VAE decode warmup — compiled VAE decode must be exercised
+                # here, otherwise the first real generation triggers Inductor
+                # compilation AFTER the denoising steps complete, causing a
+                # multi-second freeze at "100%" before the image is returned.
+                self._decode_latents(latents)
+
             elapsed = time.perf_counter() - t0
             log.info("Warmup complete in %.1fs", elapsed)
         except Exception as e:
@@ -735,7 +742,9 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 if on_progress:
                     on_progress(ProgressResponse(
                         step=req.steps, total=req.steps, status="decoding"))
+                t_vae = time.perf_counter()
                 image = self._decode_latents(latents)
+                vae_ms = (time.perf_counter() - t_vae) * 1000
 
                 # Inpaint compositing (after VAE decode)
                 if _inpaint_compositing is not None:
@@ -743,14 +752,20 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                     image = composite_with_mask(_inp_source, image, _inp_mask)
 
                 # ── Post-process ──────────────────────────────────────
+                t_pp = time.perf_counter()
                 image = postprocess_apply(image, req.post_process)
+                pp_ms = (time.perf_counter() - t_pp) * 1000
 
                 if self._cancel_event.is_set():
                     raise GenerationCancelled("Cancelled during post-processing")
 
                 # ── Encode result ─────────────────────────────────────
+                t_enc = time.perf_counter()
                 raw_bytes = encode_image_raw_bytes(image)
+                enc_ms = (time.perf_counter() - t_enc) * 1000
                 elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                log.info("Timing: VAE=%.0fms post=%.0fms enc=%.0fms total=%dms",
+                         vae_ms, pp_ms, enc_ms, elapsed_ms)
                 w, h = image.size
 
                 result = ResultResponse(

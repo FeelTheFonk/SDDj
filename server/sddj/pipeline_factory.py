@@ -121,7 +121,21 @@ def setup_attention(pipe: StableDiffusionPipeline) -> None:
             import torch.nn.functional as _F
             if _F.scaled_dot_product_attention is not sageattn:
                 _original_sdpa = _F.scaled_dot_product_attention
-                _F.scaled_dot_product_attention = sageattn
+                _native_sdpa = _original_sdpa  # closure capture for fallback
+
+                def _sageattn_with_fallback(*args, **kwargs):
+                    """SageAttention with automatic fallback to native SDPA.
+
+                    SageAttention doesn't support all head dimensions (e.g.
+                    head_dim=160 in SD1.5's 1280-channel attention layers).
+                    On unsupported configs, fall back to native SDPA silently.
+                    """
+                    try:
+                        return sageattn(*args, **kwargs)
+                    except Exception:
+                        return _native_sdpa(*args, **kwargs)
+
+                _F.scaled_dot_product_attention = _sageattn_with_fallback
                 log.info("SageAttention2 enabled (1.89× attention speedup on Ada Lovelace)")
             return
         except ImportError:
@@ -366,11 +380,15 @@ def apply_torch_compile(pipe: StableDiffusionPipeline) -> None:
         torch._inductor.config.force_fuse_int_mm_with_mul = True
         torch._inductor.config.use_mixed_mm = True
     use_dynamic = settings.compile_dynamic and not settings.enable_deepcache
+    # fullgraph only when DeepCache is off AND SageAttention is not patched.
+    # SageAttention's sageattn calls torch.cuda.device_count() which returns
+    # int, not Tensor — breaks Dynamo fullgraph tracing.
+    unet_fullgraph = not settings.enable_deepcache and _original_sdpa is None
     try:
         pipe.unet = torch.compile(
             pipe.unet,
             mode=mode,
-            fullgraph=not settings.enable_deepcache,
+            fullgraph=unet_fullgraph,
             dynamic=use_dynamic,
         )
         log.info("torch.compile enabled for UNet (mode=%s, dynamic=%s)",
@@ -378,21 +396,25 @@ def apply_torch_compile(pipe: StableDiffusionPipeline) -> None:
     except Exception as e:
         log.warning("torch.compile failed: %s", e)
 
-    # Compile text_encoder — eliminates interpreter overhead on tokenization path.
-    # fullgraph=True: CLIP text encoder has static control flow.
-    if hasattr(pipe, 'text_encoder') and pipe.text_encoder is not None:
-        try:
-            pipe.text_encoder = torch.compile(pipe.text_encoder, mode=mode, fullgraph=True)
-            log.info("torch.compile enabled for text_encoder (mode=%s)", mode)
-        except Exception as e:
-            log.warning("text_encoder compile failed: %s — continuing uncompiled", e)
+    # text_encoder: intentionally NOT compiled.
+    # 1. SageAttention monkey-patches F.sdpa with sageattn, which calls
+    #    torch.cuda.device_count() — a non-Tensor op that breaks Dynamo
+    #    fullgraph tracing (graph break → warmup failure).
+    # 2. Runtime LoRA loading (peft) injects adapter layers into the model;
+    #    peft cannot introspect an OptimizedModule wrapper, causing
+    #    "list index out of range" when LoRAs carry text_encoder keys.
+    # 3. Gain is negligible: CLIP SD1.5 forward ≈ 3ms eager vs ≈ 1.5ms
+    #    compiled — < 0.2% of total generation time (UNet dominates).
 
     # Compile vae.encode — used in img2img latent encoding path.
-    # fullgraph=True: VAE encoder has static control flow.
-    if hasattr(pipe, 'vae') and pipe.vae is not None:
+    # Same rationale as apply_vae_compile: skip when SageAttention is active
+    # to avoid graph-break-induced recompilation on first img2img call.
+    if _original_sdpa is not None:
+        log.info("VAE encode: skipping torch.compile (SageAttention graph breaks cause recompilation)")
+    elif hasattr(pipe, 'vae') and pipe.vae is not None:
         try:
             pipe.vae.encode = torch.compile(pipe.vae.encode, mode=mode, fullgraph=True)
-            log.info("torch.compile enabled for VAE encode (mode=%s)", mode)
+            log.info("torch.compile enabled for VAE encode (mode=%s, fullgraph=True)", mode)
         except Exception as e:
             log.warning("VAE encode compile failed: %s — continuing uncompiled", e)
 
@@ -401,20 +423,23 @@ def apply_vae_compile(pipe: StableDiffusionPipeline) -> None:
     """torch.compile the VAE decoder for faster image decode."""
     if not settings.enable_torch_compile:
         return
+    # Skip VAE decode compilation when SageAttention is monkey-patched.
+    # SageAttention's untraced C++ ops (transpose_pad_permute_cuda,
+    # scale_fuse_quant_cuda) cause graph breaks → fullgraph=False required.
+    # These graph breaks produce unstable sub-graphs whose Dynamo guards
+    # fail between warmup and real generation, triggering Inductor
+    # recompilation (~5-15s freeze at "100%" with no user feedback).
+    # VAE decode is convolution-dominated (one mid-block attention) —
+    # torch.compile benefit is ~50-100ms, not worth recompilation risk.
+    if _original_sdpa is not None:
+        log.info("VAE decode: skipping torch.compile (SageAttention graph breaks cause recompilation)")
+        return
     mode = _resolve_compile_mode()
     try:
         pipe.vae.decode = torch.compile(pipe.vae.decode, mode=mode, fullgraph=True)
-        log.info("torch.compile enabled for VAE decode (mode=%s)", mode)
-    except Exception as e_full:
-        log.warning(
-            "VAE compile fullgraph=True failed (%s) — this is unexpected for standard SD1.5 VAE. "
-            "Falling back to fullgraph=False. Investigate if using a custom VAE.", e_full,
-        )
-        try:
-            pipe.vae.decode = torch.compile(pipe.vae.decode, mode=mode, fullgraph=False)
-            log.info("torch.compile enabled for VAE decode (mode=%s, fullgraph=False fallback)", mode)
-        except Exception as e:
-            log.warning("VAE compile failed: %s — continuing uncompiled", e)
+        log.info("torch.compile enabled for VAE decode (mode=%s, fullgraph=True)", mode)
+    except Exception as e:
+        log.warning("VAE compile failed: %s — continuing uncompiled", e)
 
 
 def create_img2img_pipeline(
