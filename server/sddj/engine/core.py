@@ -86,6 +86,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         self._cancel_event = threading.Event()
         # IP-Adapter state
         self._ip_adapter_loaded = False
+        self._ip_adapter_mode: Optional[str] = None
         # Audio reactivity modules (lazy, no GPU)
         self._tome_applied = False
         self._audio_analyzer = None
@@ -302,7 +303,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                     generator=gen,
                     clip_skip=settings.default_clip_skip,
                     callback_on_step_end=_warmup_callback,
-                    output_type="pil",
+                    output_type="latent",
                 )
             elapsed = time.perf_counter() - t0
             log.info("Warmup complete in %.1fs", elapsed)
@@ -373,6 +374,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         self._loaded_ti_tokens.clear()
         self._loaded = False
         self._ip_adapter_loaded = False
+        self._ip_adapter_mode = None
         self._animatediff.unload()
         rembg_wrapper.unload()
         clear_embedding_cache()
@@ -691,6 +693,10 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                         self._pipe.scheduler = new_sched
                         if self._img2img_pipe is not None:
                             self._img2img_pipe.scheduler = type(new_sched).from_config(new_sched.config)
+                        if self._controlnet_pipe is not None:
+                            self._controlnet_pipe.scheduler = type(new_sched).from_config(new_sched.config)
+                        if self._controlnet_img2img_pipe is not None:
+                            self._controlnet_img2img_pipe.scheduler = type(new_sched).from_config(new_sched.config)
                     except Exception as e:
                         log.warning("Scheduler override '%s' failed: %s — using default", req.scheduler, e)
                         _original_scheduler = None
@@ -721,6 +727,12 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                         self._pipe.scheduler = _original_scheduler
                         if self._img2img_pipe is not None:
                             self._img2img_pipe.scheduler = type(_original_scheduler).from_config(
+                                _original_scheduler.config)
+                        if self._controlnet_pipe is not None:
+                            self._controlnet_pipe.scheduler = type(_original_scheduler).from_config(
+                                _original_scheduler.config)
+                        if self._controlnet_img2img_pipe is not None:
+                            self._controlnet_img2img_pipe.scheduler = type(_original_scheduler).from_config(
                                 _original_scheduler.config)
 
                 # ── VAE decode with progress feedback ─────────────────
@@ -943,20 +955,24 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         )
         if req.guidance_rescale > 0:
             call_kwargs["guidance_rescale"] = req.guidance_rescale
-        if req.pag_scale > 0 and "PAG" in type(self._controlnet_pipe).__name__:
-            call_kwargs["pag_scale"] = req.pag_scale
         self._prepare_ip_adapter_kwargs(req, call_kwargs)
 
         if use_img2img:
+            # Clamp denoise: ensure at least 2 effective steps (matches _img2img logic)
+            _cap = max(settings.distilled_step_scale_cap, 1)
+            min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
+            strength = max(req.denoise_strength, min_denoise)
+            scaled_steps = scale_steps_for_denoise(req.steps, strength)
             call_kwargs["image"] = source
             call_kwargs["control_image"] = control
-            call_kwargs["strength"] = req.denoise_strength
+            call_kwargs["strength"] = strength
+            call_kwargs["num_inference_steps"] = scaled_steps
         else:
             call_kwargs["image"] = control
 
         # ControlNet conditioning params (all CN modes)
-        cgs = getattr(req, 'control_guidance_start', 0.0)
-        cge = getattr(req, 'control_guidance_end', 1.0)
+        cgs = req.control_guidance_start
+        cge = req.control_guidance_end
         if cgs > 0.0:
             call_kwargs["control_guidance_start"] = cgs
         if cge < 1.0:
@@ -975,15 +991,20 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 call_kwargs["control_guidance_end"] = settings.qr_control_guidance_end
             # Override steps if too low for ControlNet quality
             if req.steps <= 8:
-                call_kwargs["num_inference_steps"] = settings.qr_default_steps
+                qr_steps = settings.qr_default_steps
+                if use_img2img:
+                    qr_steps = scale_steps_for_denoise(qr_steps, strength)
+                call_kwargs["num_inference_steps"] = qr_steps
                 log.info("QR mode: steps %d → %d for quality",
-                         req.steps, settings.qr_default_steps)
+                         req.steps, qr_steps)
 
         torch.compiler.cudagraph_mark_step_begin()
         # DeepCache suppressed for ALL ControlNet modes:
         # Cached steps skip UNet blocks where ControlNet injects residuals,
         # causing conditioning to be partially dropped on those steps.
         active_pipe = self._controlnet_img2img_pipe if use_img2img else self._controlnet_pipe
+        if req.pag_scale > 0 and "PAG" in type(active_pipe).__name__:
+            call_kwargs["pag_scale"] = req.pag_scale
         if self._dc_state is not None:
             self._dc_state.suppress_for("controlnet")
         try:

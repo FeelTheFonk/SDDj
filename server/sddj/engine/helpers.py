@@ -41,6 +41,12 @@ def build_prompt_schedule(req) -> "PromptSchedule | None":
             kf_dicts = [kf.model_dump() for kf in schedule_spec.keyframes]
         elif isinstance(schedule_spec, dict):
             kf_dicts = schedule_spec.get("keyframes", [])
+            # Lua json.lua may encode arrays as objects with numeric string keys
+            if isinstance(kf_dicts, dict):
+                try:
+                    kf_dicts = [kf_dicts[k] for k in sorted(kf_dicts, key=lambda x: int(x))]
+                except (ValueError, TypeError):
+                    kf_dicts = list(kf_dicts.values())
         else:
             kf_dicts = []
         if kf_dicts:

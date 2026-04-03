@@ -117,8 +117,11 @@ class AudioReactiveMixin:
         req: AudioReactiveRequest,
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]] = None,
         on_progress: Optional[Callable[[ProgressResponse], None]] = None,
-    ) -> int:
-        """Generate audio-reactive animation — chain animation with per-frame parameter modulation."""
+    ) -> tuple[int, int]:
+        """Generate audio-reactive animation — chain animation with per-frame parameter modulation.
+
+        Returns (frame_count, last_seed).
+        """
         if not self._loaded:
             self.load()
 
@@ -142,6 +145,10 @@ class AudioReactiveMixin:
                     self._pipe.scheduler = new_sched
                     if self._img2img_pipe is not None:
                         self._img2img_pipe.scheduler = type(new_sched).from_config(new_sched.config)
+                    if self._controlnet_pipe is not None:
+                        self._controlnet_pipe.scheduler = type(new_sched).from_config(new_sched.config)
+                    if self._controlnet_img2img_pipe is not None:
+                        self._controlnet_img2img_pipe.scheduler = type(new_sched).from_config(new_sched.config)
                 except Exception as e:
                     log.warning("Scheduler override '%s' failed: %s", req.scheduler, e)
                     _original_scheduler = None
@@ -219,6 +226,12 @@ class AudioReactiveMixin:
                 if self._img2img_pipe is not None:
                     self._img2img_pipe.scheduler = type(_original_scheduler).from_config(
                         _original_scheduler.config)
+                if self._controlnet_pipe is not None:
+                    self._controlnet_pipe.scheduler = type(_original_scheduler).from_config(
+                        _original_scheduler.config)
+                if self._controlnet_img2img_pipe is not None:
+                    self._controlnet_img2img_pipe.scheduler = type(_original_scheduler).from_config(
+                        _original_scheduler.config)
 
     def _generate_audio_chain(
         self,
@@ -227,7 +240,7 @@ class AudioReactiveMixin:
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
         audio_fps: float = 24.0,
-    ) -> int:
+    ) -> tuple[int, int]:
         """Audio-reactive chain animation — uses eager_pipeline context manager."""
         with eager_pipeline(self._pipe, self._img2img_pipe,
                             self._controlnet_pipe, self._deepcache_helper,
@@ -242,11 +255,15 @@ class AudioReactiveMixin:
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
         audio_fps: float = 24.0,
-    ) -> int:
-        """Core audio-reactive chain loop — per-frame parameter modulation."""
+    ) -> tuple[int, int]:
+        """Core audio-reactive chain loop — per-frame parameter modulation.
+
+        Returns (frame_count, last_seed).
+        """
         frame_count = 0
         base_seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
         base_seed = base_seed % (2**32)
+        last_seed = base_seed
         chain_source: Optional[Image.Image] = None
         total_frames = schedule.total_frames
 
@@ -367,6 +384,7 @@ class AudioReactiveMixin:
                 eff_cfg = frame_params.get("cfg_scale", req.cfg_scale)
                 seed_offset = int(frame_params.get("seed_offset", frame_idx))
                 frame_seed = (base_seed + seed_offset) % (2**32)
+                last_seed = frame_seed
 
                 generator = _generator
                 generator.manual_seed(frame_seed)
@@ -563,7 +581,7 @@ class AudioReactiveMixin:
                 if on_frame:
                     on_frame(frame_resp)
 
-        return frame_count
+        return frame_count, last_seed
 
     # ── AnimateDiff + Audio ──────────────────────────────────
 
@@ -574,7 +592,7 @@ class AudioReactiveMixin:
         schedule,
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> int:
+    ) -> tuple[int, int]:
         """Audio-reactive AnimateDiff — temporal consistency via chunked batches.
 
         Divides the audio timeline into overlapping 16-frame AnimateDiff chunks.
@@ -628,7 +646,7 @@ class AudioReactiveMixin:
         schedule,
         on_frame: Optional[Callable[[AudioReactiveFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> int:
+    ) -> tuple[int, int]:
         """Core AnimateDiff audio loop — chunked with overlap blending."""
         is_controlnet = req.mode.value.startswith("controlnet_")
         is_img2img = req.mode == GenerationMode.IMG2IMG
@@ -940,4 +958,4 @@ class AudioReactiveMixin:
             except Exception:
                 pass
 
-        return frame_count_ad
+        return frame_count_ad, base_seed

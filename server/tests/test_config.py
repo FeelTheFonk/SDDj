@@ -36,7 +36,7 @@ class TestSettingsDefaults:
         s = self._make_settings()
         for attr in ("models_dir", "checkpoints_dir", "loras_dir",
                      "embeddings_dir", "palettes_dir", "presets_dir",
-                     "prompts_data_dir"):
+                     "prompt_schedules_dir", "prompts_data_dir"):
             assert isinstance(getattr(s, attr), Path)
 
     def test_default_checkpoint(self):
@@ -78,8 +78,8 @@ class TestSettingsDefaults:
         assert s.enable_freeu is True
         assert s.freeu_s1 == 0.9
         assert s.freeu_s2 == 0.2
-        assert s.freeu_b1 == 1.5
-        assert s.freeu_b2 == 1.6
+        assert s.freeu_b1 == 1.2
+        assert s.freeu_b2 == 1.4
 
     def test_freeu_bounds(self):
         with pytest.raises(ValidationError):

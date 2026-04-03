@@ -540,6 +540,7 @@ class AnimationCompleteResponse(BaseModel):
     type: Literal["animation_complete"] = "animation_complete"
     total_frames: int
     total_time_ms: int
+    seed: Optional[int] = None
     tag_name: Optional[str] = None
 
 
@@ -638,6 +639,7 @@ class AudioReactiveCompleteResponse(BaseModel):
     type: Literal["audio_reactive_complete"] = "audio_reactive_complete"
     total_frames: int
     total_time_ms: int
+    seed: Optional[int] = None
     tag_name: Optional[str] = None
 
 

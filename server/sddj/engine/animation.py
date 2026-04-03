@@ -131,8 +131,11 @@ class AnimationMixin:
         req: AnimationRequest,
         on_frame: Optional[Callable[[AnimationFrameResponse], None]] = None,
         on_progress: Optional[Callable[[ProgressResponse], None]] = None,
-    ) -> int:
-        """Generate multi-frame animation — dispatches to chain or animatediff method."""
+    ) -> tuple[int, int]:
+        """Generate multi-frame animation — dispatches to chain or animatediff method.
+
+        Returns (frame_count, last_seed).
+        """
         if not self._loaded:
             self.load()
 
@@ -155,6 +158,10 @@ class AnimationMixin:
                     self._pipe.scheduler = new_sched
                     if self._img2img_pipe is not None:
                         self._img2img_pipe.scheduler = type(new_sched).from_config(new_sched.config)
+                    if self._controlnet_pipe is not None:
+                        self._controlnet_pipe.scheduler = type(new_sched).from_config(new_sched.config)
+                    if self._controlnet_img2img_pipe is not None:
+                        self._controlnet_img2img_pipe.scheduler = type(new_sched).from_config(new_sched.config)
                 except Exception as e:
                     log.warning("Scheduler override '%s' failed: %s", req.scheduler, e)
                     _original_scheduler = None
@@ -172,6 +179,12 @@ class AnimationMixin:
                     if self._img2img_pipe is not None:
                         self._img2img_pipe.scheduler = type(_original_scheduler).from_config(
                             _original_scheduler.config)
+                    if self._controlnet_pipe is not None:
+                        self._controlnet_pipe.scheduler = type(_original_scheduler).from_config(
+                            _original_scheduler.config)
+                    if self._controlnet_img2img_pipe is not None:
+                        self._controlnet_img2img_pipe.scheduler = type(_original_scheduler).from_config(
+                            _original_scheduler.config)
 
         except torch.cuda.OutOfMemoryError:
             log.error("CUDA OOM during animation — clearing VRAM cache")
@@ -185,7 +198,7 @@ class AnimationMixin:
         req: AnimationRequest,
         on_frame: Optional[Callable[[AnimationFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> int:
+    ) -> tuple[int, int]:
         """Frame-by-frame chaining: each frame feeds into the next via img2img.
 
         Uses a temporary UNet swap + dynamo disable to bypass torch.compile + DeepCache:
@@ -214,17 +227,20 @@ class AnimationMixin:
         req: AnimationRequest,
         on_frame: Optional[Callable[[AnimationFrameResponse], None]],
         on_progress: Optional[Callable[[ProgressResponse], None]],
-    ) -> int:
+    ) -> tuple[int, int]:
         """Core chain animation logic — dynamo disabled via decorator.
 
         This decorator prevents torch._dynamo's global eval_frame hook from
         intercepting ANY function calls within this method. Without it, dynamo
         recognizes _orig_mod (the raw UNet) as a compiled object and triggers
         recompilation with stale guards, hanging indefinitely.
+
+        Returns (frame_count, last_seed).
         """
         frame_count = 0
         base_seed = req.seed if req.seed >= 0 else random.randint(0, 2**32 - 1)
         base_seed = base_seed % (2**32)  # clamp to valid range
+        last_seed = base_seed
         chain_source: Optional[Image.Image] = None
 
         effective_neg = self._build_effective_negative(req.negative_prompt, req.negative_ti)
@@ -292,6 +308,7 @@ class AnimationMixin:
                 else:  # RANDOM
                     frame_seed = random.randint(0, 2**32 - 1)
 
+                last_seed = frame_seed
                 generator = _generator
                 generator.manual_seed(frame_seed)
 
@@ -472,7 +489,7 @@ class AnimationMixin:
                 except Exception:
                     pass
 
-        return frame_count
+        return frame_count, last_seed
 
     def _generate_animatediff(
         self,
@@ -724,5 +741,5 @@ class AnimationMixin:
         log.info("AnimateDiff timing: setup=%.1fs, inference=%.1fs, post=%.1fs, total=%.1fs",
                  t_setup, t_inference, t_post, t_total)
 
-        return frame_count
+        return frame_count, seed
 

@@ -1,4 +1,27 @@
 # Changelog
+## [0.9.92] — 2026-04-03
+### Exhaustive Pre-Push Audit: ControlNet Fixes, Scheduler Symmetry, Seed Loop & Edge Case Hardening
+
+#### Bug Fixes — ControlNet (Critical)
+- **ControlNet scheduler override propagation** (`core.py`, `animation.py`, `audio_reactive.py`): Per-request scheduler override now applied to all 4 pipes (base, img2img, controlnet, controlnet_img2img). Previously only base + img2img were covered. Both set and restore blocks symmetrically updated across `generate()`, `generate_animation()`, and `generate_audio_reactive()`.
+- **ControlNet img2img denoise clamping** (`core.py`): Added `min_denoise` floor + `scale_steps_for_denoise` to ControlNet img2img path, matching `_img2img` behavior. Prevents 0–1 effective denoising steps with distilled models.
+- **QR step override + denoise scaling** (`core.py`): When QR mode overrides steps in img2img, the new step count is now passed through `scale_steps_for_denoise()` to account for denoise strength.
+- **PAG type check on correct pipe** (`core.py`): PAG check now uses `active_pipe` (determined by img2img flag) instead of always checking `_controlnet_pipe`.
+
+#### Bug Fixes — Engine
+- **Warmup output_type mismatch** (`core.py`): Warmup now uses `output_type="latent"` matching real generation, preventing potential torch.compile graph recompilation on first inference.
+- **IP-Adapter state initialization** (`core.py`): `_ip_adapter_mode` now initialized in `__init__` and reset in `unload()`, eliminating fragile `getattr` access and stale state after reload cycles.
+- **Animation/audio loop seed propagation** (`protocol.py`, `animation.py`, `audio_reactive.py`, `server.py`): `AnimationCompleteResponse` and `AudioReactiveCompleteResponse` now include `seed` field, populated with the last frame's seed. Fixes silent fallback to random seed in "increment" loop mode.
+
+#### Bug Fixes — Lua Interop
+- **Lua dict-encoded keyframes** (`helpers.py`): `build_prompt_schedule` now normalizes dict-with-numeric-keys to sorted list with `try/except` for non-numeric key safety.
+- **Unnecessary getattr** (`core.py`): Replaced `getattr(req, 'control_guidance_start/end', ...)` with direct attribute access on typed Pydantic model.
+
+#### Test Suite
+- **FreeU default assertions** (`test_config.py`): Fixed `freeu_b1`/`freeu_b2` assertions (1.2/1.4, not 1.5/1.6).
+- **Path defaults test coverage** (`test_config.py`): Added `prompt_schedules_dir` to path isinstance check.
+- **pytest-asyncio installed**: Async test runner dependency now present.
+
 ## [0.9.91] — 2026-04-03
 ### Inference Performance Audit: Latency Elimination, CPU/GPU Pipelining & Hot-Path Optimization
 

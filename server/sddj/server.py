@@ -638,7 +638,7 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
                 _generating[ws_id].set()
                 try:
                     t0 = time.perf_counter()
-                    frame_count = await asyncio.wait_for(
+                    frame_count, last_seed = await asyncio.wait_for(
                         loop.run_in_executor(
                             None,
                             lambda: engine.generate_animation(
@@ -661,6 +661,7 @@ async def _handle(websocket: WebSocket, req: Request, ws_id: int) -> None:
             await _send(websocket, AnimationCompleteResponse(
                 total_frames=frame_count,
                 total_time_ms=total_ms,
+                seed=last_seed,
                 tag_name=anim_req.tag_name,
             ))
 
@@ -1240,7 +1241,7 @@ async def _handle_generate_audio_reactive(
         _generating[ws_id].set()
         try:
             t0 = time.perf_counter()
-            frame_count = await asyncio.wait_for(
+            frame_count, last_seed = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
                     lambda: engine.generate_audio_reactive(
@@ -1263,6 +1264,7 @@ async def _handle_generate_audio_reactive(
     await _send(websocket, AudioReactiveCompleteResponse(
         total_frames=frame_count,
         total_time_ms=total_ms,
+        seed=last_seed,
         tag_name=audio_req.tag_name,
     ))
 
