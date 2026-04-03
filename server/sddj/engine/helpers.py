@@ -15,6 +15,7 @@ from ..image_codec import (
     apply_motion_warp,
     apply_perspective_tilt,
     _ensure_rgb3,
+    _get_dis_instance,
     _get_flow_grid,
 )
 from ..protocol import ProgressResponse
@@ -193,8 +194,7 @@ def _compute_dis_flow(
         )
     curr_gray = cv2.cvtColor(curr_arr, cv2.COLOR_RGB2GRAY)
     prev_gray = cv2.cvtColor(prev_arr, cv2.COLOR_RGB2GRAY)
-    dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
-    return dis.calc(prev_gray, curr_gray, None)
+    return _get_dis_instance().calc(prev_gray, curr_gray, None)
 
 
 def apply_temporal_coherence(
@@ -202,6 +202,7 @@ def apply_temporal_coherence(
     prev_image: Image.Image,
     *,
     return_flow: bool = False,
+    frame_id: int | None = None,
 ) -> Image.Image | tuple[Image.Image, np.ndarray | None]:
     """Apply color coherence + optical flow blending between consecutive frames.
 
@@ -211,11 +212,16 @@ def apply_temporal_coherence(
     When *return_flow* is True, also returns the DIS optical flow field
     (prev -> current) for reuse by EquiVDM noise warping.  Returns None
     for the flow component when optical flow is not computed.
+
+    Args:
+        frame_id: Passed to match_color_lab as cache key, avoiding per-frame
+            MD5 hash computation (~0% hit-rate in animation).
     """
     flow_map: np.ndarray | None = None
 
     if settings.color_coherence_strength > 0:
-        image = match_color_lab(image, prev_image, settings.color_coherence_strength)
+        image = match_color_lab(image, prev_image, settings.color_coherence_strength,
+                                frame_id=frame_id)
     if settings.optical_flow_blend > 0:
         # Compute flow once and reuse for both blending and EquiVDM
         flow_map = _compute_dis_flow(image, prev_image)

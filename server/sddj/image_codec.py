@@ -45,6 +45,17 @@ def _img_cache_key(img) -> str:
     return hashlib.md5(sample).hexdigest()
 
 
+_dis_instance = None
+
+
+def _get_dis_instance():
+    """Return a cached DISOpticalFlow instance (avoids re-creating per frame)."""
+    global _dis_instance
+    if _dis_instance is None:
+        _dis_instance = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+    return _dis_instance
+
+
 @functools.lru_cache(maxsize=16)
 def _get_k_inv(w: int, h: int, fv: float) -> tuple[np.ndarray, np.ndarray]:
     """Compute and cache camera intrinsic matrix K and its inverse K_inv (C-17)."""
@@ -96,10 +107,32 @@ def encode_image_raw_bytes(image: Image.Image) -> bytes:
     """Return raw RGBA pixel bytes for binary frame transport.
 
     No base64, no PNG compression — raw pixels for zero-copy binary WS frames.
+    Avoids unnecessary PIL .convert("RGBA") + .tobytes() double-copy when
+    possible by working directly with the numpy array.
     """
-    if image.mode != "RGBA":
-        image = image.convert("RGBA")
-    return image.tobytes()
+    arr = np.asarray(image)
+    if arr.ndim == 2:
+        # Grayscale → RGBA
+        h, w = arr.shape
+        rgba = np.empty((h, w, 4), dtype=np.uint8)
+        rgba[:, :, 0] = arr
+        rgba[:, :, 1] = arr
+        rgba[:, :, 2] = arr
+        rgba[:, :, 3] = 255
+        return rgba.tobytes()
+    c = arr.shape[2]
+    if c == 4:
+        # Already RGBA — single tobytes(), no copy via PIL
+        return arr.tobytes()
+    if c == 3:
+        # RGB → RGBA: add opaque alpha without PIL.convert round-trip
+        h, w, _ = arr.shape
+        rgba = np.empty((h, w, 4), dtype=np.uint8)
+        rgba[:, :, :3] = arr
+        rgba[:, :, 3] = 255
+        return rgba.tobytes()
+    # Fallback for exotic modes
+    return np.asarray(image.convert("RGBA")).tobytes()
 
 
 def resize_to_target(image: Image.Image, width: int, height: int) -> Image.Image:
@@ -552,9 +585,9 @@ def apply_optical_flow_blend(
     curr_gray = cv2.cvtColor(curr_arr, cv2.COLOR_RGB2GRAY)
     prev_gray = cv2.cvtColor(prev_arr, cv2.COLOR_RGB2GRAY)
 
-    # O-15: DIS optical flow — faster and more robust than Farneback
-    dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
-    flow = dis.calc(prev_gray, curr_gray, None)
+    # O-15: DIS optical flow — faster and more robust than Farneback.
+    # Cached instance: avoids re-creating internal pyramids each frame.
+    flow = _get_dis_instance().calc(prev_gray, curr_gray, None)
 
     h, w = curr_gray.shape
     # C-17: thread-safe lru_cache grid

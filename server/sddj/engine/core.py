@@ -53,6 +53,7 @@ from ..image_codec import (
     round8,
 )
 from ..embedding_blend import bump_model_generation, clear_embedding_cache
+from PIL import Image as _PILImage
 from ..lora_fuser import LoRAFuser
 from .helpers import GenerationCancelled, build_prompt_schedule, scale_steps_for_denoise
 from .animation import AnimationMixin
@@ -694,33 +695,48 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                         log.warning("Scheduler override '%s' failed: %s — using default", req.scheduler, e)
                         _original_scheduler = None
 
-                # ── Mode dispatch ─────────────────────────────────────
+                # ── Mode dispatch (returns latent tensors) ────────────
+                _inpaint_compositing = None  # (source, mask) for inpaint mode
 
                 try:
                     if req.mode == GenerationMode.TXT2IMG:
-                        image = self._txt2img(req, generator, step_callback, effective_prompt, effective_neg)
+                        latents = self._txt2img(req, generator, step_callback, effective_prompt, effective_neg)
 
                     elif req.mode == GenerationMode.IMG2IMG:
-                        image = self._img2img(req, generator, step_callback, effective_prompt, effective_neg)
+                        latents = self._img2img(req, generator, step_callback, effective_prompt, effective_neg)
 
                     elif req.mode == GenerationMode.INPAINT:
-                        image = self._inpaint(req, generator, step_callback, effective_prompt, effective_neg)
+                        latents, _inp_source, _inp_mask = self._inpaint(
+                            req, generator, step_callback, effective_prompt, effective_neg)
+                        _inpaint_compositing = (_inp_source, _inp_mask)
 
                     elif req.mode.value.startswith("controlnet_"):
-                        image = self._controlnet_generate(req, generator, step_callback, effective_prompt, effective_neg)
+                        latents = self._controlnet_generate(req, generator, step_callback, effective_prompt, effective_neg)
 
                     else:
                         raise ValueError(f"Unknown mode: {req.mode}")
                 finally:
-                    # Cleanup multi-LoRA after generation
-                    if _lora2_active:
-                        self._cleanup_lora2()
                     # Restore original scheduler if overridden
                     if _original_scheduler is not None:
                         self._pipe.scheduler = _original_scheduler
                         if self._img2img_pipe is not None:
                             self._img2img_pipe.scheduler = type(_original_scheduler).from_config(
                                 _original_scheduler.config)
+
+                # ── VAE decode with progress feedback ─────────────────
+                if on_progress:
+                    on_progress(ProgressResponse(
+                        step=req.steps, total=req.steps, status="decoding"))
+                image = self._decode_latents(latents)
+
+                # Inpaint compositing (after VAE decode)
+                if _inpaint_compositing is not None:
+                    _inp_source, _inp_mask = _inpaint_compositing
+                    image = composite_with_mask(_inp_source, image, _inp_mask)
+
+                # Multi-LoRA cleanup AFTER image is ready (not in critical path)
+                if _lora2_active:
+                    self._cleanup_lora2()
 
                 # ── Post-process ──────────────────────────────────────
                 image = postprocess_apply(image, req.post_process)
@@ -756,6 +772,24 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         finally:
             self._cancel_event.clear()
 
+    # ─── VAE DECODE ───────────────────────────────────────────
+
+    def _decode_latents(self, latents: torch.Tensor) -> _PILImage.Image:
+        """Decode latent tensor to PIL image via the pipeline's VAE.
+
+        Separates VAE decode from the pipeline call so a "decoding" progress
+        message can be sent between the last denoising step and the actual
+        decode, eliminating the perceived freeze at end of generation.
+        """
+        pipe = self._pipe
+        # Scale latents by the VAE's scaling factor
+        scaling = getattr(pipe.vae.config, "scaling_factor", 0.18215)
+        scaled = latents / scaling
+        decoded = pipe.vae.decode(scaled, return_dict=False)[0]
+        # diffusers VaeImageProcessor: denormalize + clamp + convert
+        image = pipe.image_processor.postprocess(decoded, output_type="pil")[0]
+        return image
+
     # ─── PRIVATE GENERATION METHODS ──────────────────────────
 
     def _txt2img(self, req, generator, callback, prompt, negative):
@@ -770,7 +804,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             generator=generator,
             clip_skip=req.clip_skip,
             callback_on_step_end=callback,
-            output_type="pil",
+            output_type="latent",
         )
         if req.guidance_rescale > 0:
             kwargs["guidance_rescale"] = req.guidance_rescale
@@ -778,7 +812,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             kwargs["pag_scale"] = req.pag_scale
         # IP-Adapter reference image
         self._prepare_ip_adapter_kwargs(req, kwargs)
-        return self._pipe(**kwargs).images[0]
+        return self._pipe(**kwargs).images
 
     def _img2img(self, req, generator, callback, prompt, negative):
         if req.source_image is None:
@@ -810,7 +844,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 generator=generator,
                 clip_skip=req.clip_skip,
                 callback_on_step_end=callback,
-                output_type="pil",
+                output_type="latent",
             )
             if req.guidance_rescale > 0:
                 kwargs["guidance_rescale"] = req.guidance_rescale
@@ -818,13 +852,16 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 kwargs["pag_scale"] = req.pag_scale
             # IP-Adapter reference image
             self._prepare_ip_adapter_kwargs(req, kwargs)
-            return self._img2img_pipe(**kwargs).images[0]
+            return self._img2img_pipe(**kwargs).images
         finally:
             if self._dc_state is not None:
                 self._dc_state.restore()
 
     def _inpaint(self, req, generator, callback, prompt, negative):
-        """Inpaint: img2img full image, then composite via mask."""
+        """Inpaint: img2img full image, then composite via mask.
+
+        Returns (latents, source, mask) — caller decodes latents and composites.
+        """
         if req.source_image is None:
             raise ValueError("inpaint requires source_image")
         if req.mask_image is None:
@@ -858,20 +895,20 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
                 generator=generator,
                 clip_skip=req.clip_skip,
                 callback_on_step_end=callback,
-                output_type="pil",
+                output_type="latent",
             )
             if req.guidance_rescale > 0:
                 kwargs["guidance_rescale"] = req.guidance_rescale
             if req.pag_scale > 0 and "PAG" in type(self._img2img_pipe).__name__:
                 kwargs["pag_scale"] = req.pag_scale
             self._prepare_ip_adapter_kwargs(req, kwargs)
-            inpainted = self._img2img_pipe(**kwargs).images[0]
+            latents = self._img2img_pipe(**kwargs).images
         finally:
             if self._dc_state is not None:
                 self._dc_state.restore()
 
-        # Composite: keep original where mask is black, use inpainted where white
-        return composite_with_mask(source, inpainted, mask)
+        # Return latents + compositing data — caller decodes and composites
+        return latents, source, mask
 
     def _controlnet_generate(self, req, generator, callback, prompt, negative):
         self._ensure_controlnet(req.mode)
@@ -902,7 +939,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             generator=generator,
             clip_skip=req.clip_skip,
             callback_on_step_end=callback,
-            output_type="pil",
+            output_type="latent",
         )
         if req.guidance_rescale > 0:
             call_kwargs["guidance_rescale"] = req.guidance_rescale
@@ -950,10 +987,10 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         if self._dc_state is not None:
             self._dc_state.suppress_for("controlnet")
         try:
-            result = active_pipe(**call_kwargs).images[0]
+            latents = active_pipe(**call_kwargs).images
         finally:
             if self._dc_state is not None:
                 self._dc_state.restore()
 
-        return result
+        return latents
 

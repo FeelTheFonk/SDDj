@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
 import torch
@@ -48,6 +49,38 @@ from .helpers import (
 )
 
 log = logging.getLogger("sddj.engine")
+
+# Single-thread pool for CPU/GPU pipelining: postprocess + encode runs
+# concurrently with the next frame's GPU inference.  CUDA kernels release
+# the GIL, so numpy/PIL CPU work overlaps with GPU computation.
+_cpu_pipeline = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sddj-chain-cpu")
+
+
+def _postprocess_and_encode_chain_frame(
+    image: Image.Image,
+    post_process,
+    frame_idx: int,
+    total_frames: int,
+    seed: int,
+    t0_frame: float,
+) -> AnimationFrameResponse:
+    """CPU-bound: postprocess + RGBA encode.  Runs in background thread."""
+    image = postprocess_apply(image, post_process)
+    raw_bytes = encode_image_raw_bytes(image)
+    w, h = image.size
+    elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
+    resp = AnimationFrameResponse(
+        frame_index=frame_idx,
+        total_frames=total_frames,
+        image="",
+        seed=seed,
+        time_ms=elapsed_ms,
+        width=w,
+        height=h,
+        encoding="raw_rgba",
+    )
+    resp._raw_bytes = raw_bytes
+    return resp
 
 
 def _interpolate_frames(frames: list, factor: int) -> list:
@@ -232,10 +265,22 @@ class AnimationMixin:
         # so we reset via set_timesteps() each frame instead of rebuilding.
         _frame_scheduler = type(self._pipe.scheduler).from_config(self._pipe.scheduler.config)
 
-        with torch.inference_mode():
+        _pending_cpu = None  # Future for pipelined postprocess + encode
+
+        try:
+          with torch.inference_mode():
             for frame_idx in range(req.frame_count):
                 if self._cancel_event.is_set():
                     raise GenerationCancelled("Animation cancelled by client")
+
+                # Emit previous frame's pipelined CPU result (should already
+                # be complete — GPU work took longer than CPU postprocess)
+                if _pending_cpu is not None:
+                    frame_resp = _pending_cpu.result()
+                    frame_count += 1
+                    if on_frame:
+                        on_frame(frame_resp)
+                    _pending_cpu = None
 
                 t0_frame = time.perf_counter()
 
@@ -394,38 +439,38 @@ class AnimationMixin:
 
                 # Temporal coherence: color matching + optical flow (frame 1+)
                 if frame_idx > 0 and chain_source is not None:
-                    image = apply_temporal_coherence(image, chain_source)
+                    image = apply_temporal_coherence(image, chain_source,
+                                                    frame_id=frame_idx)
 
                 # Store pre-postprocess image for next frame's img2img source
                 # (full-resolution, RGB, no pixelation/quantization artifacts)
                 chain_source = image
 
-                # Post-process
-                image = postprocess_apply(image, req.post_process)
-
-                if self._cancel_event.is_set():
-                    raise GenerationCancelled("Animation cancelled during post-processing")
-
-                # Encode
-                raw_bytes = encode_image_raw_bytes(image)
-                w, h = image.size
-                # frame_time_ms: per-frame generation time (from this frame's t0_frame)
-                elapsed_ms = int((time.perf_counter() - t0_frame) * 1000)
-
-                frame_resp = AnimationFrameResponse(
-                    frame_index=frame_idx,
-                    total_frames=req.frame_count,
-                    image="",
-                    seed=frame_seed,
-                    time_ms=elapsed_ms,
-                    width=w,
-                    height=h,
-                    encoding="raw_rgba",
+                # CPU/GPU pipelining: submit postprocess + encode to background
+                # thread so it overlaps with the next frame's GPU inference.
+                # image.copy() required — PIL is not thread-safe.
+                _pending_cpu = _cpu_pipeline.submit(
+                    _postprocess_and_encode_chain_frame,
+                    image.copy(), req.post_process,
+                    frame_idx, req.frame_count, frame_seed, t0_frame,
                 )
-                frame_resp._raw_bytes = raw_bytes
+
+            # Emit final frame
+            if _pending_cpu is not None:
+                frame_resp = _pending_cpu.result()
                 frame_count += 1
                 if on_frame:
                     on_frame(frame_resp)
+                _pending_cpu = None
+
+        finally:
+            # Drain abandoned future on cancellation/exception to prevent
+            # leaked background work and swallowed exceptions.
+            if _pending_cpu is not None:
+                try:
+                    _pending_cpu.result()
+                except Exception:
+                    pass
 
         return frame_count
 

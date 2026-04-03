@@ -524,6 +524,7 @@ class AudioReactiveMixin:
                 if frame_idx > 0 and chain_source is not None:
                     image, _equivdm_flow = apply_temporal_coherence(
                         image, chain_source, return_flow=True,
+                        frame_id=frame_idx,
                     )
 
                 # Store pre-postprocess for next frame
@@ -895,7 +896,8 @@ class AudioReactiveMixin:
 
                 # Temporal coherence (parity with chain loop)
                 if frame_idx > 0 and prev_ad_image is not None:
-                    pil_img = apply_temporal_coherence(pil_img, prev_ad_image)
+                    pil_img = apply_temporal_coherence(pil_img, prev_ad_image,
+                                                      frame_id=frame_idx)
 
                 image = postprocess_apply(pil_img, req.post_process)
 

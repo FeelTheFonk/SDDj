@@ -297,8 +297,11 @@ def apply_unet_quantization(pipe: StableDiffusionPipeline) -> None:
         log.warning("UNet quantization failed (%s): %s — continuing without quantization", dtype, e)
 
 
+_cached_compile_mode: str | None = None
+
+
 def _resolve_compile_mode() -> str:
-    """Auto-select compile mode based on GPU SM count.
+    """Auto-select compile mode based on GPU SM count (cached after first call).
 
     Both max-autotune and max-autotune-no-cudagraphs trigger exhaustive GEMM
     kernel benchmarking (max_autotune_gemm) which requires a minimum SM count
@@ -310,6 +313,10 @@ def _resolve_compile_mode() -> str:
       ≥40 SMs + Turing+  → max-autotune-no-cudagraphs  (GEMM search, no graphs)
       <40 SMs             → default              (fast compile, no GEMM search)
     """
+    global _cached_compile_mode
+    if _cached_compile_mode is not None:
+        return _cached_compile_mode
+
     mode = settings.compile_mode
     if settings.auto_compile_mode and torch.cuda.is_available():
         props = torch.cuda.get_device_properties(0)
@@ -323,6 +330,7 @@ def _resolve_compile_mode() -> str:
         else:
             mode = "default"
         log.info("Auto-selected compile_mode=%s (sm%d, %d SMs)", mode, sm_arch, sm_count)
+    _cached_compile_mode = mode
     return mode
 
 
@@ -499,9 +507,11 @@ def create_controlnet_pipeline(
 
 def clear_pipeline_cache():
     """Invalidate all pipeline caches (call when model changes)."""
+    global _cached_compile_mode
     with _pipeline_lock:
         _pipeline_cache.clear()
         _img2img_cache.clear()
+    _cached_compile_mode = None
 
 
 def get_controlnet_from_pipe(

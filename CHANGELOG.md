@@ -1,4 +1,30 @@
 # Changelog
+## [0.9.91] — 2026-04-03
+### Inference Performance Audit: Latency Elimination, CPU/GPU Pipelining & Hot-Path Optimization
+
+#### Critical — VAE Decode Latency Gap
+- **Deferred VAE decode with progress feedback** (`core.py`): All generation modes (`txt2img`, `img2img`, `inpaint`, `controlnet`) now use `output_type="latent"` and manually decode via `_decode_latents()`. A `status="decoding"` progress message is sent before VAE decode, eliminating the perceived freeze at end of generation (100–300ms of invisible work with 8-step Hyper-SD).
+- **Lua client "Decoding..." display** (`sddj_handler.lua`): Progress handler now shows "Decoding..." during VAE decode phase instead of stalling at 100%.
+
+#### Critical — Multi-LoRA Critical Path
+- **LoRA2 cleanup moved out of critical path** (`core.py`): `_cleanup_lora2()` now runs AFTER the image is ready instead of in a `finally` block before the result. Saves 500–1500ms when LoRA2 is active.
+
+#### Optimization — CPU/GPU Pipelining
+- **Chain animation frame pipelining** (`animation.py`): Postprocess + RGBA encode run in a background thread (`ThreadPoolExecutor`) overlapping with the next frame's GPU inference. Saves ~7–25ms/frame. Includes `try/finally` guard against abandoned futures on cancellation.
+
+#### Optimization — Hot-Path Micro-Optimizations
+- **Binary frame construction** (`server.py`): `b"".join()` replaces concatenation for zero-copy binary frame assembly.
+- **RGBA encode via numpy** (`image_codec.py`): Direct numpy channel manipulation replaces PIL intermediate conversion in `encode_image_raw_bytes()`.
+- **DIS optical flow singleton** (`image_codec.py`, `helpers.py`): Cached `cv2.DISOpticalFlow` instance eliminates per-frame object creation in both `apply_optical_flow_blend()` and `_compute_dis_flow()`.
+- **LoRA snapshot native dtype** (`lora_fuser.py`): Weight snapshots stored in model's native dtype, eliminating bf16→fp16 conversion at each restore.
+- **`vram_cleanup()` co-throttling** (`vram_utils.py`): `empty_cache()` now throttled together with `gc.collect()` under the same 2s cooldown, preventing 5–50ms stalls from unconditional cache flushes.
+- **Compile mode cache** (`pipeline_factory.py`): `_resolve_compile_mode()` result cached at module level; invalidated in `clear_pipeline_cache()`.
+- **`frame_id` for color coherence** (`helpers.py`, `animation.py`, `audio_reactive.py`): `apply_temporal_coherence()` passes `frame_id` to `match_color_lab()`, avoiding useless per-frame MD5 hash computation (~0% cache hit rate in animation).
+
+#### Documentation & Thread Safety
+- **Thread-safety contracts** (`server.py`, `embedding_blend.py`): Structural documentation of asyncio.Lock serialization guarantees for shared globals. Fixed misleading GIL atomicity claim.
+- **`ProgressResponse.status` field** (`protocol.py`): New optional `status` field supports `"decoding"` for VAE decode phase.
+
 ## [0.9.90] — 2026-04-03
 ### Pre-Release Audit: Critical Fixes, UI Polish & Documentation Refonte
 

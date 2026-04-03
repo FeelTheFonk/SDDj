@@ -40,6 +40,10 @@ class _EmbeddingCache:
         self._cache.clear()
 
 
+# Thread-safety contract: _embed_cache and _model_generation are accessed only
+# from the engine thread under _generate_lock (via run_in_executor). Only one
+# executor task runs at a time due to the asyncio.Lock serialization in
+# server.py — this lock, not the GIL, provides the actual safety guarantee.
 _embed_cache = _EmbeddingCache()
 
 _NORM_EPSILON = 1e-8

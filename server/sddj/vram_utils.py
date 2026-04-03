@@ -27,21 +27,23 @@ _MB = 1024 * 1024  # Bytes per megabyte
 def vram_cleanup(force: bool = False) -> None:
     """GC-collect then free CUDA cache.
 
-    By default, gc.collect() is throttled to at most once per _GC_COOLDOWN
-    seconds to avoid 50-200ms stalls in hot paths.  Pass force=True for
-    genuine cleanup scenarios (model unload, OOM recovery).
+    Both gc.collect() and torch.cuda.empty_cache() are throttled together
+    to at most once per _GC_COOLDOWN seconds.  empty_cache() without
+    gc.collect() is counterproductive: it releases the CUDA cache but
+    Python objects holding tensor references aren't collected, so the
+    cache is immediately repopulated.  Running empty_cache() alone also
+    costs 5-50ms and forces future allocations to re-fragment.
 
-    Thread-safe: protects _last_gc with a lock to prevent concurrent
-    calls from skipping GC due to stale reads.
+    Pass force=True for genuine cleanup scenarios (model unload, OOM recovery).
     """
     global _last_gc
     now = time.monotonic()
     with _gc_lock:
         if force or (now - _last_gc) > _GC_COOLDOWN:
             gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             _last_gc = time.monotonic()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
 
 
 def get_vram_info() -> tuple[float, float, float]:

@@ -509,6 +509,7 @@ class ProgressResponse(BaseModel):
     type: Literal["progress"] = "progress"
     step: int
     total: int
+    status: Optional[str] = None  # "denoising" (default) or "decoding" (VAE)
     frame_index: Optional[int] = None
     total_frames: Optional[int] = None
 

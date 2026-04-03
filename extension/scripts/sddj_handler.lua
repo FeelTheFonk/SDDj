@@ -29,6 +29,18 @@ handlers.progress = function(resp)
   if not resp.total or resp.total <= 0 or not resp.step then return end
   if not PT.dlg then return end
 
+  -- VAE decode phase: show "Decoding..." instead of step counter
+  if resp.status == "decoding" then
+    local frame_ctx = ""
+    if resp.frame_index ~= nil and resp.total_frames ~= nil then
+      frame_ctx = " [F" .. (resp.frame_index + 1) .. "/" .. resp.total_frames .. "]"
+    end
+    PT.update_status("Decoding..." .. frame_ctx)
+    PT.state.progress_pct = 100
+    pcall(function() PT.dlg:repaint() end)
+    return
+  end
+
   local pct = math.floor((resp.step / resp.total) * 100)
   local eta_str = ""
   local now = os.clock()

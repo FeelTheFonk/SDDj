@@ -140,6 +140,11 @@ async def _validate_audio_path(websocket: WebSocket, audio_path: str) -> str | N
 engine = DiffusionEngine()
 _generate_lock: asyncio.Lock | None = None
 _generating: dict[int, threading.Event] = {}  # connection id -> cancel event
+# Thread-safety contract: _active_connections, _generating, and _queue_waiting
+# are only modified from the asyncio event loop (single-threaded cooperative
+# multitasking). No lock required — all mutations occur in coroutines that
+# cannot interleave mid-statement. GPU work runs in a thread executor but
+# only accesses the engine, not these globals.
 _active_connections: set[WebSocket] = set()
 _MAX_CONNECTIONS = 5
 _ws_id_gen = itertools.count(1)  # thread-safe monotonic connection ID
@@ -1301,9 +1306,13 @@ async def _send(websocket: WebSocket, response) -> None:
                 meta["compression"] = "lz4"
             meta_json = _json_dumps_compact(meta)
             meta_bytes = meta_json.encode("utf-8")
-            await websocket.send_bytes(
-                struct.pack("<I", len(meta_bytes)) + meta_bytes + raw_bytes
-            )
+            # Single allocation via b"".join() instead of 2 intermediate
+            # copies from struct.pack + meta_bytes + raw_bytes concatenation.
+            await websocket.send_bytes(b"".join((
+                struct.pack("<I", len(meta_bytes)),
+                meta_bytes,
+                raw_bytes,
+            )))
         else:
             await websocket.send_text(response.model_dump_json())
     except (WebSocketDisconnect, RuntimeError, AssertionError):
