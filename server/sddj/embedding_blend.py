@@ -264,6 +264,10 @@ def _encode_prompt(
 
     Handles clip_skip by extracting from the appropriate hidden layer.
     Uses LRU cache to eliminate redundant tokenization+encoding across frames.
+
+    FIX (v0.9.97): All encoding runs under native_sdpa_context() to prevent
+    SageAttention's FP8 quantization from corrupting CLIP embeddings.
+    Diagnostics showed cosine similarity dropped to 0.17 without this fix.
     """
     cache_key = (prompt, negative_prompt or "", clip_skip, _model_generation)
     with _embed_cache_lock:
@@ -271,16 +275,19 @@ def _encode_prompt(
     if cached is not None:
         return cached
 
+    from .pipeline_factory import native_sdpa_context
+
     # Use the pipeline's built-in encoding method
     if hasattr(pipe, "encode_prompt"):
-        # Modern diffusers API
-        result = pipe.encode_prompt(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            device=pipe.device,
-            num_images_per_prompt=1,
-            do_classifier_free_guidance=True,
-        )
+        # Modern diffusers API — encode under native SDPA
+        with native_sdpa_context():
+            result = pipe.encode_prompt(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                device=pipe.device,
+                num_images_per_prompt=1,
+                do_classifier_free_guidance=True,
+            )
         if len(result) >= 2:
             embeds = (result[0], result[1])  # prompt_embeds, negative_embeds
         else:
@@ -289,45 +296,46 @@ def _encode_prompt(
             _embed_cache.put(cache_key, embeds)
         return embeds
 
-    # Manual encoding fallback
+    # Manual encoding fallback — also under native SDPA
     tokenizer = pipe.tokenizer
     text_encoder = pipe.text_encoder
 
-    # Positive
-    pos_tokens = tokenizer(
-        prompt,
-        padding="max_length",
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-        return_tensors="pt",
-    ).input_ids.to(text_encoder.device)
+    with native_sdpa_context():
+        # Positive
+        pos_tokens = tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        ).input_ids.to(text_encoder.device)
 
-    with torch.inference_mode():
-        if clip_skip > 0 and hasattr(text_encoder.config, "num_hidden_layers"):
-            outputs = text_encoder(pos_tokens, output_hidden_states=True)
-            layer_idx = -(clip_skip + 1)
-            pos_embeds = outputs.hidden_states[layer_idx]
-            pos_embeds = text_encoder.text_model.final_layer_norm(pos_embeds)
-        else:
-            pos_embeds = text_encoder(pos_tokens)[0]
+        with torch.inference_mode():
+            if clip_skip > 0 and hasattr(text_encoder.config, "num_hidden_layers"):
+                outputs = text_encoder(pos_tokens, output_hidden_states=True)
+                layer_idx = -(clip_skip + 1)
+                pos_embeds = outputs.hidden_states[layer_idx]
+                pos_embeds = text_encoder.text_model.final_layer_norm(pos_embeds)
+            else:
+                pos_embeds = text_encoder(pos_tokens)[0]
 
-    # Negative
-    neg_tokens = tokenizer(
-        negative_prompt,
-        padding="max_length",
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-        return_tensors="pt",
-    ).input_ids.to(text_encoder.device)
+        # Negative
+        neg_tokens = tokenizer(
+            negative_prompt,
+            padding="max_length",
+            max_length=tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        ).input_ids.to(text_encoder.device)
 
-    with torch.inference_mode():
-        if clip_skip > 0 and hasattr(text_encoder.config, "num_hidden_layers"):
-            outputs = text_encoder(neg_tokens, output_hidden_states=True)
-            layer_idx = -(clip_skip + 1)
-            neg_embeds = outputs.hidden_states[layer_idx]
-            neg_embeds = text_encoder.text_model.final_layer_norm(neg_embeds)
-        else:
-            neg_embeds = text_encoder(neg_tokens)[0]
+        with torch.inference_mode():
+            if clip_skip > 0 and hasattr(text_encoder.config, "num_hidden_layers"):
+                outputs = text_encoder(neg_tokens, output_hidden_states=True)
+                layer_idx = -(clip_skip + 1)
+                neg_embeds = outputs.hidden_states[layer_idx]
+                neg_embeds = text_encoder.text_model.final_layer_norm(neg_embeds)
+            else:
+                neg_embeds = text_encoder(neg_tokens)[0]
 
     result = (pos_embeds, neg_embeds)
     with _embed_cache_lock:

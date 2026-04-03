@@ -1,0 +1,22 @@
+{
+  "description": "Film noir, high contrast black and white cinematography",
+  "prompt_prefix": "film noir, high contrast, dramatic shadows, chiaroscuro, monochrome, ",
+  "prompt_suffix": ", cinematic, moody atmosphere, 1940s",
+  "negative_prompt": "colorful, vibrant, low quality, worst quality, blurry, jpeg artifacts, watermark, text, logo, deformed, disfigured, flat lighting, bright, cheerful",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 8,
+  "cfg_scale": 5.0,
+  "denoise_strength": 1.0,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_enabled": false,
+    "quantize_method": "kmeans",
+    "quantize_colors": 16,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}

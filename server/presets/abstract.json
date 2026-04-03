@@ -1,8 +1,8 @@
 {
-  "description": "Digital illustration, editorial and book art",
-  "prompt_prefix": "digital illustration, artstation, detailed, expressive brushwork, ",
-  "prompt_suffix": ", rich colors",
-  "negative_prompt": "blurry, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, photo, photorealistic, flat, muddy colors",
+  "description": "Abstract art, fluid forms and color fields",
+  "prompt_prefix": "abstract art, fluid shapes, bold color palette, organic forms, ",
+  "prompt_suffix": ", high contrast, artistic composition",
+  "negative_prompt": "text, watermark, logo, realistic, photorealistic, face, human, figurative, low quality, worst quality, blurry, jpeg artifacts",
   "mode": "txt2img",
   "width": 512,
   "height": 512,

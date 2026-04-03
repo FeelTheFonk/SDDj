@@ -488,15 +488,33 @@ def inject_prompt_kwargs(
     blend_embeds: tuple | None,
     prompt: str,
     negative: str,
+    *,
+    pipe=None,
+    clip_skip: int = 0,
 ) -> None:
     """Set prompt or embedding kwargs on a pipeline call dict in-place.
 
-    Uses pre-computed SLERP embeddings when available, falling back
-    to text prompts.
+    Uses pre-computed SLERP embeddings when available.  When *pipe* is
+    provided and no pre-computed embeds exist, encodes using native SDPA
+    to bypass SageAttention corruption of CLIP embeddings.
+    Falls back to text prompts only when pipe is not given.
     """
     if blend_embeds is not None:
         kwargs["prompt_embeds"] = blend_embeds[0]
         kwargs["negative_prompt_embeds"] = blend_embeds[1]
+    elif pipe is not None:
+        from ..pipeline_factory import native_sdpa_context
+        with native_sdpa_context():
+            result = pipe.encode_prompt(
+                prompt=prompt,
+                negative_prompt=negative,
+                device=pipe.device,
+                num_images_per_prompt=1,
+                do_classifier_free_guidance=True,
+                clip_skip=clip_skip,
+            )
+        kwargs["prompt_embeds"] = result[0]
+        kwargs["negative_prompt_embeds"] = result[1]
     else:
         kwargs["prompt"] = prompt
         kwargs["negative_prompt"] = negative

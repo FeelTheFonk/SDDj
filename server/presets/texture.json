@@ -1,0 +1,22 @@
+{
+  "description": "Seamless textures and material surfaces",
+  "prompt_prefix": "seamless texture, tileable pattern, material surface, detailed, ",
+  "prompt_suffix": ", top-down view, uniform lighting, no shadows",
+  "negative_prompt": "text, watermark, logo, low quality, worst quality, blurry, jpeg artifacts, face, human, animal, object, perspective, 3d, non-tileable, border, frame",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 8,
+  "cfg_scale": 5.0,
+  "denoise_strength": 1.0,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_enabled": false,
+    "quantize_method": "kmeans",
+    "quantize_colors": 128,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}

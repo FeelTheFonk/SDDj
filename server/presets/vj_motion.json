@@ -1,0 +1,22 @@
+{
+  "description": "VJ loops, motion graphics and generative visuals",
+  "prompt_prefix": "motion graphics, generative art, VJ visuals, kaleidoscopic, ",
+  "prompt_suffix": ", seamless loop, hypnotic, vivid colors",
+  "negative_prompt": "text, watermark, logo, low quality, worst quality, blurry, jpeg artifacts, photorealistic, face, human, static, dull",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 8,
+  "cfg_scale": 4.5,
+  "denoise_strength": 0.70,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_enabled": false,
+    "quantize_method": "kmeans",
+    "quantize_colors": 64,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}

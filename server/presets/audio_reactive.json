@@ -1,0 +1,22 @@
+{
+  "description": "Audio-reactive visuals, synesthesia and sound-driven motion",
+  "prompt_prefix": "audio visualization, synesthesia, sound waves, dynamic motion, vibrant energy, ",
+  "prompt_suffix": ", flowing, rhythmic patterns, neon glow",
+  "negative_prompt": "static, boring, text, watermark, logo, low quality, worst quality, blurry, jpeg artifacts, photorealistic, face",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 8,
+  "cfg_scale": 4.5,
+  "denoise_strength": 0.75,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_enabled": false,
+    "quantize_method": "kmeans",
+    "quantize_colors": 64,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}

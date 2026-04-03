@@ -1,8 +1,8 @@
 {
-  "description": "Character design and portraits",
-  "prompt_prefix": "character design, full body, detailed, ",
-  "prompt_suffix": ", white background",
-  "negative_prompt": "blurry, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, bad proportions, extra limbs, missing limbs, extra fingers, fused fingers, poorly drawn hands, poorly drawn face, ugly, cropped",
+  "description": "Character design, portraits and full body sheets",
+  "prompt_prefix": "character design, full body, detailed features, clean lines, ",
+  "prompt_suffix": ", white background, studio lighting",
+  "negative_prompt": "blurry, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, bad proportions, extra limbs, missing limbs, extra fingers, fused fingers, poorly drawn hands, poorly drawn face, ugly, cropped, cut off",
   "mode": "txt2img",
   "width": 512,
   "height": 512,

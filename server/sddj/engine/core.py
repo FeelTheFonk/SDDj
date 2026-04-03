@@ -53,6 +53,7 @@ from ..image_codec import (
     round8,
 )
 from ..embedding_blend import bump_model_generation, clear_embedding_cache
+from ..pipeline_factory import native_sdpa_context
 from PIL import Image as _PILImage
 from ..lora_fuser import LoRAFuser, _USE_SET_ADAPTERS, _sanitize_adapter_name
 from .helpers import GenerationCancelled, build_prompt_schedule, scale_steps_for_denoise
@@ -288,17 +289,19 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         try:
             with torch.inference_mode():
                 gen = torch.Generator("cuda").manual_seed(0)
+                # Pre-encode warmup prompts with native SDPA (same path as real gen)
+                warmup_embeds, warmup_neg = self._safe_encode(
+                    "warmup", "warmup", settings.default_clip_skip)
                 torch.compiler.cudagraph_mark_step_begin()
 
                 latents = self._pipe(
-                    prompt="warmup",
-                    negative_prompt="warmup",
+                    prompt_embeds=warmup_embeds,
+                    negative_prompt_embeds=warmup_neg,
                     num_inference_steps=settings.default_steps,
                     guidance_scale=settings.default_cfg,
                     width=settings.default_width,
                     height=settings.default_height,
                     generator=gen,
-                    clip_skip=settings.default_clip_skip,
                     callback_on_step_end=_warmup_callback,
                     output_type="latent",
                 ).images
@@ -887,19 +890,41 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         image = pipe.image_processor.postprocess(decoded, output_type="pil")[0]
         return image
 
+    # ─── PROMPT ENCODING (NATIVE SDPA) ─────────────────────
+
+    def _safe_encode(self, prompt: str, negative: str, clip_skip: int = 0):
+        """Encode prompts using native SDPA, bypassing SageAttention.
+
+        SageAttention's FP8 Q/K quantization corrupts CLIP text encoder
+        embeddings (measured: cosine similarity drops to 0.17 vs native SDPA).
+        This method ensures all prompt encoding uses the exact native kernel.
+
+        Returns (prompt_embeds, negative_prompt_embeds) tensors.
+        """
+        with native_sdpa_context():
+            result = self._pipe.encode_prompt(
+                prompt=prompt,
+                negative_prompt=negative,
+                device=self._pipe.device,
+                num_images_per_prompt=1,
+                do_classifier_free_guidance=True,
+                clip_skip=clip_skip,
+            )
+        return result[0], result[1]
+
     # ─── PRIVATE GENERATION METHODS ──────────────────────────
 
     def _txt2img(self, req, generator, callback, prompt, negative):
+        prompt_embeds, neg_embeds = self._safe_encode(prompt, negative, req.clip_skip)
         torch.compiler.cudagraph_mark_step_begin()
         kwargs = dict(
-            prompt=prompt,
-            negative_prompt=negative,
+            prompt_embeds=prompt_embeds,
+            negative_prompt_embeds=neg_embeds,
             num_inference_steps=req.steps,
             guidance_scale=req.cfg_scale,
             width=round8(req.width),
             height=round8(req.height),
             generator=generator,
-            clip_skip=req.clip_skip,
             callback_on_step_end=callback,
             output_type="latent",
         )
@@ -924,6 +949,7 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
         strength = max(req.denoise_strength, min_denoise)
         scaled_steps = scale_steps_for_denoise(req.steps, strength)
+        prompt_embeds, neg_embeds = self._safe_encode(prompt, negative, req.clip_skip)
         torch.compiler.cudagraph_mark_step_begin()
         # DeepCache hooks reference the txt2img scheduler's timesteps, but
         # img2img builds its own truncated schedule → timestep lookup crash.
@@ -932,14 +958,13 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             self._dc_state.suppress_for("img2img")
         try:
             kwargs = dict(
-                prompt=prompt,
-                negative_prompt=negative,
+                prompt_embeds=prompt_embeds,
+                negative_prompt_embeds=neg_embeds,
                 image=source,
                 num_inference_steps=scaled_steps,
                 guidance_scale=req.cfg_scale,
                 strength=strength,
                 generator=generator,
-                clip_skip=req.clip_skip,
                 callback_on_step_end=callback,
                 output_type="latent",
             )
@@ -977,20 +1002,20 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         min_denoise = min(1.0, 2.0 / max(req.steps * _cap, 1) + 1e-3)
         strength = max(req.denoise_strength, min_denoise)
         scaled_steps = scale_steps_for_denoise(req.steps, strength)
+        prompt_embeds, neg_embeds = self._safe_encode(prompt, negative, req.clip_skip)
         torch.compiler.cudagraph_mark_step_begin()
         # Same DeepCache suppression as _img2img — shared UNet, different scheduler.
         if self._dc_state is not None:
             self._dc_state.suppress_for("img2img")
         try:
             kwargs = dict(
-                prompt=prompt,
-                negative_prompt=negative,
+                prompt_embeds=prompt_embeds,
+                negative_prompt_embeds=neg_embeds,
                 image=source,
                 num_inference_steps=scaled_steps,
                 guidance_scale=req.cfg_scale,
                 strength=strength,
                 generator=generator,
-                clip_skip=req.clip_skip,
                 callback_on_step_end=callback,
                 output_type="latent",
             )
@@ -1026,15 +1051,15 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
             source = decode_b64_image(req.source_image).convert("RGB")
             source = resize_to_target(source, width, height)
 
+        prompt_embeds, neg_embeds = self._safe_encode(prompt, negative, req.clip_skip)
         call_kwargs = dict(
-            prompt=prompt,
-            negative_prompt=negative,
+            prompt_embeds=prompt_embeds,
+            negative_prompt_embeds=neg_embeds,
             num_inference_steps=req.steps,
             guidance_scale=req.cfg_scale,
             width=width,
             height=height,
             generator=generator,
-            clip_skip=req.clip_skip,
             callback_on_step_end=callback,
             output_type="latent",
         )

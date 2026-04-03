@@ -1,0 +1,22 @@
+{
+  "description": "Pixel art optimized for animation frames and sprite sheets",
+  "prompt_prefix": "pixel art, PixArFK, game sprite, animation frame, sharp pixels, ",
+  "prompt_suffix": ", sprite sheet ready",
+  "negative_prompt": "blurry, antialiased, smooth gradient, photorealistic, 3d render, soft edges, anti-aliasing, bokeh, depth of field, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, ugly, realistic, photo, complex shading, noise",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 8,
+  "cfg_scale": 5.0,
+  "denoise_strength": 0.85,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": true, "target_size": 64},
+    "quantize_enabled": true,
+    "quantize_method": "kmeans",
+    "quantize_colors": 16,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": true
+  }
+}

@@ -1,8 +1,8 @@
 {
-  "description": "Digital illustration, editorial and book art",
-  "prompt_prefix": "digital illustration, artstation, detailed, expressive brushwork, ",
-  "prompt_suffix": ", rich colors",
-  "negative_prompt": "blurry, low quality, worst quality, bad quality, jpeg artifacts, watermark, text, logo, deformed, disfigured, bad anatomy, photo, photorealistic, flat, muddy colors",
+  "description": "Psychedelic art, fractals and trippy visuals",
+  "prompt_prefix": "psychedelic art, fractal patterns, trippy, vivid saturated colors, swirling, ",
+  "prompt_suffix": ", otherworldly, intricate detail, DMT visuals",
+  "negative_prompt": "text, watermark, logo, low quality, worst quality, blurry, jpeg artifacts, photorealistic, dull, muted, boring, simple",
   "mode": "txt2img",
   "width": 512,
   "height": 512,

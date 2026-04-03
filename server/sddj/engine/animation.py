@@ -27,6 +27,7 @@ from ..protocol import (
     SeedStrategy,
 )
 from .. import pipeline_factory
+from ..pipeline_factory import native_sdpa_context
 from .compile_utils import eager_pipeline
 from ..vram_utils import vram_cleanup
 from ..image_codec import (
@@ -397,7 +398,8 @@ class AnimationMixin:
                             callback_on_step_end=step_callback,
                             output_type="pil",
                         )
-                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg)
+                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                             pipe=self._pipe, clip_skip=req.clip_skip)
                         image = self._pipe(**gen_kwargs).images[0]
                     elif req.mode == GenerationMode.IMG2IMG:
                         if _source_img is None:
@@ -412,7 +414,8 @@ class AnimationMixin:
                             callback_on_step_end=step_callback,
                             output_type="pil",
                         )
-                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg)
+                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                             pipe=self._img2img_pipe, clip_skip=req.clip_skip)
                         image = self._img2img_pipe(**gen_kwargs).images[0]
                     elif req.mode == GenerationMode.INPAINT:
                         if _source_img is None or _mask_img is None:
@@ -427,7 +430,8 @@ class AnimationMixin:
                             callback_on_step_end=step_callback,
                             output_type="pil",
                         )
-                        inject_prompt_kwargs(inp_kwargs, blend_embeds, frame_prompt, frame_neg)
+                        inject_prompt_kwargs(inp_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                             pipe=self._img2img_pipe, clip_skip=req.clip_skip)
                         inpainted = self._img2img_pipe(**inp_kwargs).images[0]
                         image = composite_with_mask(_source_img, inpainted, _mask_img)
                     elif req.mode.value.startswith("controlnet_"):
@@ -451,7 +455,8 @@ class AnimationMixin:
                             cn_f0_kwargs["control_guidance_start"] = cgs
                         if cge < 1.0:
                             cn_f0_kwargs["control_guidance_end"] = cge
-                        inject_prompt_kwargs(cn_f0_kwargs, blend_embeds, frame_prompt, frame_neg)
+                        inject_prompt_kwargs(cn_f0_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                             pipe=self._controlnet_pipe, clip_skip=req.clip_skip)
                         image = self._controlnet_pipe(**cn_f0_kwargs).images[0]
                     else:
                         raise ValueError(f"Unknown mode: {req.mode}")
@@ -473,7 +478,8 @@ class AnimationMixin:
                         callback_on_step_end=step_callback,
                         output_type="pil",
                     )
-                    inject_prompt_kwargs(i2i_kwargs, blend_embeds, frame_prompt, frame_neg)
+                    inject_prompt_kwargs(i2i_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                         pipe=self._img2img_pipe, clip_skip=req.clip_skip)
                     image = self._img2img_pipe(**i2i_kwargs).images[0]
 
                 # Temporal coherence: color matching + optical flow (frame 1+)
@@ -664,13 +670,26 @@ class AnimationMixin:
 
         try:
             with torch.inference_mode():
+                # Pre-encode prompts under native SDPA to bypass SageAttention
+                # FP8 corruption of CLIP embeddings (same fix as chain path).
+                with native_sdpa_context():
+                    _ad_enc = pipe.encode_prompt(
+                        prompt=gen_prompt,
+                        negative_prompt=gen_neg,
+                        device=pipe.device,
+                        num_images_per_prompt=1,
+                        do_classifier_free_guidance=True,
+                        clip_skip=req.clip_skip,
+                    )
+                _ad_prompt_embeds, _ad_neg_embeds = _ad_enc[0], _ad_enc[1]
+
                 if is_img2img:
                     strength, scaled_steps, _ = compute_effective_denoise(
                         effective_steps, req.denoise_strength)
                     kwargs = dict(
                         video=[_source_img] * total_frames,
-                        prompt=gen_prompt,
-                        negative_prompt=gen_neg,
+                        prompt_embeds=_ad_prompt_embeds,
+                        negative_prompt_embeds=_ad_neg_embeds,
                         num_inference_steps=scaled_steps,
                         guidance_scale=effective_cfg,
                         strength=strength,
@@ -681,8 +700,8 @@ class AnimationMixin:
                     )
                 else:
                     kwargs = dict(
-                        prompt=gen_prompt,
-                        negative_prompt=gen_neg,
+                        prompt_embeds=_ad_prompt_embeds,
+                        negative_prompt_embeds=_ad_neg_embeds,
                         num_frames=total_frames,
                         num_inference_steps=effective_steps,
                         guidance_scale=effective_cfg,

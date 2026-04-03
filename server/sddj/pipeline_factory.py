@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
 import torch
 from diffusers import (
     ControlNetModel,
-    DPMSolverMultistepScheduler,
+    DDIMScheduler,
     StableDiffusionControlNetPipeline,
     StableDiffusionControlNetImg2ImgPipeline,
     StableDiffusionImg2ImgPipeline,
@@ -119,7 +120,7 @@ def setup_attention(pipe: StableDiffusionPipeline) -> None:
         try:
             from sageattention import sageattn  # noqa: F401
             import torch.nn.functional as _F
-            if _F.scaled_dot_product_attention is not sageattn:
+            if _original_sdpa is None and _F.scaled_dot_product_attention is not sageattn:
                 _original_sdpa = _F.scaled_dot_product_attention
                 _native_sdpa = _original_sdpa  # closure capture for fallback
 
@@ -196,6 +197,33 @@ def restore_attention():
         log.info("Restored original scaled_dot_product_attention")
 
 
+@contextmanager
+def native_sdpa_context():
+    """Temporarily restore native SDPA for text encoding.
+
+    SageAttention's FP8 Q/K quantization introduces per-layer error (~0.005
+    mean abs diff) that compounds catastrophically over the CLIP text
+    encoder's 12 transformer layers, producing embeddings with cosine
+    similarity as low as 0.17 vs native SDPA.  This context manager
+    ensures text encoding always uses the exact native SDPA kernel.
+
+    Usage::
+
+        with native_sdpa_context():
+            embeds = pipe.encode_prompt(prompt, ...)
+    """
+    if _original_sdpa is None:
+        yield
+        return
+    import torch.nn.functional as _F
+    current = _F.scaled_dot_product_attention
+    _F.scaled_dot_product_attention = _original_sdpa
+    try:
+        yield
+    finally:
+        _F.scaled_dot_product_attention = current
+
+
 def setup_vae(pipe: StableDiffusionPipeline) -> None:
     """Enable VAE tiling and slicing for VRAM savings."""
     if settings.enable_vae_tiling:
@@ -205,10 +233,8 @@ def setup_vae(pipe: StableDiffusionPipeline) -> None:
 
 def setup_hyper_sd(pipe: StableDiffusionPipeline) -> None:
     """Load Hyper-SD LoRA, fuse permanently, then unload adapter."""
-    pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+    pipe.scheduler = DDIMScheduler.from_config(
         pipe.scheduler.config,
-        algorithm_type="sde-dpmsolver++",
-        use_karras_sigmas=True,
         timestep_spacing="trailing",
     )
 

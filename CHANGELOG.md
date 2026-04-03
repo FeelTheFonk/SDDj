@@ -1,4 +1,51 @@
 # Changelog
+## [0.9.97] — 2026-04-03
+### Fix: SageAttention CLIP corruption, DDIM default scheduler
+
+#### Critical — Prompt Corruption Root Cause
+- **SageAttention FP8 corrupts CLIP text embeddings** (`pipeline_factory.py`, `core.py`, `helpers.py`, `embedding_blend.py`, `animation.py`, `audio_reactive.py`): SageAttention's global monkey-patch of `F.scaled_dot_product_attention` applies FP8 Q/K quantization to the CLIP text encoder. Per-layer error (~0.005 mean abs diff) compounds across 12 transformer layers, producing embeddings with cosine similarity as low as 0.17 vs native SDPA — effectively destroying prompt conditioning. **Fix**: `native_sdpa_context()` context manager temporarily restores native SDPA for ALL text encoding paths. All generation methods (`_txt2img`, `_img2img`, `_inpaint`, `_controlnet_generate`) pre-encode prompts with native SDPA and pass `prompt_embeds`/`negative_prompt_embeds` to pipelines. SageAttention remains active for UNet attention only (where per-layer FP8 error is tolerable).
+- **`inject_prompt_kwargs` extended** (`helpers.py`): Accepts optional `pipe` and `clip_skip` kwargs to pre-encode under native SDPA when no blend embeddings exist. All callers in `animation.py` (5 sites) and `audio_reactive.py` (7 sites) updated.
+- **AnimateDiff encoding protected** (`animation.py`, `audio_reactive.py`): Direct AnimateDiff pipeline calls now pre-encode via `native_sdpa_context()` instead of passing raw text prompts.
+- **`setup_attention()` double-call guard** (`pipeline_factory.py`): Added `_original_sdpa is None` check to prevent second call from overwriting the native SDPA reference with the SageAttention wrapper.
+
+#### Changed
+- **Default scheduler: DPMSolver → DDIM** (`pipeline_factory.py`, `scheduler_factory.py`): DPM++ SDE Karras injects stochasticity at each step — with only 8 Hyper-SD steps, the noise cannot be resolved, producing degraded results. DDIM is deterministic and recommended for few-step distilled models. Fallback scheduler also changed to DDIM.
+
+#### Added
+- **`native_sdpa_context()`** (`pipeline_factory.py`): Reusable context manager for safe text encoding under native SDPA.
+- **`_safe_encode()`** (`core.py`): DiffusionEngine method wrapping `encode_prompt` in `native_sdpa_context()`.
+- **Pipeline quality diagnostics** (`diagnostics/pipeline_quality.py`): Offline diagnostic tool with 5 automated tests — SageAttention head_dim probe, embedding consistency, prompt discriminability, component isolation A/B, DeepCache detail loss.
+
+#### Presets
+- **Removed** `anime` preset (redundant, non-core use case).
+- **Calibrated all existing presets** for Hyper-SD 8-step DDIM: `steps=8`, `cfg_scale=4.0-5.0` (was 6-7 + 10-12 steps — too high for few-step distilled inference).
+- **8 new presets**: `abstract` (fluid forms, color fields), `audio_reactive` (synesthesia, sound-driven visuals), `geometric` (sacred geometry, tessellations), `vj_motion` (generative VJ loops), `noir` (film noir, chiaroscuro), `psychedelic` (fractals, trippy visuals), `pixel_art_animation` (sprite sheets, animation frames), `texture` (seamless tileable materials).
+
+## [0.9.96] — 2026-04-03
+### Fix: embedding cache invalidation on multi-LoRA, UI desync on tab switch
+
+#### Fixed
+- **Stale embedding cache with LoRA2** (`core.py`): `clear_embedding_cache()` now called in `_apply_lora2` and `_cleanup_lora2` — cached embeddings from wrong LoRA state caused prompts to be ignored in animation/audio-reactive modes.
+- **UI conditional states not refreshing on tab switch** (Lua): `sync_ui_conditional_states` now called in endtabs `onchange`.
+- **ip_adapter_enabled checkbox missing onchange handler** (Lua): Widgets stayed hidden/visible until mode change.
+
+#### Added
+- **SageAttention fallback debug logging**: Head_dim info on first 3 fallbacks to native SDPA.
+
+## [0.9.95] — 2026-04-03
+### LoRA robustness, queue drain ordering, multi-LoRA dual-path
+
+#### Fixed
+- **LoRA fuser: disable set_adapters fast path** (`lora_fuser.py`): Incompatible with cross-module LoRAs. Added cache verification against PEFT state, `needs_reapply()` for AnimateDiff invalidation.
+- **Server: drain progress/frame queues before result** (`server.py`): Fixes race condition where result arrived before final frames.
+- **Handler: reset A/B compare state on error**.
+- **DeepCache: return False when disable fails** — prevents stale suppressed state.
+- **Audio reactive: move_to_cpu ControlNet before nulling** — fixes VRAM leak.
+- **Video export: safety cap on frame gap fill, fps validation**.
+
+#### Changed
+- **Multi-LoRA: dual-path** (`lora_fuser.py`): set_adapters + fuse fallback, adapter cleanup with memory free.
+
 ## [0.9.94] — 2026-04-03
 ### CUDA 13.0 upgrade, SageAttention mandatory, startup crash fixes
 

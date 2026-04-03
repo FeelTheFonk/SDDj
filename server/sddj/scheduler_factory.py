@@ -72,8 +72,8 @@ def create_scheduler(name: str, base_config: dict) -> object:
     """
     entry = SCHEDULER_REGISTRY.get(name)
     if entry is None:
-        log.warning("Unknown scheduler '%s', falling back to dpm++_sde_karras", name)
-        entry = SCHEDULER_REGISTRY["dpm++_sde_karras"]
+        log.warning("Unknown scheduler '%s', falling back to ddim", name)
+        entry = SCHEDULER_REGISTRY["ddim"]
 
     cls_name = entry["cls"]
     extra_kwargs = entry["kwargs"]

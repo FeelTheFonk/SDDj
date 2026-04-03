@@ -496,7 +496,8 @@ class AudioReactiveMixin:
                             callback_on_step_end=step_callback,
                             output_type="pil",
                         )
-                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg)
+                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                             pipe=self._pipe, clip_skip=req.clip_skip)
                         image = self._pipe(**gen_kwargs).images[0]
                     elif req.mode == GenerationMode.IMG2IMG:
                         if _source_img is None:
@@ -511,7 +512,8 @@ class AudioReactiveMixin:
                             callback_on_step_end=step_callback,
                             output_type="pil",
                         )
-                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg)
+                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                             pipe=self._img2img_pipe, clip_skip=req.clip_skip)
                         image = self._img2img_pipe(**gen_kwargs).images[0]
                         if _sub_floor_alpha < 1.0:
                             image = Image.blend(_source_img, image, _sub_floor_alpha)
@@ -528,7 +530,8 @@ class AudioReactiveMixin:
                             callback_on_step_end=step_callback,
                             output_type="pil",
                         )
-                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg)
+                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                             pipe=self._img2img_pipe, clip_skip=req.clip_skip)
                         inpainted = self._img2img_pipe(**gen_kwargs).images[0]
                         if _sub_floor_alpha < 1.0:
                             inpainted = Image.blend(_source_img, inpainted, _sub_floor_alpha)
@@ -550,7 +553,8 @@ class AudioReactiveMixin:
                             callback_on_step_end=step_callback,
                             output_type="pil",
                         )
-                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg)
+                        inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                             pipe=self._controlnet_pipe, clip_skip=req.clip_skip)
                         image = self._controlnet_pipe(**gen_kwargs).images[0]
                     else:
                         raise ValueError(f"Unknown mode: {req.mode}")
@@ -585,7 +589,8 @@ class AudioReactiveMixin:
                         callback_on_step_end=step_callback,
                         output_type="pil",
                     )
-                    inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg)
+                    inject_prompt_kwargs(gen_kwargs, blend_embeds, frame_prompt, frame_neg,
+                                         pipe=self._img2img_pipe, clip_skip=req.clip_skip)
                     image = self._img2img_pipe(**gen_kwargs).images[0]
                     if _sub_floor_alpha < 1.0:
                         image = Image.blend(source, image, _sub_floor_alpha)
@@ -850,8 +855,6 @@ class AudioReactiveMixin:
 
                     kwargs = dict(
                         video=[_source_img] * num_frames,
-                        prompt=chunk_prompt,
-                        negative_prompt=effective_neg,
                         num_inference_steps=chunk_scaled_steps,
                         guidance_scale=eff_cfg,
                         strength=chunk_strength,
@@ -860,10 +863,10 @@ class AudioReactiveMixin:
                         callback_on_step_end=step_callback,
                         output_type="pil",
                     )
+                    inject_prompt_kwargs(kwargs, None, chunk_prompt, effective_neg,
+                                         pipe=pipe, clip_skip=req.clip_skip)
                 else:
                     kwargs = dict(
-                        prompt=chunk_prompt,
-                        negative_prompt=effective_neg,
                         num_frames=num_frames,
                         num_inference_steps=eff_steps,
                         guidance_scale=eff_cfg,
@@ -874,6 +877,8 @@ class AudioReactiveMixin:
                         callback_on_step_end=step_callback,
                         output_type="pil",
                     )
+                    inject_prompt_kwargs(kwargs, None, chunk_prompt, effective_neg,
+                                         pipe=pipe, clip_skip=req.clip_skip)
 
                     if is_controlnet and _control_img is not None:
                         kwargs["conditioning_frames"] = [_control_img] * num_frames

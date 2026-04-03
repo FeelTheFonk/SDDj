@@ -1,0 +1,22 @@
+{
+  "description": "Geometric patterns, sacred geometry and tessellations",
+  "prompt_prefix": "geometric pattern, sacred geometry, tessellation, symmetrical, precise lines, ",
+  "prompt_suffix": ", clean design, vector-like, sharp edges",
+  "negative_prompt": "blurry, organic, messy, low quality, worst quality, jpeg artifacts, watermark, text, logo, photorealistic, face, human, noise",
+  "mode": "txt2img",
+  "width": 512,
+  "height": 512,
+  "steps": 8,
+  "cfg_scale": 5.0,
+  "denoise_strength": 1.0,
+  "clip_skip": 2,
+  "post_process": {
+    "pixelate": {"enabled": false, "target_size": 128},
+    "quantize_enabled": false,
+    "quantize_method": "kmeans",
+    "quantize_colors": 32,
+    "dither": "none",
+    "palette": {"mode": "auto"},
+    "remove_bg": false
+  }
+}
