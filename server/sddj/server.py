@@ -1261,7 +1261,8 @@ async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:
             message="Output directory contains no SDDj frame files"))
         return
 
-    # Validate audio_path if provided
+    # Validate audio_path if provided; resolve to real path for export
+    audio_resolved: str | None = None
     if audio_path:
         audio_real = await asyncio.to_thread(os.path.realpath, audio_path)
         audio_is_file = await asyncio.to_thread(os.path.isfile, audio_real)
@@ -1274,6 +1275,7 @@ async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:
             await _send(websocket, ExportMp4ErrorResponse(
                 message=f"Unsupported audio format: {audio_ext}"))
             return
+        audio_resolved = audio_real
 
     # Build metadata from request
     export_meta: dict[str, str] = {}
@@ -1287,7 +1289,7 @@ async def _handle_export_mp4(websocket: WebSocket, req: Request) -> None:
             None,
             lambda: export_mp4(
                 frame_dir=real_dir,
-                audio_path=audio_path,
+                audio_path=audio_resolved,
                 fps=fps,
                 scale_factor=scale_factor,
                 quality=quality,

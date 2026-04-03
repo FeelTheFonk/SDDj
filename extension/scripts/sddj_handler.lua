@@ -189,7 +189,13 @@ handlers.result = function(resp)
           return
         end
 
-        -- Standard loop: generate directly
+        -- Standard loop: dispatch based on loop target
+        if PT.loop.target == "qr" then
+          PT.update_status("QR Loop #" .. PT.loop.counter .. " — Generating...")
+          PT.trigger_qr_generate()
+          return
+        end
+
         local req = PT.build_generate_request()
         if not req then
           PT.reset_loop_state()
@@ -351,6 +357,10 @@ local function _handle_streaming_complete(resp, opts)
   local decode_note = PT.anim.decode_failures > 0
     and " (" .. PT.anim.decode_failures .. " decode failures)" or ""
 
+  -- Persist output_dir reference BEFORE async finalization or loop reset can clear it.
+  -- pre_reset copies output_dir → last_output_dir; must run while output_dir is still valid.
+  if opts.pre_reset then opts.pre_reset() end
+
   -- Determine loop continuation before finalize
   local should_loop = PT.loop.mode and PT.loop.target == opts.loop_target and PT.dlg
 
@@ -374,7 +384,7 @@ local function _handle_streaming_complete(resp, opts)
   local spr = app.sprite
   local function on_finalize()
     PT.save_animation_meta(resp)
-    if opts.pre_reset then opts.pre_reset() end
+    -- pre_reset already called above (before async finalization)
     reset_anim_state()
   end
   if spr and PT.anim.frame_count > 0 then
@@ -418,7 +428,8 @@ handlers.animation_complete = function(resp)
     random_label = "animation",
     trigger_fn = PT.trigger_animate,
     on_done_ui = function()
-      pcall(function() PT.dlg:modify{ id = "export_mp4_btn", enabled = true } end)
+      local has_output = PT.audio.last_output_dir ~= nil
+      pcall(function() PT.dlg:modify{ id = "export_mp4_btn", enabled = has_output } end)
     end,
     pre_reset = function()
       PT.audio.last_output_dir = PT.anim.output_dir
@@ -451,6 +462,11 @@ handlers.error = function(resp)
   PT.timers.cancel_safety = PT.stop_timer(PT.timers.cancel_safety)
   PT.stop_refresh_timer()
   PT.clear_response_queue()
+
+  -- Preserve output_dir for export MP4 (partial frames are still exportable)
+  if was_animating and PT.anim.output_dir then
+    PT.audio.last_output_dir = PT.anim.output_dir
+  end
 
   -- Finalize partial animation on error (async chunked to avoid UI freeze)
   if was_animating and PT.anim.frame_count > 0 then
@@ -592,6 +608,8 @@ handlers.prompt_result = function(resp)
     local target = PT.loop.target or "generate"
     if target == "animate" then
       PT.trigger_animate()
+    elseif target == "qr" then
+      PT.trigger_qr_generate()
     elseif target == "audio" then
       PT.trigger_audio_generate()
     else
@@ -837,7 +855,8 @@ handlers.audio_reactive_complete = function(resp)
     on_start = function() PT.audio.generating = false end,
     on_done_ui = function()
       PT.dlg:modify{ id = "action_btn", enabled = PT.state.connected }
-      PT.dlg:modify{ id = "export_mp4_btn", enabled = true }
+      local has_output = PT.audio.last_output_dir ~= nil
+      PT.dlg:modify{ id = "export_mp4_btn", enabled = has_output }
     end,
     pre_reset = function()
       PT.audio.last_output_dir = PT.anim.output_dir

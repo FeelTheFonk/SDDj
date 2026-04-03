@@ -82,7 +82,7 @@ local _FIELD_SCHEMA = {
   -- Actions panel
   { "ab_compare",          "bool" },
   -- Audio tab
-  { "audio_file",          "text" },
+  { "audio_file",          "file" },
   { "audio_tag",           "text" },
   { "audio_fps",           "option" },
   { "audio_mod_preset",    "option" },
@@ -121,13 +121,16 @@ local _FIELD_SCHEMA = {
   -- UI state
   { "main_tabs",            "option" },
   -- QR Code tab
-  { "qr_use_source",         "bool" },
-  { "qr_denoise",            "value" },
-  { "qr_conditioning_scale", "value" },
-  { "qr_guidance_start",     "value" },
-  { "qr_guidance_end",       "value" },
-  { "qr_steps",              "value" },
-  { "qr_cfg",                "value" },
+  { "qr_illusion_file",         "file" },
+  { "qr_use_source",            "bool" },
+  { "qr_illusion_processing",   "bool" },
+  { "qr_illusion_contrast",     "value" },
+  { "qr_denoise",               "value" },
+  { "qr_conditioning_scale",    "value" },
+  { "qr_guidance_start",        "value" },
+  { "qr_guidance_end",          "value" },
+  { "qr_steps",                 "value" },
+  { "qr_cfg",                   "value" },
 }
 
 -- Modulation slot sub-fields and their types
@@ -143,6 +146,9 @@ local function _apply_field(dlg, id, ft, val)
   if val == nil then return end
   if ft == "text" then
     if type(val) == "string" then dlg:modify{ id = id, text = val } end
+  elseif ft == "file" then
+    -- File widgets use 'filename' property, not 'text'
+    if type(val) == "string" then pcall(dlg.modify, dlg, { id = id, filename = val }) end
   elseif ft == "option" then
     if type(val) == "string" then pcall(dlg.modify, dlg, { id = id, option = val }) end
   elseif ft == "value" then

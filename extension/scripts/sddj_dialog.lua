@@ -164,6 +164,15 @@ function PT.sync_ui_conditional_states()
     pcall(dlg.modify, dlg, { id = "randomness", label = "Randomness (" .. v .. suffix .. ")" })
   end
 
+  -- LoRA 2 (hidden when disabled)
+  local lora2_vis = (d.lora2_enabled == true)
+  pcall(dlg.modify, dlg, { id = "lora2_name", visible = lora2_vis })
+  pcall(dlg.modify, dlg, { id = "lora2_weight", visible = lora2_vis })
+
+  -- Negative TI weight (hidden when disabled)
+  local negti_vis = (d.use_neg_ti == true)
+  pcall(dlg.modify, dlg, { id = "neg_ti_weight", visible = negti_vis })
+
   -- Post Process (visibility: works around Aseprite slider disabled rendering bug)
   pcall(dlg.modify, dlg, { id = "pixel_size", visible = (d.pixelate == true) })
   pcall(dlg.modify, dlg, { id = "pixelate_method", visible = (d.pixelate == true) })
@@ -176,6 +185,12 @@ function PT.sync_ui_conditional_states()
   local pm = d.palette_mode or "auto"
   pcall(dlg.modify, dlg, { id = "palette_name", visible = (pm == "preset") })
   pcall(dlg.modify, dlg, { id = "palette_custom_colors", visible = (pm == "custom") })
+
+  -- QR illusion controls (visible only when Use Layer / Illusion Art is checked)
+  local qr_src = (d.qr_use_source == true)
+  pcall(dlg.modify, dlg, { id = "qr_illusion_file", visible = qr_src })
+  pcall(dlg.modify, dlg, { id = "qr_illusion_processing", visible = qr_src })
+  pcall(dlg.modify, dlg, { id = "qr_illusion_contrast", visible = qr_src and (d.qr_illusion_processing == true) })
 
   -- Animation / Audio (visibility fix)
   pcall(dlg.modify, dlg, { id = "anim_freeinit_iters", visible = (d.anim_freeinit == true) })
@@ -442,6 +457,7 @@ local function build_tab_generate()
     id = "lora2_enabled",
     text = "LoRA 2",
     selected = false,
+    onchange = function() PT.sync_ui_conditional_states() end,
   }
   dlg:combobox{
     id = "lora2_name",
@@ -588,6 +604,7 @@ local function build_tab_generate()
     id = "use_neg_ti",
     label = "Neg. Embeddings",
     selected = false,
+    onchange = function() PT.sync_ui_conditional_states() end,
   }
 
   dlg:slider{
@@ -1454,6 +1471,29 @@ local function build_tab_qrcode()
     id = "qr_use_source",
     text = "Use Layer (Illusion Art)",
     selected = false,
+    onchange = function() PT.sync_ui_conditional_states() end,
+  }
+
+  dlg:file{
+    id = "qr_illusion_file",
+    label = "Illusion Image",
+    title = "Select illusion source image",
+    open = true,
+    filetypes = { "png", "jpg", "jpeg", "bmp", "webp", "tiff" },
+  }
+
+  dlg:check{
+    id = "qr_illusion_processing",
+    text = "B&W Illusion Processing",
+    selected = true,
+    onchange = function() PT.sync_ui_conditional_states() end,
+  }
+
+  dlg:slider{
+    id = "qr_illusion_contrast",
+    label = "Contrast (80)",
+    min = 0, max = 100, value = 80,
+    onchange = onchange_sync("qr_illusion_contrast"),
   }
 
   dlg:slider{
@@ -1497,6 +1537,11 @@ local function build_tab_qrcode()
     min = 10, max = 200, value = 75,
     onchange = onchange_sync("qr_cfg"),
   }
+
+  -- Initial visibility: illusion controls hidden when Use Layer unchecked
+  dlg:modify{ id = "qr_illusion_file", visible = false }
+  dlg:modify{ id = "qr_illusion_processing", visible = false }
+  dlg:modify{ id = "qr_illusion_contrast", visible = false }
 end
 
 -- ─── Trigger Functions ──────────────────────────────────────
@@ -1632,34 +1677,129 @@ function PT.trigger_qr_generate()
   local dlg = PT.dlg
   local d = dlg.data
 
-  -- Capture active layer as control image
-  local control_b64 = PT.capture_active_layer()
-  if not control_b64 then
-    app.alert("No active layer to use as control image.")
+  -- Initialize loop state (only on first entry, not on re-entry)
+  local is_loop = d.loop_check or d.random_loop_check
+  if is_loop then init_loop_state("qr") end
+
+  -- Random loop: first generate a random prompt, then generate QR
+  if is_loop and PT.loop.random_mode and PT.loop.counter == 0 then
+    -- Cache control + source images BEFORE first loop iteration (active layer
+    -- will change after result import, corrupting subsequent captures).
+    local ctrl = PT.capture_active_layer()
+    if not ctrl then
+      app.alert("No active layer to use as control image.")
+      PT.reset_loop_state()
+      return
+    end
+    PT.loop.qr_control_b64 = ctrl
+
+    -- Cache illusion source BEFORE loop starts (active layer changes after import)
+    if d.qr_use_source then
+      local ext_path = d.qr_illusion_file
+      if ext_path and ext_path ~= "" then
+        local f = io.open(ext_path, "rb")
+        if f then
+          PT.loop.qr_source_b64 = PT.base64_encode(f:read("*a"))
+          f:close()
+        else
+          app.alert("Cannot read illusion image: " .. ext_path)
+          PT.reset_loop_state()
+          return
+        end
+      else
+        -- No file picker: cache flattened sprite (same corruption risk as control)
+        local src = PT.capture_flattened()
+        if not src then
+          app.alert("No sprite to use as source for illusion art.")
+          PT.reset_loop_state()
+          return
+        end
+        PT.loop.qr_source_b64 = src
+      end
+    end
+
+    PT.loop.counter = 1
+    PT.state.generating = true
+    dlg:modify{ id = "action_btn", text = "QR GENERATING...", enabled = false }
+    dlg:modify{ id = "cancel_btn", enabled = true }
+    PT.update_status("Random QR Loop #1 — Generating prompt...")
+    PT.send({ action = "generate_prompt", locked_fields = PT.loop.locked_fields, randomness = d.randomness or 0 })
     return
   end
 
+  -- Control image: use cached (loop) or capture fresh (single gen)
+  local control_b64
+  if PT.loop.mode and PT.loop.qr_control_b64 then
+    control_b64 = PT.loop.qr_control_b64
+  else
+    control_b64 = PT.capture_active_layer()
+    if not control_b64 then
+      app.alert("No active layer to use as control image.")
+      return
+    end
+    -- Cache for non-random loops too (first iteration)
+    if PT.loop.mode and not PT.loop.qr_control_b64 then
+      PT.loop.qr_control_b64 = control_b64
+    end
+  end
+
+  -- NOTE: qr_illusion_processing is intentionally read fresh from dialog data
+  -- at each iteration (not cached), allowing the user to toggle it mid-loop.
   local req, use_source = PT.build_qr_request()
   if not req then return end
   req.control_image = control_b64
 
-  -- Illusion art: capture flattened sprite as source image for img2img blend
+  -- Illusion art source image: always prefer the UI file picker reference.
+  -- In loop mode, use the cached source from first iteration.
   if use_source then
-    local src_b64 = PT.capture_flattened()
-    if not src_b64 then
-      app.alert("No sprite to use as source for illusion art.")
-      return
+    if PT.loop.mode and PT.loop.qr_source_b64 then
+      -- Reuse cached illusion source (stable across loop iterations)
+      req.source_image = PT.loop.qr_source_b64
+      req.illusion_processing = d.qr_illusion_processing or false
+    else
+      -- Single gen or first loop iteration: read from file picker
+      local ext_path = d.qr_illusion_file
+      if ext_path and ext_path ~= "" then
+        local f = io.open(ext_path, "rb")
+        if f then
+          local data = f:read("*a")
+          f:close()
+          local src_b64 = PT.base64_encode(data)
+          req.source_image = src_b64
+          req.illusion_processing = d.qr_illusion_processing or false
+          -- Cache for loop
+          if PT.loop.mode then PT.loop.qr_source_b64 = src_b64 end
+        else
+          app.alert("Cannot read illusion image: " .. ext_path)
+          if PT.loop.mode then PT.reset_loop_state() end
+          return
+        end
+      else
+        -- No file picker: fall back to flattened sprite capture
+        local src_b64 = PT.capture_flattened()
+        if not src_b64 then
+          app.alert("No sprite to use as source for illusion art.")
+          if PT.loop.mode then PT.reset_loop_state() end
+          return
+        end
+        req.source_image = src_b64
+        -- Cache for loop
+        if PT.loop.mode then PT.loop.qr_source_b64 = src_b64 end
+      end
     end
-    req.source_image = src_b64
   end
 
   PT.last_request = PT.shallow_copy_request(req)
   PT.state.generating = true
   PT.state.gen_step_start = os.clock()
   PT.start_gen_timeout()
+  local loop_prefix = ""
+  if PT.loop.mode and PT.loop.counter > 0 then
+    loop_prefix = "QR Loop #" .. PT.loop.counter .. " — "
+  end
   dlg:modify{ id = "action_btn", text = "QR GENERATING...", enabled = false }
   dlg:modify{ id = "cancel_btn", enabled = true }
-  PT.update_status("Generating illusion art...")
+  PT.update_status(loop_prefix .. "Generating illusion art...")
   PT.send(req)
 end
 
@@ -1673,9 +1813,9 @@ function PT.update_action_button(tab)
     tab_audio = "AUDIO GEN",
   }
   PT.dlg:modify{ id = "action_btn", text = texts[tab] or "GENERATE" }
-  -- Loop controls: supported in gen/pp/anim always, audio when analyzed, never QR
-  -- Also disabled during active generation/animation
-  local loop_enabled = (tab ~= "tab_qr") and not PT.state.generating and not PT.state.animating
+  -- Loop controls: supported in gen/pp/anim/qr always, audio when analyzed
+  -- Disabled during active generation/animation
+  local loop_enabled = not PT.state.generating and not PT.state.animating
   if tab == "tab_audio" then loop_enabled = PT.audio.analyzed and not PT.state.generating and not PT.state.animating end
   PT.dlg:modify{ id = "loop_check", enabled = loop_enabled }
   PT.dlg:modify{ id = "random_loop_check", enabled = loop_enabled }

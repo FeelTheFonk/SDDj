@@ -328,6 +328,9 @@ function PT.reset_ui_buttons(opts)
   PT.update_action_button(PT.dlg.data.main_tabs or "tab_gen")
   PT.dlg:modify{ id = "action_btn", enabled = gen_enabled }
   PT.dlg:modify{ id = "cancel_btn", enabled = opts.cancel or false }
+  -- Export MP4: enable if any output directory is available (frames on disk)
+  local has_mp4_output = (PT.audio.last_output_dir ~= nil) or (PT.anim.output_dir ~= nil)
+  pcall(function() PT.dlg:modify{ id = "export_mp4_btn", enabled = has_mp4_output } end)
   PT.state.progress_pct = 0
   pcall(function() PT.dlg:repaint() end)
 end

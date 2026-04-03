@@ -58,7 +58,7 @@ function PT.shallow_copy_request(req)
   if type(req) ~= "table" then return req end
   local copy = {}
   for k, v in pairs(req) do
-    if k ~= "image" and k ~= "source_image" and k ~= "mask_image" and k ~= "control_image" and k ~= "_decoded_bytes" and k ~= "_raw_image" then
+    if k ~= "image" and k ~= "source_image" and k ~= "mask_image" and k ~= "control_image" and k ~= "ip_adapter_image" and k ~= "_decoded_bytes" and k ~= "_raw_image" then
       if type(v) == "table" then
         local t = {}
         for tk, tv in pairs(v) do t[tk] = tv end
@@ -88,6 +88,11 @@ function PT.reset_loop_state()
   PT.loop.mode = false
   PT.loop.random_mode = false
   PT.loop.target = nil
+  PT.loop.locked_fields = nil
+  PT.loop.seed_mode = nil
+  -- Release cached QR images (can be large base64 strings)
+  PT.loop.qr_control_b64 = nil
+  PT.loop.qr_source_b64 = nil
 end
 
 -- ─── Slider Label Registry ────────────────────────────────────
@@ -113,6 +118,7 @@ PT.SLIDER_LABELS = {
   qr_guidance_start     = { "Guide Start (%.2f)", 100.0 },
   qr_guidance_end       = { "Guide End (%.2f)",  100.0 },
   qr_cfg                = { "CFG (%.1f)",        10.0 },
+  qr_illusion_contrast  = { "Contrast (%.0f%%)",  1.0 },
   anim_guidance_start   = { "Guide Start (%.2f)", 100.0 },
   anim_guidance_end     = { "Guide End (%.2f)",  100.0 },
   gen_guidance_start    = { "CN Start (%.0f%%)",  1.0 },

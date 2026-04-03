@@ -505,6 +505,7 @@ function PT.build_qr_request()
   local d = PT.dlg.data
   local gw, gh = PT.parse_size()
   local use_source = d.qr_use_source or false
+  local illusion_proc = use_source and (d.qr_illusion_processing or false) or false
   local req = {
     action                        = "generate",
     mode                          = "controlnet_qrcode",
@@ -520,6 +521,8 @@ function PT.build_qr_request()
     controlnet_conditioning_scale = clamp(d.qr_conditioning_scale / 100.0, 0, 3),
     control_guidance_start        = clamp(d.qr_guidance_start / 100.0, 0, 1),
     control_guidance_end          = clamp(d.qr_guidance_end / 100.0, 0, 1),
+    illusion_processing           = illusion_proc,
+    illusion_contrast             = illusion_proc and clamp((d.qr_illusion_contrast or 80) / 100.0, 0, 1) or nil,
     post_process                  = PT.build_post_process(),
   }
   PT.attach_lora(req)

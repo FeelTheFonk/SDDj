@@ -309,6 +309,9 @@ class GenerateRequest(BaseGenerationParams):
     controlnet_conditioning_scale: float = Field(1.5, ge=0.0, le=3.0)
     control_guidance_start: float = Field(0.0, ge=0.0, le=1.0)
     control_guidance_end: float = Field(1.0, ge=0.0, le=1.0)
+    # ── QR Illusion processing ──
+    illusion_processing: bool = False
+    illusion_contrast: Optional[float] = Field(None, ge=0.0, le=1.0)
     # ── Prompt scheduling ──
     prompt_schedule: Optional[PromptScheduleSpec] = None
 
@@ -416,6 +419,9 @@ class Request(BaseModel):
     controlnet_conditioning_scale: Optional[float] = None
     control_guidance_start: Optional[float] = None
     control_guidance_end: Optional[float] = None
+    # QR Illusion processing
+    illusion_processing: Optional[bool] = None
+    illusion_contrast: Optional[float] = None
     quality: Optional[str] = None
 
     @field_validator("modulation_slots", "palette_save_colors", mode="before")

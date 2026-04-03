@@ -1050,6 +1050,11 @@ class DiffusionEngine(AnimationMixin, AudioReactiveMixin):
         if use_img2img:
             source = decode_b64_image(req.source_image).convert("RGB")
             source = resize_to_target(source, width, height)
+            # QR Illusion Art: B&W contrast processing on source image
+            if getattr(req, 'illusion_processing', False):
+                from ..illusion_processing import process_illusion_bw
+                illusion_contrast = getattr(req, 'illusion_contrast', None) or 0.8
+                source = process_illusion_bw(source, contrast=illusion_contrast).convert("RGB")
 
         prompt_embeds, neg_embeds = self._safe_encode(prompt, negative, req.clip_skip)
         call_kwargs = dict(

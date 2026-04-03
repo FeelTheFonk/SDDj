@@ -1,4 +1,4 @@
-# SDDj v0.9.97
+# SDDj v0.9.98
 
 Stable Diffusion pixel art generation and animation directly inside Aseprite, 100% offline.
 

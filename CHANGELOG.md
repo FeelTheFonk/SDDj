@@ -1,4 +1,38 @@
 # Changelog
+## [0.9.98] — 2026-04-03
+### QR Illusion Art overhaul, UI reactive visibility, MP4 export fixes
+
+#### Fixed — QR Code / Illusion Art (Critical)
+- **QR illusion now uses file picker reference image**, not the active layer. New `qr_illusion_file` widget lets the user pick an external image as illusion source — consistent across all loop modes.
+- **QR loop image corruption fixed**: control image and illusion source are cached at loop initialization, preventing stale captures after result import changes the active layer.
+- **Random QR loop**: pre-caches both control + source before first prompt generation; subsequent iterations reuse stable cached images.
+- **Error paths in QR loop properly reset loop state** (`reset_loop_state()` on file read failure, missing sprite, etc.).
+- **QR loop dispatch added to handler**: `prompt_result` and standard loop handler now route `target="qr"` to `trigger_qr_generate()`.
+
+#### Fixed — MP4 Export
+- **`audio_path` passed unresolved to ffmpeg** (`server.py`): `_handle_export_mp4` now resolves to `audio_resolved` before passing to `export_mp4()` — raw user path could fail ffmpeg on symlinks/relative paths.
+- **Export MP4 button state**: `reset_ui_buttons()` now manages `export_mp4_btn` based on `last_output_dir` / `anim.output_dir`. Error handler preserves `output_dir` for partial-frame export.
+- **`pre_reset` in streaming complete called before async finalization** — prevents `output_dir` being nil'd before `last_output_dir` copy.
+
+#### Fixed — UI Reactive Visibility
+- **`qr_use_source` checkbox**: changed `onclick` → `onchange` (Aseprite reads old value with `onclick`).
+- **`qr_illusion_processing`, `lora2_enabled`, `use_neg_ti`**: added missing `onchange` → `sync_ui_conditional_states()`.
+- **`sync_ui_conditional_states()` extended**: manages visibility for LoRA 2 (name + weight), negative TI weight, QR illusion file/processing/contrast widgets.
+
+#### Fixed — Settings Persistence
+- **`audio_file` field type**: `text` → `file` (uses Aseprite `filename` property instead of `text`).
+- **`qr_illusion_file`** added to settings schema as `file` type.
+- **`qr_illusion_processing`**, **`qr_illusion_contrast`** added to schema.
+
+#### Fixed — Server
+- **QR illusion B&W processing pipeline**: `illusion_processing` and `illusion_contrast` fields added to `Request` and `GenerateRequest` protocol models. `core.py` calls `process_illusion_bw()` on source image when enabled.
+
+#### Fixed — Minor
+- **`qr_illusion_contrast` added to `SLIDER_LABELS`** registry (was missing → no label sync).
+- **`ip_adapter_image` excluded from `shallow_copy_request`** (large binary blob leaked into `last_request`).
+- **`reset_loop_state()` now clears `locked_fields` and `seed_mode`** (stale state could leak between loop sessions).
+- **Loop controls enabled for QR tab** (`update_action_button` no longer excludes `tab_qr`).
+
 ## [0.9.97] — 2026-04-03
 ### Fix: SageAttention CLIP corruption, DDIM default scheduler
 
